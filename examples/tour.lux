@@ -1,0 +1,42 @@
+// A tour of everything lux v0.1 can do today.
+
+// Immutable and mutable bindings.
+let name = "Ada"
+var score = 0
+
+// Assignment and compound assignment.
+score = score + 10
+score += 5
+
+// print takes any number of values, separated by spaces.
+print("Hello,", name)
+print("Score:", score)
+
+// Integer division throws away the remainder; float division keeps it.
+print("7 / 2   =", 7 / 2)
+print("7.0/2.0 =", 7.0 / 2.0)
+print("7 % 2   =", 7 % 2)
+
+// Explicit conversion — lux never coerces silently.
+let label = "Score is " + string(score)
+print(label)
+
+// Branching.
+if score >= 100 {
+    print("high score!")
+} else if score > 0 {
+    print("not bad")
+} else {
+    print("try again")
+}
+
+// Looping.
+var n = 0
+while n < 5 {
+    print("n is", n)
+    n += 1
+}
+
+// Booleans and short-circuit logic.
+let ready = score > 0 && name != ""
+print("ready?", ready)

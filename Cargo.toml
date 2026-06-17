@@ -1,0 +1,25 @@
+[package]
+name = "lux"
+version = "0.1.0"
+edition = "2024"
+description = "A small teaching language that runs anywhere and transpiles to Rust, Swift, and Go"
+license = "MIT"
+authors = ["David M. Anderson"]
+repository = "https://github.com/anderix/lux"
+keywords = ["teaching", "language", "interpreter", "transpiler", "education"]
+categories = ["command-line-utilities", "compilers"]
+
+[dependencies]
+
+[lib]
+name = "lux"
+path = "src/lib.rs"
+
+[[bin]]
+name = "lux"
+path = "src/main.rs"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
