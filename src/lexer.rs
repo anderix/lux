@@ -21,13 +21,21 @@ pub enum Tok {
     If,
     Else,
     While,
+    For,
+    In,
+    Func,
+    Return,
     // punctuation
     LParen,
     RParen,
     LBrace,
     RBrace,
+    LBracket,
+    RBracket,
     Colon,
     Comma,
+    DotDot,
+    Arrow,
     // operators
     Plus,
     Minus,
@@ -86,7 +94,9 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LuxError> {
             while i < n && bytes[i].is_ascii_digit() {
                 i += 1;
             }
-            if i < n && bytes[i] == b'.' {
+            // A `.` here means a decimal point — unless it's `..`, the start of
+            // a range like `0..5`, in which case this number is a plain int.
+            if i < n && bytes[i] == b'.' && !(i + 1 < n && bytes[i + 1] == b'.') {
                 if i + 1 < n && bytes[i + 1].is_ascii_digit() {
                     i += 1; // consume the dot
                     while i < n && bytes[i].is_ascii_digit() {
@@ -132,6 +142,10 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LuxError> {
                 "if" => Tok::If,
                 "else" => Tok::Else,
                 "while" => Tok::While,
+                "for" => Tok::For,
+                "in" => Tok::In,
+                "func" => Tok::Func,
+                "return" => Tok::Return,
                 "true" => Tok::True,
                 "false" => Tok::False,
                 _ => Tok::Ident(text.to_string()),
@@ -202,6 +216,8 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LuxError> {
             (b'|', b'|') => Some(Tok::OrOr),
             (b'+', b'=') => Some(Tok::PlusEq),
             (b'-', b'=') => Some(Tok::MinusEq),
+            (b'-', b'>') => Some(Tok::Arrow),
+            (b'.', b'.') => Some(Tok::DotDot),
             _ => None,
         };
         if let Some(t) = two {
@@ -219,6 +235,8 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LuxError> {
             b')' => Tok::RParen,
             b'{' => Tok::LBrace,
             b'}' => Tok::RBrace,
+            b'[' => Tok::LBracket,
+            b']' => Tok::RBracket,
             b':' => Tok::Colon,
             b',' => Tok::Comma,
             b'+' => Tok::Plus,

@@ -1,0 +1,52 @@
+// Functions are the heart of milestone 2: name a piece of work once, then
+// reuse it. A function takes typed parameters and may return one value.
+
+// A plain function with a return value.
+func square(x: int) -> int {
+    return x * x
+}
+
+// A function that returns nothing just leaves off the `-> type`.
+func banner(title: string) {
+    print("====", title, "====")
+}
+
+// Functions call other functions, and themselves (recursion).
+func factorial(n: int) -> int {
+    if n <= 1 {
+        return 1
+    }
+    return n * factorial(n - 1)
+}
+
+// Functions take arrays too, and walk them with `for ... in`.
+func sum(xs: [int]) -> int {
+    var total = 0
+    for x in xs {
+        total += x
+    }
+    return total
+}
+
+// Search returns a position, or -1 when nothing matches. (Milestone 4 will
+// replace the -1 sentinel with a real Option type.)
+func indexOf(xs: [int], target: int) -> int {
+    var i = 0
+    for x in xs {
+        if x == target {
+            return i
+        }
+        i += 1
+    }
+    return -1
+}
+
+banner("functions")
+
+print("square(9)     =", square(9))
+print("factorial(6)  =", factorial(6))
+
+let primes = [2, 3, 5, 7, 11, 13]
+print("sum(primes)   =", sum(primes))
+print("indexOf 7     =", indexOf(primes, 7))
+print("indexOf 8     =", indexOf(primes, 8))

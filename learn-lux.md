@@ -107,6 +107,9 @@ let path = "C:\\Users"        // \\ a backslash
 var message = "Hello"
 message += ", world"          // message is now "Hello, world"
 
+// length counts the characters in a string (not the bytes):
+let letters = length("café")  // 4
+
 
 // ----------------------------------------------------------------------------
 // 7. Booleans and logic

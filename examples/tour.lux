@@ -40,3 +40,36 @@ while n < 5 {
 // Booleans and short-circuit logic.
 let ready = score > 0 && name != ""
 print("ready?", ready)
+
+// Functions: define once, call anywhere — even before they appear in the file.
+print("7! =", factorial(7))
+
+func factorial(n: int) -> int {
+    if n <= 1 {
+        return 1
+    }
+    return n * factorial(n - 1)
+}
+
+// Arrays hold many values of one type.
+let primes: [int] = [2, 3, 5, 7, 11]
+print("primes:", primes, "— first:", primes[0], "— count:", length(primes))
+
+// Loop over an array...
+var sum = 0
+for p in primes {
+    sum += p
+}
+print("sum of primes:", sum)
+
+// ...or over a range, whose end is not included.
+for i in 0..3 {
+    print("tick", i)
+}
+
+// Build an array up as you go.
+var squares: [int]
+for i in 1..6 {
+    squares += i * i
+}
+print("squares:", squares)

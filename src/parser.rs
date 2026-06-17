@@ -77,10 +77,29 @@ impl Parser {
     fn optional_type(&mut self) -> Result<Option<TypeAnn>, LuxError> {
         if matches!(self.peek_tok(), Tok::Colon) {
             self.advance();
-            let (name, span) = self.ident("a type name after ':'")?;
-            Ok(Some(TypeAnn { name, span }))
+            Ok(Some(self.parse_type()?))
         } else {
             Ok(None)
+        }
+    }
+
+    /// Parse a type: a name like `int`, or an array type like `[int]`.
+    fn parse_type(&mut self) -> Result<TypeAnn, LuxError> {
+        if matches!(self.peek_tok(), Tok::LBracket) {
+            let start = self.span();
+            self.advance();
+            let elem = self.parse_type()?;
+            let close = self.expect(&Tok::RBracket, "']' to close the array type")?;
+            Ok(TypeAnn {
+                kind: TypeKind::Array(Box::new(elem)),
+                span: start.to(close.span),
+            })
+        } else {
+            let (name, span) = self.ident("a type name")?;
+            Ok(TypeAnn {
+                kind: TypeKind::Named(name),
+                span,
+            })
         }
     }
 
@@ -90,8 +109,11 @@ impl Parser {
         match self.peek_tok() {
             Tok::Let => self.let_stmt(),
             Tok::Var => self.var_stmt(),
+            Tok::Func => self.func_stmt(),
+            Tok::Return => self.return_stmt(),
             Tok::If => self.if_stmt(),
             Tok::While => self.while_stmt(),
+            Tok::For => self.for_stmt(),
             Tok::Ident(_) if self.assign_ahead() => self.assign_stmt(),
             _ => Ok(Stmt::Expr(self.expression()?)),
         }
@@ -137,6 +159,83 @@ impl Parser {
             ty,
             value,
             span: start.to(end),
+        })
+    }
+
+    fn func_stmt(&mut self) -> Result<Stmt, LuxError> {
+        let start = self.span();
+        self.advance(); // func
+        let (name, _) = self.ident("a function name after 'func'")?;
+        let params = self.params()?;
+        let ret = if matches!(self.peek_tok(), Tok::Arrow) {
+            self.advance();
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+        let body = self.block()?;
+        Ok(Stmt::Func {
+            name,
+            params,
+            ret,
+            body,
+            span: start,
+        })
+    }
+
+    /// Parse a parenthesized, comma-separated list of `name: type` parameters.
+    fn params(&mut self) -> Result<Vec<Param>, LuxError> {
+        self.expect(&Tok::LParen, "'(' to start the parameter list")?;
+        let mut params = Vec::new();
+        if !matches!(self.peek_tok(), Tok::RParen) {
+            loop {
+                let (name, name_span) = self.ident("a parameter name")?;
+                self.expect(&Tok::Colon, "':' and a type for the parameter")?;
+                let ty = self.parse_type()?;
+                let span = name_span.to(ty.span);
+                params.push(Param { name, ty, span });
+                if matches!(self.peek_tok(), Tok::Comma) {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+        }
+        self.expect(&Tok::RParen, "')' to close the parameter list")?;
+        Ok(params)
+    }
+
+    fn return_stmt(&mut self) -> Result<Stmt, LuxError> {
+        let start = self.span();
+        self.advance(); // return
+        // A bare `return` is one that ends its block; anything else is a value.
+        if matches!(self.peek_tok(), Tok::RBrace | Tok::Eof) {
+            Ok(Stmt::Return {
+                value: None,
+                span: start,
+            })
+        } else {
+            let value = self.expression()?;
+            let span = start.to(value.span());
+            Ok(Stmt::Return {
+                value: Some(value),
+                span,
+            })
+        }
+    }
+
+    fn for_stmt(&mut self) -> Result<Stmt, LuxError> {
+        let start = self.span();
+        self.advance(); // for
+        let (var, _) = self.ident("a loop variable after 'for'")?;
+        self.expect(&Tok::In, "'in' after the loop variable")?;
+        let iter = self.expression()?;
+        let body = self.block()?;
+        Ok(Stmt::For {
+            var,
+            iter,
+            body,
+            span: start,
         })
     }
 
@@ -207,7 +306,25 @@ impl Parser {
     // ----- expressions (precedence ladder, loosest first) -------------------
 
     fn expression(&mut self) -> Result<Expr, LuxError> {
-        self.or()
+        self.range()
+    }
+
+    /// `a..b` — a half-open range. Loosest precedence, and non-chaining: you
+    /// write one `..`, not `a..b..c`.
+    fn range(&mut self) -> Result<Expr, LuxError> {
+        let lhs = self.or()?;
+        if matches!(self.peek_tok(), Tok::DotDot) {
+            self.advance();
+            let rhs = self.or()?;
+            let span = lhs.span().to(rhs.span());
+            Ok(Expr::Range {
+                start: Box::new(lhs),
+                end: Box::new(rhs),
+                span,
+            })
+        } else {
+            Ok(lhs)
+        }
     }
 
     fn or(&mut self) -> Result<Expr, LuxError> {
@@ -316,8 +433,25 @@ impl Parser {
                     span,
                 })
             }
-            _ => self.primary(),
+            _ => self.postfix(),
         }
+    }
+
+    /// A primary expression followed by any number of `[index]` lookups.
+    fn postfix(&mut self) -> Result<Expr, LuxError> {
+        let mut e = self.primary()?;
+        while matches!(self.peek_tok(), Tok::LBracket) {
+            self.advance();
+            let index = self.expression()?;
+            let close = self.expect(&Tok::RBracket, "']' to close the index")?;
+            let span = e.span().to(close.span);
+            e = Expr::Index {
+                base: Box::new(e),
+                index: Box::new(index),
+                span,
+            };
+        }
+        Ok(e)
     }
 
     fn primary(&mut self) -> Result<Expr, LuxError> {
@@ -348,6 +482,22 @@ impl Parser {
                 let e = self.expression()?;
                 self.expect(&Tok::RParen, "')' to close the group")?;
                 Ok(e)
+            }
+            Tok::LBracket => {
+                self.advance();
+                let mut elems = Vec::new();
+                if !matches!(self.peek_tok(), Tok::RBracket) {
+                    loop {
+                        elems.push(self.expression()?);
+                        if matches!(self.peek_tok(), Tok::Comma) {
+                            self.advance();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                let close = self.expect(&Tok::RBracket, "']' to close the array")?;
+                Ok(Expr::Array(elems, t.span.to(close.span)))
             }
             Tok::Ident(name) => {
                 self.advance();
