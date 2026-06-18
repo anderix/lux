@@ -6,6 +6,7 @@
 //! point at the exact place it went wrong.
 
 pub mod ast;
+pub mod convert;
 pub mod diagnostic;
 pub mod interpreter;
 pub mod lexer;
