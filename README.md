@@ -9,6 +9,20 @@ goroutines — are the lessons those bigger languages exist to teach.
 The full language fits on one page. Read [learn-lux.md](learn-lux.md): it is the
 reference, the tutorial, and the test corpus all at once.
 
+## Installing
+
+On macOS or Linux, install a prebuilt `lux` with one command:
+
+```
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/anderix/lux/releases/latest/download/lux-installer.sh | sh
+```
+
+To remove it again:
+
+```
+curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/anderix/lux/main/uninstall.sh | sh
+```
+
 ## Running a program
 
 ```
