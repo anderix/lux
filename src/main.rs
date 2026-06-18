@@ -1,14 +1,15 @@
 //! The `lux` command-line tool.
 //!
 //! `lux run` interprets a program directly. `lux convert <rust|swift|go>`
-//! translates it to that language's source, and `lux build` runs the Rust
-//! translation through `rustc` to a native binary.
+//! translates it to that language's source, `lux build` runs the Rust
+//! translation through `rustc` to a native binary, and `lux learn` prints the
+//! language's own built-in reference.
 
 use std::io::Write;
 use std::path::Path;
 use std::process::{exit, Command, Stdio};
 
-use lux::{convert, diagnostic, interpreter, lexer, parser};
+use lux::{convert, diagnostic, interpreter, learn, lexer, parser};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -21,6 +22,7 @@ fn main() {
         Some("run") => run_cmd(&args[2..]),
         Some("build") => build_cmd(&args[2..]),
         Some("convert") => convert_cmd(&args[2..]),
+        Some("learn") => learn_cmd(&args[2..]),
         Some(other) => {
             eprintln!("unknown command `{}`\n", other);
             print_usage();
@@ -66,6 +68,21 @@ fn convert_cmd(rest: &[String]) {
         }
     };
     print!("{}", out);
+}
+
+fn learn_cmd(rest: &[String]) {
+    match rest.first().map(String::as_str) {
+        None => print!("{}", learn::menu()),
+        Some("tour") => print!("{}", learn::tour()),
+        Some(topic) => match learn::lookup(topic) {
+            Some(text) => print!("{}", text),
+            None => {
+                eprintln!("there's no lesson or topic called `{}`.\n", topic);
+                print!("{}", learn::menu());
+                exit(1);
+            }
+        },
+    }
 }
 
 /// Run generated Go through `gofmt`, falling back to the raw source if gofmt
@@ -150,6 +167,7 @@ fn print_usage() {
     println!("  lux run <file.lux>            run a program");
     println!("  lux build <file.lux>          compile to a native binary via Rust");
     println!("  lux convert <lang> <file.lux> translate to rust, swift, or go source");
+    println!("  lux learn [topic]             read the language, built in");
     println!();
     println!("  -V, --version                 print version");
     println!("  -h, --help                    print this help");

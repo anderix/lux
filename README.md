@@ -7,7 +7,9 @@ on to one of those. The few hard ideas lux leaves out — ownership, classes,
 goroutines — are the lessons those bigger languages exist to teach.
 
 The full language fits on one page. Read [learn-lux.md](learn-lux.md): it is the
-reference, the tutorial, and the test corpus all at once.
+reference, the tutorial, and the test corpus all at once — the suite runs every
+example in it. The same material is built into the binary, so once lux is
+installed you can read it in your terminal with `lux learn`.
 
 ## Installing
 
@@ -32,6 +34,21 @@ lux run examples/tour.lux
 `lux run` interprets a program directly. `lux convert <rust|swift|go> <file.lux>`
 prints your program as real source in that language, and `lux build <file.lux>`
 runs the Rust translation through `rustc` to a native binary.
+
+## Learning the language
+
+The reference travels inside the binary. `lux learn` opens a menu of short
+topics and guided lessons; `lux learn <topic>` — say `lux learn match` — prints
+one idea on a single screen with a runnable example; and `lux learn tour` reads
+the whole language top to bottom. Every example is real lux you can paste into a
+file and run.
+
+```
+lux learn          # the menu
+lux learn enums    # one topic
+lux learn start    # a guided lesson
+lux learn tour     # the whole language
+```
 
 ## Building from source
 

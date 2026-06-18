@@ -1,383 +1,324 @@
-# Learn lux in Y Minutes
+# Learn lux
 
 lux is a small language built to be a great *first* language and then to be
 outgrown. Every feature is the simplest honest version of something shared by
-Rust, Swift, and Go. What you learn here transfers directly when you graduate to
-one of those — and the few things lux deliberately leaves out are the lessons
-those bigger languages exist to teach.
+Rust, Swift, and Go, so what you learn here carries straight over when you move
+on to one of those.
 
-This file is the whole language. Read it top to bottom; every block is real lux.
+This file is the whole language, one short topic at a time. Every example is
+real lux that runs — the test suite runs them all. You can read the same
+material in your terminal: `lux learn` for the menu, `lux learn <topic>` for one
+idea, `lux learn tour` for the whole thing.
+
+<!-- topic: hello -->
+## hello — your first program
+
+There is no `main` and no boilerplate: statements run top to bottom, and `print`
+is built in.
 
 ```lux
-// ----------------------------------------------------------------------------
-// 1. Comments
-// ----------------------------------------------------------------------------
-
-// Two slashes start a comment that runs to the end of the line.
-// There is no block-comment form. One way to do it.
-
-
-// ----------------------------------------------------------------------------
-// 2. Your first program
-// ----------------------------------------------------------------------------
-
-// There is no `main`, no boilerplate, no imports. Statements at the top of the
-// file run top to bottom. `print` is built in.
-
+// Two slashes start a comment. There is no block comment — one way to do it.
 print("Hello, world!")
+print("two", "words")   // print separates its arguments with spaces
+```
 
-// `print` takes any number of values and prints them separated by spaces.
-print("two", "words")          // two words
+<!-- topic: variables -->
+## variables — let and var
 
+`let` names a value that never changes and `var` names one you can reassign;
+lux has four basic types — int, float, string, and bool.
 
-// ----------------------------------------------------------------------------
-// 3. Values and their types
-// ----------------------------------------------------------------------------
+```lux
+let pi = 3.14159       // float — a let never changes
+let name = "Ada"       // string
+var score = 0          // int — a var can be reassigned
+score = score + 10
+print(name, "has", score, "points; pi is", pi)
+```
 
-// lux has four basic types. The names are lowercase.
+> try: add the line `pi = 3.0` and run it — lux stops you, because a `let` never changes.
 
-42        // int     — whole numbers
-3.14      // float   — numbers with a decimal point (always at least one digit
-          //           after the dot: 3.0, not 3.)
-"hello"   // string  — text in double quotes
-true      // bool    — true or false
+<!-- topic: numbers -->
+## numbers — arithmetic
 
+The usual arithmetic, but int division throws away the remainder, and lux never
+mixes int and float for you.
 
-// ----------------------------------------------------------------------------
-// 4. Variables: let and var
-// ----------------------------------------------------------------------------
+```lux
+print("2 + 3   =", 2 + 3)
+print("7 / 2   =", 7 / 2)         // 3 — int division drops the remainder
+print("7 % 2   =", 7 % 2)         // 1 — the remainder
+print("7.0/2.0 =", 7.0 / 2.0)     // 3.5 — float division keeps the fraction
+print("mix on purpose:", float(7) / 2.0)
+```
 
-// `let` makes a name that never changes. Reach for it first; most names never
-// need to change.
-let pi = 3.14159
+> try: change `float(7) / 2.0` to `7 / 2.0` and run — lux won't mix an int and a float unless you say so.
 
-// `var` makes a name you can reassign later.
-var score = 0
-score = 10
-score = score + 5
+<!-- topic: strings -->
+## strings — text
 
-// pi = 3.0                     // ERROR: pi was declared with let
+Join strings with `+` (both sides must already be strings), turn a number into
+text with `string(...)`, and count characters with `length`.
 
-// lux figures out the type from the value, so you usually don't write it. When
-// you want to be explicit (or there's no starting value), annotate with a colon:
-let name: string = "Ada"
-var count: int = 0
+```lux
+let name = "Ada"
+print("Hello, " + name + "!")
+print("Score: " + string(42))         // convert the number first
+print("letters in café:", length("café"))   // 4 — characters, not bytes
+```
 
-// lux never converts types behind your back. This is on purpose: it's the bug
-// that bites you in languages that guess.
-// let bad = "5" + 3           // ERROR: can't add a string and an int
+> try: drop the `string(...)` so it reads `"Score: " + 42` and run — lux won't glue a string to an int.
 
+<!-- topic: booleans -->
+## booleans — true and false
 
-// ----------------------------------------------------------------------------
-// 5. Numbers
-// ----------------------------------------------------------------------------
+`&&`, `||`, and `!` combine true and false, and the comparisons `> < >= <= == !=`
+produce them.
 
-let sum   = 2 + 3              // 5
-let diff  = 10 - 4            // 6
-let prod  = 6 * 7            // 42
-let quot  = 7 / 2          // 3   — int divided by int throws away the remainder
-let rem   = 7 % 2        // 1   — % is the remainder
-let exact = 7.0 / 2.0  // 3.5 — float division keeps the fraction
+```lux
+let sunny = true
+let warm = false
+print("go outside?", sunny && warm)    // and — both must be true
+print("either one?", sunny || warm)    // or  — one is enough
+print("not sunny?", !sunny)
+print("3 > 2 is", 3 > 2)
+```
 
-// Mixing int and float is an error — convert on purpose:
-// let mixed = 7 / 2.0        // ERROR
-let mixed = float(7) / 2.0    // 3.5
+<!-- topic: if -->
+## if — making decisions
 
+`if` runs a block when its condition is true; there are no parentheses around
+the condition, and the braces are always required.
 
-// ----------------------------------------------------------------------------
-// 6. Strings
-// ----------------------------------------------------------------------------
-
-// Join strings with +. Both sides must already be strings.
-let greeting = "Hello, " + name + "!"
-
-// To put a number in a string, convert it first:
-let label = "Score: " + string(score)
-
-// But for printing, you don't need to — print stringifies each argument:
-print("Score:", score)        // Score: 15
-
-// Escapes inside strings:
-let lines = "first\nsecond"   // \n newline
-let tabbed = "a\tb"           // \t tab
-let quote = "she said \"hi\"" // \" a quote
-let path = "C:\\Users"        // \\ a backslash
-
-// Build up a var string with +=:
-var message = "Hello"
-message += ", world"          // message is now "Hello, world"
-
-// length counts the characters in a string (not the bytes):
-let letters = length("café")  // 4
-
-
-// ----------------------------------------------------------------------------
-// 7. Booleans and logic
-// ----------------------------------------------------------------------------
-
-let yes = true
-let no  = false
-
-let both   = yes && no        // and  — true only if both are true
-let either = yes || no        // or   — true if either is true
-let flip   = !yes             // not  — false
-
-// Comparisons produce bools:
-let isBig = score > 100       // >  <  >=  <=  ==  !=
-
-
-// ----------------------------------------------------------------------------
-// 8. Arrays
-// ----------------------------------------------------------------------------
-
-// An array holds many values of the same type. The type is written [int].
-let primes: [int] = [2, 3, 5, 7, 11]
-
-// Inference works here too:
-let names = ["Ada", "Alan", "Grace"]
-
-// Read an element by position, counting from 0:
-let first = primes[0]         // 2
-
-// Length:
-let howMany = length(primes)  // 5
-
-// Add to a var array with +=:
-var queue = [1, 2, 3]
-queue += 4                    // queue is now [1, 2, 3, 4]
-
-
-// ----------------------------------------------------------------------------
-// 9. Making decisions: if / else
-// ----------------------------------------------------------------------------
-
-// No parentheses around the condition. Braces are always required.
-if score > 100 {
-    print("high score!")
-} else if score > 0 {
-    print("not bad")
+```lux
+let score = 75
+if score >= 90 {
+    print("A")
+} else if score >= 60 {
+    print("passing")
 } else {
     print("try again")
 }
+```
 
+<!-- topic: while -->
+## while — repeating
 
-// ----------------------------------------------------------------------------
-// 10. Repeating: while
-// ----------------------------------------------------------------------------
+`while` runs its block over and over as long as the condition stays true.
 
-// `while` runs its body as long as the condition stays true.
+```lux
 var n = 0
 while n < 5 {
-    print(n)                  // 0 1 2 3 4
+    print("n is", n)
     n += 1
 }
+```
 
+<!-- topic: arrays -->
+## arrays — many values of one type
 
-// ----------------------------------------------------------------------------
-// 11. Repeating over things: for ... in
-// ----------------------------------------------------------------------------
+An array holds many values of the same type, written `[int]`, and you read an
+element by position, counting from 0.
 
-// Walk every element of an array:
-for prime in primes {
-    print(prime)
+```lux
+let primes: [int] = [2, 3, 5, 7, 11]
+print("first:", primes[0], "count:", length(primes))
+var queue = [1, 2, 3]
+queue += 4                      // add to a var array
+print("queue:", queue)
+```
+
+> try: read `primes[10]` and run — lux stops you at an index past the end of the array.
+
+<!-- topic: for -->
+## for — over things
+
+`for x in xs` walks every element of an array; `for i in 0..5` counts over a
+range whose end is not included.
+
+```lux
+let primes = [2, 3, 5, 7, 11]
+var sum = 0
+for p in primes {
+    sum += p
 }
-
-// Count over a range. 0..5 means 0, 1, 2, 3, 4 — the end is not included.
-for i in 0..5 {
-    print(i)
+print("sum of primes:", sum)
+for i in 0..3 {
+    print("tick", i)
 }
+```
 
+<!-- topic: functions -->
+## functions — name a piece of work
 
-// ----------------------------------------------------------------------------
-// 12. Functions
-// ----------------------------------------------------------------------------
+Write `func name(p: type) -> type { ... }`, call it positionally, and a function
+may call itself.
 
-// `func name(parameters) -> returnType { ... }`. Each parameter is `name: type`.
-func square(x: int) -> int {
-    return x * x
-}
-
-let nine = square(3)          // call with a value in the parentheses
-
-// A function that returns nothing just leaves off the -> arrow:
-func greet(who: string) {
-    print("Hello,", who)
-}
-
-greet("world")
-
-// Functions can call themselves (recursion):
+```lux
 func factorial(n: int) -> int {
     if n <= 1 {
         return 1
     }
     return n * factorial(n - 1)
 }
+print("5! =", factorial(5))
+```
 
-// You can call a function before it appears in the file — order doesn't matter.
+<!-- topic: structs -->
+## structs — your own types
 
+A struct groups related values into one type; build it by naming its fields,
+and read a field with a dot.
 
-// ----------------------------------------------------------------------------
-// 13. Structs: your own types
-// ----------------------------------------------------------------------------
-
-// A struct groups related values under one name.
+```lux
 struct Point {
     x: int
     y: int
 }
+let here = Point(x: 3, y: 4)
+print("x is", here.x, "y is", here.y)
+print("same point?", here == Point(x: 3, y: 4))
+```
 
-// Build one by naming its fields:
-let origin = Point(x: 0, y: 0)
+<!-- topic: enums -->
+## enums — one of several shapes
 
-// Read a field with a dot:
-print(origin.x)               // 0
+An enum says a value is exactly one of a fixed set of cases, and each case can
+carry its own values — the idea that makes illegal states impossible.
 
-// Structs work as parameters and return values like any other type:
-func distanceSquared(p: Point) -> int {
-    return p.x * p.x + p.y * p.y
-}
-
-
-// ----------------------------------------------------------------------------
-// 14. Enums and match: one of several shapes
-// ----------------------------------------------------------------------------
-
-// An enum is a type that is exactly one of a fixed set of cases. Cases can carry
-// their own values. This is the idea that makes illegal states impossible.
+```lux
 enum Shape {
     circle(radius: float)
     rectangle(width: float, height: float)
     dot
 }
-
 let c = Shape.circle(radius: 2.0)
+print(c)
+```
 
-// `match` looks at which case a value is and pulls out the values inside it.
-// You must handle every case, or lux stops you. A `match` is an expression —
-// it produces the value of the one arm that fits — so you `return` it.
+<!-- topic: match -->
+## match — take a value apart
+
+`match` picks the arm for the case in hand and binds the values inside it, and
+you must cover every case or lux refuses to run.
+
+```lux
+enum Shape {
+    circle(radius: float)
+    square(side: float)
+}
 func area(s: Shape) -> float {
     return match s {
-        circle(let r)           => 3.14159 * r * r
-        rectangle(let w, let h) => w * h
-        dot                     => 0.0
+        circle(let r) => 3.14159 * r * r
+        square(let a) => a * a
     }
 }
+print("circle:", area(Shape.circle(radius: 2.0)))
+print("square:", area(Shape.square(side: 3.0)))
+```
 
-// match works on plain values too, with _ as the catch-all. Because the set of
-// ints is open-ended, a value match always needs a `_`:
-func name_of(n: int) -> string {
-    return match n {
-        0 => "zero"
-        1 => "one"
-        _ => "many"
-    }
-}
+> try: delete the `square` arm and run — lux refuses a match that leaves a case unhandled.
 
+<!-- topic: option -->
+## option — a value that might be missing
 
-// ----------------------------------------------------------------------------
-// 15. No null: Option and Result
-// ----------------------------------------------------------------------------
+There is no null. A value that might be missing has type `Option<int>`: either
+`some(x)` or `none`, and `match` makes you handle the empty case.
 
-// lux has no `null`/`nil`. A value that might be missing has the type
-// Option<T>: it is either `some(value)` or `none`. The type system forces you
-// to deal with the missing case, so it can never surprise you.
-
-func indexOf(items: [int], target: int) -> Option<int> {
-    var i = 0
-    for item in items {
-        if item == target {
-            return some(i)
+```lux
+func firstEven(xs: [int]) -> Option<int> {
+    for x in xs {
+        if x % 2 == 0 {
+            return some(x)
         }
-        i += 1
     }
     return none
 }
-
-match indexOf(primes, 5) {
-    some(let idx) => print("found at", idx)
-    none          => print("not in the list")
+match firstEven([1, 3, 4, 7]) {
+    some(let x) => print("first even:", x)
+    none        => print("no even number")
 }
+```
 
-// `none` on its own doesn't say what it's an Option *of*, so when there's
-// nothing else to go on, name the type:
-let missing: Option<int> = none
+> try: search `[1, 3, 5]` instead — the `none` arm is how lux makes sure you handled "nothing there".
 
-// When an operation can *fail with a reason*, use Result<T, E>: either
-// `ok(value)` or `err(reason)`. This is how lux does errors — they're just
-// values you match on, not a separate hidden mechanism.
+<!-- topic: result -->
+## result — a value that might fail
 
+When something can fail with a reason, use `Result<int, string>`: either `ok(x)`
+or `err(reason)`. Errors are just values you match on, not a hidden mechanism.
+
+```lux
 func half(n: int) -> Result<int, string> {
     if n % 2 == 0 {
         return ok(n / 2)
     }
     return err("not even")
 }
-
-match half(7) {
-    ok(let h)  => print("half is", h)
-    err(let e) => print("error:", e)
+for n in [8, 7] {
+    match half(n) {
+        ok(let h)  => print(n, "halves to", h)
+        err(let e) => print(n, "can't:", e)
+    }
 }
 ```
 
----
-
 ## Where each feature takes you
 
-lux is a launch pad. Here's the map of what graduates where, so the next
+lux is a launch pad. Here is the map of what graduates where, so the next
 language is never a cold start.
 
-| lux | Rust | Swift | Go | C |
-|---|---|---|---|---|
-| `let` / `var` | `let` / `let mut` | `let` / `var` | `const` / `:=` | (no default-immutable) |
-| `x: int` | `x: i32` | `x: Int` | `x int` | `int x` |
-| `func f(x: int) -> int` | `fn f(x: i32) -> i32` | `func f(x: Int) -> Int` | `func f(x int) int` | `int f(int x)` |
-| `for x in xs` | `for x in xs` | `for x in xs` | `for _, x := range xs` | `for(;;)` |
-| `while c` | `while c` | `while c` | `for c` | `while c` |
-| `match` | `match` | `switch` | `switch` (leaner) | `switch` (leaner) |
-| `enum` with values | `enum` with values | `enum` with values | *fake with structs* | *fake with int + union* |
-| `Option` / `Result` | `Option` / `Result` | `Optional` | `(value, error)` | `NULL` / sentinel |
-| `[int]` | `Vec<i32>` | `[Int]` | `[]int` | array + length |
+| lux | Rust | Swift | Go |
+|---|---|---|---|
+| `let` / `var` | `let` / `let mut` | `let` / `var` | `const` / `:=` |
+| `x: int` | `x: i32` | `x: Int` | `x int` |
+| `func f(x: int) -> int` | `fn f(x: i32) -> i32` | `func f(x: Int) -> Int` | `func f(x int) int` |
+| `for x in xs` | `for x in xs` | `for x in xs` | `for _, x := range xs` |
+| `while c` | `while c` | `while c` | `for c` |
+| `match` | `match` | `switch` | `switch` (leaner) |
+| `enum` with values | `enum` with values | `enum` with values | *fake with structs* |
+| `Option` / `Result` | `Option` / `Result` | `Optional` | `(value, error)` |
+| `[int]` | `Vec<i32>` | `[Int]` | `[]int` |
 
 Going **up** the ladder (Swift, Rust) you gain hard new ideas lux left out on
 purpose: classes and protocols are the Swift lesson; ownership and lifetimes are
-the Rust lesson. Going **down** (Go, C) you keep the same shapes but rebuild a
-few conveniences by hand — that's the lesson in how they actually work.
+the Rust lesson. Going **down** (Go) you keep the same shapes but rebuild a few
+conveniences by hand — that is the lesson in how they actually work.
+
+<!-- learn:end -->
 
 ---
 
-## v0.1 scope
+## For the maintainer
 
-The spec above is the whole teaching surface. The interpreter grows toward it in
-milestones, simplest first, so there's something runnable from week one:
+The sections below are notes on lux itself, not part of `lux learn`.
+
+### Scope
+
+The teaching surface above is the whole of lux v0.1. The interpreter grew toward
+it in milestones, simplest first:
 
 1. **`lux run` core** — `print`, `let`/`var`, the four basic types, arithmetic,
-   strings, `if`/`else`, `while`. (Enough to teach a first hour.)
+   strings, `if`/`else`, `while`.
 2. **Functions** — definitions, parameters, return, recursion, `for ... in`,
    ranges, arrays.
 3. **Types** — structs, then enums and `match`.
 4. **No null** — `Option`/`Result` and the generics machinery they need.
 5. **`lux convert rust`** — the first transpiler backend (also powers
-   `lux build`, which converts to Rust and invokes `rustc`).
+   `lux build`).
 6. **`lux convert swift` / `lux convert go`** — the remaining backends.
+7. **`lux learn`** — the reference and tutorial, built into the binary and
+   cross-referenced from error messages.
 
-## Open syntax decisions (settled here, flag to revisit)
+### Settled syntax decisions
 
-- **Function calls are positional** — `factorial(3)`, not Swift's labeled
-  `factorial(n: 3)`. Matches Rust, Go, and C (three of four); Swift's argument
-  labels become a graduation lesson.
+- **Function calls are positional** — `factorial(3)`, not `factorial(n: 3)`.
+  Matches Rust and Go; Swift's argument labels become a graduation lesson.
 - **Struct and enum *construction* names its fields** — `Point(x: 0, y: 0)`,
-  `Shape.circle(radius: 2.0)`. This mirrors Rust exactly (positional calls,
-  labeled struct literals) and reads clearly for a learner.
-- **`match` arms use `=>`** (matching Rust exactly), kept distinct from the
-  function return `->`. The two arrows mean two different things — `->` names a
-  return *type*, `=>` maps a pattern to a *value* — and lux teaches that
-  distinction the same way Rust draws it, so both transfer cleanly.
+  `Shape.circle(radius: 2.0)`, mirroring Rust.
+- **`match` arms use `=>`**, kept distinct from the function return `->`: `->`
+  names a return *type*, `=>` maps a pattern to a *value*.
 - **Ranges use `0..10`** (end-exclusive), matching Rust.
-- **A trailing comma is allowed** in any comma-separated list (arrays, call
-  arguments, struct/enum fields, parameters, match captures), the way Rust and
-  Swift allow it — handy for multi-line literals. lux never requires one, unlike
-  Go.
-- **No string interpolation in v0.1** — `+` with explicit `string(...)`
-  conversion, plus multi-argument `print`. Keeps the no-coercion lesson front
-  and center; interpolation can come later if the kids want it.
+- **A trailing comma is allowed** in any comma-separated list.
+- **No string interpolation in v0.1** — `+` with explicit `string(...)`, plus
+  multi-argument `print`, keeps the no-coercion lesson front and center.

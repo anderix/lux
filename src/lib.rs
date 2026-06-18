@@ -9,5 +9,6 @@ pub mod ast;
 pub mod convert;
 pub mod diagnostic;
 pub mod interpreter;
+pub mod learn;
 pub mod lexer;
 pub mod parser;
