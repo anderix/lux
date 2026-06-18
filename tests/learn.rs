@@ -26,7 +26,7 @@ fn every_topic_runs() {
     for t in learn::topics() {
         let prog = program(&t.example);
         assert!(
-            interpreter::run(&prog).is_ok(),
+            interpreter::run(&prog, &[]).is_ok(),
             "`{}` example does not run under the interpreter",
             t.id
         );
@@ -139,7 +139,7 @@ fn errors_point_at_real_topics() {
 
     let topic_ids: Vec<String> = learn::topics().into_iter().map(|t| t.id).collect();
     for (label, src, expected) in cases {
-        let err = interpreter::run(&program(src))
+        let err = interpreter::run(&program(src), &[])
             .expect_err(&format!("`{}` should be an error", label));
         assert_eq!(
             err.learn,

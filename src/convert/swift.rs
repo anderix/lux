@@ -21,6 +21,11 @@ struct Gen {
     t: Types,
     out: String,
     indent: usize,
+    /// The outside-world helpers, emitted only when used. Swift reads files by
+    /// throwing, so each wraps a `do`/`catch` back into the `Result` lux uses.
+    uses_read_file: bool,
+    uses_write_file: bool,
+    uses_eprint: bool,
 }
 
 /// Translate a whole program to Swift source text.
@@ -29,17 +34,10 @@ pub fn to_swift(program: &[Stmt]) -> String {
         t: Types::new(program),
         out: String::new(),
         indent: 0,
+        uses_read_file: false,
+        uses_write_file: false,
+        uses_eprint: false,
     };
-
-    // Swift's `Result` insists its error type conform to `Error`; lux carries a
-    // plain string, so say a String can be one. Only needed when such a Result
-    // actually appears.
-    if needs_string_error(program) {
-        g.line("// lux's Result carries a plain string error; Swift's Result needs".into());
-        g.line("// its error type to be an Error, so we let a String be one.".into());
-        g.line("extension String: @retroactive Error {}".into());
-        g.blank();
-    }
 
     for stmt in program {
         if let Stmt::Struct { name, fields, .. } = stmt {
@@ -77,7 +75,7 @@ pub fn to_swift(program: &[Stmt]) -> String {
     }
     g.t.pop_scope();
 
-    g.out
+    g.assemble(program)
 }
 
 /// A lux type as Swift source text.
@@ -118,6 +116,60 @@ impl Gen {
 
     fn blank(&mut self) {
         self.out.push('\n');
+    }
+
+    /// Prepend the file's preamble — the one import the outside-world helpers
+    /// need, the `String: Error` conformance a string-carrying `Result` needs,
+    /// and the helpers themselves — to the already-emitted body.
+    fn assemble(&self, program: &[Stmt]) -> String {
+        let uses_io = self.uses_read_file || self.uses_write_file || self.uses_eprint;
+        // readFile/writeFile both produce a `Result<_, String>`, so they pull in
+        // the same conformance an annotated one would.
+        let needs_error = needs_string_error(program) || self.uses_read_file || self.uses_write_file;
+
+        let mut head = String::new();
+        if uses_io {
+            // Foundation supplies the file reading/writing and the stderr handle.
+            head.push_str("import Foundation\n\n");
+        }
+        if needs_error {
+            head.push_str("// lux's Result carries a plain string error; Swift's Result needs\n");
+            head.push_str("// its error type to be an Error, so we let a String be one.\n");
+            head.push_str("extension String: @retroactive Error {}\n\n");
+        }
+        if self.uses_read_file {
+            head.push_str(
+                "func readFile(_ path: String) -> Result<String, String> {\n\
+                 \tdo {\n\
+                 \t\treturn .success(try String(contentsOfFile: path, encoding: .utf8))\n\
+                 \t} catch {\n\
+                 \t\treturn .failure(\"\\(error)\")\n\
+                 \t}\n\
+                 }\n\n",
+            );
+        }
+        if self.uses_write_file {
+            head.push_str(
+                "func writeFile(_ path: String, _ contents: String) -> Result<Void, String> {\n\
+                 \tdo {\n\
+                 \t\ttry contents.write(toFile: path, atomically: true, encoding: .utf8)\n\
+                 \t\treturn .success(())\n\
+                 \t} catch {\n\
+                 \t\treturn .failure(\"\\(error)\")\n\
+                 \t}\n\
+                 }\n\n",
+            );
+        }
+        if self.uses_eprint {
+            head.push_str(
+                "func eprint(_ items: Any...) {\n\
+                 \tlet line = items.map { \"\\($0)\" }.joined(separator: \" \")\n\
+                 \tFileHandle.standardError.write(Data((line + \"\\n\").utf8))\n\
+                 }\n\n",
+            );
+        }
+        head.push_str(&self.out);
+        head
     }
 
     // --- declarations ------------------------------------------------------
@@ -390,7 +442,11 @@ impl Gen {
             Pattern::Str(s, _) => format!("case \"{}\"", escape(s)),
             Pattern::Bool(b, _) => format!("case {}", b),
             Pattern::Variant { name, bindings, .. } => {
-                let binds: Vec<String> = bindings.iter().map(|b| format!("let {}", b)).collect();
+                // A `_` binding discards; `let _` would only draw a warning.
+                let binds: Vec<String> = bindings
+                    .iter()
+                    .map(|b| if b == "_" { "_".to_string() } else { format!("let {}", b) })
+                    .collect();
                 let inner = if binds.is_empty() {
                     String::new()
                 } else {
@@ -548,6 +604,26 @@ impl Gen {
                 let parts: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
                 format!("print({})", parts.join(", "))
             }
+            "eprint" => {
+                self.uses_eprint = true;
+                let parts: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
+                format!("eprint({})", parts.join(", "))
+            }
+            // readFile/writeFile lower to the do/catch helpers; args and readLine
+            // map straight onto Swift's own globals.
+            "readFile" => {
+                self.uses_read_file = true;
+                let p = self.emit_expr(&args[0]);
+                format!("readFile({})", p)
+            }
+            "writeFile" => {
+                self.uses_write_file = true;
+                let p = self.emit_expr(&args[0]);
+                let c = self.emit_expr(&args[1]);
+                format!("writeFile({}, {})", p, c)
+            }
+            "args" => "CommandLine.arguments".to_string(),
+            "readLine" => "readLine()".to_string(),
             // Swift's `String(...)` keeps a whole float's decimal point, the way
             // lux's `string(2.0)` yields "2.0".
             "string" => {

@@ -1,0 +1,45 @@
+// The outside world: files, command-line arguments, and the three standard
+// streams. Everything that can fail hands the failure back as a value.
+
+// args() gives the command line, the program itself first.
+let argv = args()
+print("this program is:", argv[0])
+print("it received", length(argv) - 1, "argument(s) after its name")
+
+// writeFile can fail, so it returns Result. Success carries nothing — Unit —
+// but you still confirm it worked.
+let path = "/tmp/lux-io-demo.txt"
+match writeFile(path, "hello from lux\nsecond line\n") {
+    ok(let _)  => print("wrote", path)
+    err(let e) => eprint("write failed:", e)
+}
+
+// readFile can fail too — the file might not be there. match makes you handle it.
+match readFile(path) {
+    ok(let text) => print("read it back, length", length(text))
+    err(let e)   => eprint("read failed:", e)
+}
+
+// Reading a file that isn't there takes the err arm instead of crashing.
+match readFile("/tmp/does-not-exist-xyz.txt") {
+    ok(let text) => print("unexpected:", length(text))
+    err(let e)   => eprint("expected miss:", e)
+}
+
+// readLine gives one line, or none at end of input. A loop over it reads the
+// same whether a person is typing or a file is piped in. Used as an expression,
+// the match yields whether to keep going — the loop condition is just data.
+func echo(line: string) -> bool {
+    print("  >", line)
+    return true
+}
+
+print("echoing stdin until end of input:")
+var reading = true
+while reading {
+    reading = match readLine() {
+        some(let line) => echo(line)
+        none           => false
+    }
+}
+print("done")

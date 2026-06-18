@@ -82,6 +82,7 @@ fn ty_from_ann(a: &TypeAnn) -> Ty {
             "float" => Ty::Float,
             "string" => Ty::Str,
             "bool" => Ty::Bool,
+            "Unit" => Ty::Unit,
             _ => Ty::User(n.clone()),
         },
         TypeKind::Array(inner) => Ty::Array(Box::new(ty_from_ann(inner))),
@@ -210,6 +211,13 @@ impl Types {
             "some" => Ty::Option(Box::new(self.type_of(&args[0]))),
             "ok" => Ty::Result(Box::new(self.type_of(&args[0])), Box::new(Ty::Unknown)),
             "err" => Ty::Result(Box::new(Ty::Unknown), Box::new(self.type_of(&args[0]))),
+            // The outside world: each fallible call hands its failure back as a
+            // value, so its type is what `match` reads to pick the right arms.
+            "readFile" => Ty::Result(Box::new(Ty::Str), Box::new(Ty::Str)),
+            "writeFile" => Ty::Result(Box::new(Ty::Unit), Box::new(Ty::Str)),
+            "args" => Ty::Array(Box::new(Ty::Str)),
+            "readLine" => Ty::Option(Box::new(Ty::Str)),
+            "eprint" => Ty::Unit,
             _ => match self.env.funcs.get(name) {
                 Some((_, Some(ret))) => ty_from_ann(ret),
                 Some((_, None)) => Ty::Unit,

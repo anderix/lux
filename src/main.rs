@@ -41,7 +41,8 @@ fn run_cmd(rest: &[String]) {
         exit(1);
     };
     let (source, program) = load(path);
-    if let Err(err) = interpreter::run(&program) {
+    // The program's own command line: the script at index 0, then its arguments.
+    if let Err(err) = interpreter::run(&program, rest) {
         diagnostic::report(path, &source, &err);
         exit(1);
     }

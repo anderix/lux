@@ -79,7 +79,11 @@ and `(value, error)` returns — and `lux build` compiles the Rust to a binary.
 That completes the teaching surface: every feature is runnable and translatable
 to all three. The milestones since have gone into `lux learn` — the built-in
 reference, now a two-level card-and-`more` system cross-referenced from error
-messages. See the scope notes at the bottom of [learn-lux.md](learn-lux.md).
+messages — and into the outside world: `readFile`, `writeFile`, `args`,
+`readLine`, and `print`/`eprint` across stdout and stderr, fallible I/O modeled
+as the same `Option` and `Result` lux already teaches. See the scope notes at
+the bottom of [learn-lux.md](learn-lux.md), or [CHANGELOG.md](CHANGELOG.md) for
+the version history.
 
 ## License
 

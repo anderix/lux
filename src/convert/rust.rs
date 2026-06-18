@@ -17,7 +17,22 @@ struct Gen {
     t: Types,
     out: String,
     indent: usize,
+    /// `readLine()` reads from the shared stdin handle the same way each call,
+    /// which is a few lines; emit it once as a helper when the program asks.
+    uses_read_line: bool,
 }
+
+/// Reading one line, returning `None` at end of input — the helper `readLine()`
+/// lowers to. Pulled out so a loop over input reads as one clean call.
+const READ_LINE_HELPER: &str = "\
+fn read_line() -> Option<String> {
+    let mut line = String::new();
+    match std::io::stdin().read_line(&mut line) {
+        Ok(0) | Err(_) => None,
+        Ok(_) => Some(line.trim_end_matches(['\\n', '\\r']).to_string()),
+    }
+}
+";
 
 /// Translate a whole program to Rust source text.
 pub fn to_rust(program: &[Stmt]) -> String {
@@ -25,6 +40,7 @@ pub fn to_rust(program: &[Stmt]) -> String {
         t: Types::new(program),
         out: String::new(),
         indent: 0,
+        uses_read_line: false,
     };
 
     for stmt in program {
@@ -65,7 +81,11 @@ pub fn to_rust(program: &[Stmt]) -> String {
     g.indent -= 1;
     g.line("}".into());
 
-    g.out
+    if g.uses_read_line {
+        format!("{}\n{}", READ_LINE_HELPER, g.out)
+    } else {
+        g.out
+    }
 }
 
 /// A lux type as Rust source text.
@@ -486,30 +506,51 @@ impl Gen {
         }
     }
 
+    /// `print` and `eprint` differ only in the macro they reach for — one writes
+    /// stdout, the other stderr — so they share how arguments become a format.
+    fn println_call(&mut self, mac: &str, args: &[Expr]) -> String {
+        let mut fmt = String::new();
+        let mut parts = Vec::new();
+        for (i, a) in args.iter().enumerate() {
+            if i > 0 {
+                fmt.push(' ');
+            }
+            // `{:?}` on an f64 keeps the decimal point (`9.0`), matching how lux
+            // prints floats; plain scalars use `{}`.
+            let ty = self.t.type_of(a);
+            fmt.push_str(if ty == Ty::Float || !ty.is_scalar() {
+                "{:?}"
+            } else {
+                "{}"
+            });
+            parts.push(self.display_arg(a));
+        }
+        if parts.is_empty() {
+            format!("{}!()", mac)
+        } else {
+            format!("{}!(\"{}\", {})", mac, fmt, parts.join(", "))
+        }
+    }
+
     fn emit_call(&mut self, name: &str, args: &[Expr]) -> String {
         match name {
-            "print" => {
-                let mut fmt = String::new();
-                let mut parts = Vec::new();
-                for (i, a) in args.iter().enumerate() {
-                    if i > 0 {
-                        fmt.push(' ');
-                    }
-                    // `{:?}` on an f64 keeps the decimal point (`9.0`), matching
-                    // how lux prints floats; plain scalars use `{}`.
-                    let ty = self.t.type_of(a);
-                    fmt.push_str(if ty == Ty::Float || !ty.is_scalar() {
-                        "{:?}"
-                    } else {
-                        "{}"
-                    });
-                    parts.push(self.display_arg(a));
-                }
-                if parts.is_empty() {
-                    "println!()".to_string()
-                } else {
-                    format!("println!(\"{}\", {})", fmt, parts.join(", "))
-                }
+            "print" => self.println_call("println", args),
+            "eprint" => self.println_call("eprintln", args),
+            // Each fallible call turns the target's native error into a string, so
+            // the lux source stays `Result<_, string>` on this side too.
+            "readFile" => {
+                let p = self.emit_call_arg(&args[0]);
+                format!("std::fs::read_to_string({}).map_err(|e| e.to_string())", p)
+            }
+            "writeFile" => {
+                let p = self.emit_call_arg(&args[0]);
+                let c = self.emit_call_arg(&args[1]);
+                format!("std::fs::write({}, {}).map_err(|e| e.to_string())", p, c)
+            }
+            "args" => "std::env::args().collect::<Vec<String>>()".to_string(),
+            "readLine" => {
+                self.uses_read_line = true;
+                "read_line()".to_string()
             }
             "string" => {
                 // `{:?}` keeps a whole float's decimal point, the way lux's

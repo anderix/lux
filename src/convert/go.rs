@@ -30,6 +30,14 @@ struct Gen {
     uses_fmt: bool,
     uses_errors: bool,
     uses_ptr: bool,
+    uses_os: bool,
+    uses_bufio: bool,
+    uses_strings: bool,
+    /// The outside-world helpers: each adapts Go's standard-library shape to the
+    /// `(value, error)` pair lux's `Result` lowers to, emitted only when used.
+    uses_read_file: bool,
+    uses_write_file: bool,
+    uses_read_line: bool,
 }
 
 /// Translate a whole program to Go source text.
@@ -42,6 +50,12 @@ pub fn to_go(program: &[Stmt]) -> String {
         uses_fmt: false,
         uses_errors: false,
         uses_ptr: false,
+        uses_os: false,
+        uses_bufio: false,
+        uses_strings: false,
+        uses_read_file: false,
+        uses_write_file: false,
+        uses_read_line: false,
     };
 
     for stmt in program {
@@ -96,7 +110,12 @@ fn ty_text(t: &Ty) -> String {
         Ty::Array(t) => format!("[]{}", ty_text(t)),
         Ty::User(n) => n.clone(),
         Ty::Option(t) => format!("*{}", ty_text(t)),
-        Ty::Result(a, _) => format!("({}, error)", ty_text(a)),
+        // A `Result` whose success carries nothing is an operation that can only
+        // fail, so Go returns just an `error`, the way the standard library does.
+        Ty::Result(a, _) => match a.as_ref() {
+            Ty::Unit => "error".into(),
+            _ => format!("({}, error)", ty_text(a)),
+        },
         Ty::Range => "int".into(),
         Ty::Unit => String::new(),
         Ty::Unknown => "any".into(),
@@ -132,12 +151,22 @@ impl Gen {
     /// used, and any helper the program leans on.
     fn assemble(&self) -> String {
         let mut head = String::from("package main\n\n");
+        // Go orders imports alphabetically; gofmt would anyway, so list them so.
         let mut imports: Vec<&str> = Vec::new();
+        if self.uses_bufio {
+            imports.push("bufio");
+        }
         if self.uses_errors {
             imports.push("errors");
         }
         if self.uses_fmt {
             imports.push("fmt");
+        }
+        if self.uses_os {
+            imports.push("os");
+        }
+        if self.uses_strings {
+            imports.push("strings");
         }
         match imports.len() {
             0 => {}
@@ -154,6 +183,37 @@ impl Gen {
             // Go has no literal for "a pointer to this value", so the some(...)
             // case borrows one through a tiny generic helper.
             head.push_str("func ptr[T any](v T) *T {\n\treturn &v\n}\n\n");
+        }
+        if self.uses_read_file {
+            // os.ReadFile hands back bytes; lux reads a string, so decode here.
+            head.push_str(
+                "func readFile(path string) (string, error) {\n\
+                 \tdata, err := os.ReadFile(path)\n\
+                 \treturn string(data), err\n\
+                 }\n\n",
+            );
+        }
+        if self.uses_write_file {
+            head.push_str(
+                "func writeFile(path string, contents string) error {\n\
+                 \treturn os.WriteFile(path, []byte(contents), 0644)\n\
+                 }\n\n",
+            );
+        }
+        if self.uses_read_line {
+            // One reader, made once and kept, so a loop never drops buffered
+            // input between calls. nil means end of input.
+            head.push_str("var stdin = bufio.NewReader(os.Stdin)\n\n");
+            head.push_str(
+                "func readLine() *string {\n\
+                 \tline, err := stdin.ReadString('\\n')\n\
+                 \tif err != nil && line == \"\" {\n\
+                 \t\treturn nil\n\
+                 \t}\n\
+                 \tline = strings.TrimRight(line, \"\\r\\n\")\n\
+                 \treturn &line\n\
+                 }\n\n",
+            );
         }
         head.push_str(&self.out);
         head
@@ -593,9 +653,15 @@ impl Gen {
             _ => None,
         });
         let s = self.emit_expr(scrutinee);
-        let lhs = ok_bind.clone().unwrap_or_else(|| "_".to_string());
-        self.line(format!("{}, err := {}", lhs, s));
-        self.line("if err == nil {".into());
+        // An if-init scopes the value and error to this match, so two reads in
+        // one block don't collide on the names. A success that carries nothing
+        // leaves only the error to bind.
+        if ok_ty == Ty::Unit {
+            self.line(format!("if err := {}; err == nil {{", s));
+        } else {
+            let lhs = ok_bind.clone().unwrap_or_else(|| "_".to_string());
+            self.line(format!("if {}, err := {}; err == nil {{", lhs, s));
+        }
         self.indent += 1;
         self.t.push_scope();
         if let Some(b) = &ok_bind {
@@ -760,6 +826,39 @@ impl Gen {
                 self.uses_fmt = true;
                 let parts: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
                 format!("fmt.Println({})", parts.join(", "))
+            }
+            "eprint" => {
+                self.uses_fmt = true;
+                self.uses_os = true;
+                let mut parts = vec!["os.Stderr".to_string()];
+                parts.extend(args.iter().map(|a| self.emit_expr(a)));
+                format!("fmt.Fprintln({})", parts.join(", "))
+            }
+            // The outside-world calls lower to package-level helpers (assembled
+            // above); naming them here records which ones the program needs.
+            "readFile" => {
+                self.uses_read_file = true;
+                self.uses_os = true;
+                let p = self.emit_expr(&args[0]);
+                format!("readFile({})", p)
+            }
+            "writeFile" => {
+                self.uses_write_file = true;
+                self.uses_os = true;
+                let p = self.emit_expr(&args[0]);
+                let c = self.emit_expr(&args[1]);
+                format!("writeFile({}, {})", p, c)
+            }
+            "args" => {
+                self.uses_os = true;
+                "os.Args".to_string()
+            }
+            "readLine" => {
+                self.uses_read_line = true;
+                self.uses_os = true;
+                self.uses_bufio = true;
+                self.uses_strings = true;
+                "readLine()".to_string()
             }
             "string" => {
                 // `%v` is Go's general rendering; it keeps int and bool exact and

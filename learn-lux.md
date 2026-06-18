@@ -437,6 +437,41 @@ of your code, is what keeps the failure path in plain sight.
 
 > see: option — its sibling, for "missing" rather than "failed" · match — how you handle both arms
 
+<!-- topic: io -->
+## io — the outside world
+
+The world beyond your program is where things go wrong: a file might not be
+there. So reading one hands back a `Result` — `ok` with the text, or `err` with
+the reason — and `match` makes you face both. It is the `result` you just
+learned, now earning its keep.
+
+```lux
+match readFile("poem.txt") {
+    ok(let text) => print("read", length(text), "characters")
+    err(let e)   => print("no poem today:", e)
+}
+```
+
+> try: point it at a file that really exists — the `ok` arm runs instead, and `length(text)` counts what you read.
+
+<!-- more -->
+The whole outside world is five calls, and they share one rule: anything that
+can fail hands the failure back as a value, never a surprise sprung on you.
+`writeFile` returns a `Result` whose success carries nothing — saving a file has
+no answer to give back, only a yes-or-no that it worked, so you still match the
+`err` arm. `readLine` returns an `Option<string>`: a line, or `none` at the end
+of input, which is why a loop over it reads the same whether a person is typing
+or a file is piped in. That is the quiet point of I/O — your output is the next
+program's input. `print` writes that output and `eprint` writes errors to a
+separate stream, stderr, so the stream the next program reads stays clean; and
+`args()` is your command line, with your own program sitting at index 0, a
+footgun worth meeting early. Down the ladder these are Rust's `std::fs` and
+`std::env`, Go's `os` package handing back its `(value, error)` pairs, and
+Swift's `Foundation` with its throwing file calls and a `readLine()` that is
+already an `Optional`.
+
+> see: result — the shape every fallible call hands back · option — what readLine gives at end of input · match — how you face both arms
+
 ## The shape every language shares
 
 lux is a launch pad, and so is this page. Almost every language you will meet is
@@ -474,6 +509,8 @@ start.
 | `enum` with values | `enum` with values | `enum` with values | *fake with structs* |
 | `Option` / `Result` | `Option` / `Result` | `Optional` | `(value, error)` |
 | `[int]` | `Vec<i32>` | `[Int]` | `[]int` |
+| `readFile` / `args` | `std::fs` / `std::env` | `Foundation` / `CommandLine` | `os` package |
+| `print` / `eprint` | `println!` / `eprintln!` | `print` / `FileHandle` | `fmt` / `os.Stderr` |
 
 Going **up** the ladder (Swift, Rust) you gain hard new ideas lux left out on
 purpose: classes and protocols are the Swift lesson; ownership and lifetimes are
@@ -506,6 +543,9 @@ it in milestones, simplest first:
    cross-referenced from error messages.
 8. **`lux learn`, second level** — cards by default, an optional `more` page per
    topic, the `lux learn basics` skeleton, and reason-annotated cross-references.
+9. **The outside world** — `readFile`/`writeFile`, `args`, `readLine`, and
+   `print`/`eprint` across stdout and stderr: fallible I/O modeled as
+   `Option`/`Result`, the first surface that genuinely needs them.
 
 That second level: every topic is a short *card* by default, with an optional
 `more` page carrying the deeper why, the universal name for the concept, and

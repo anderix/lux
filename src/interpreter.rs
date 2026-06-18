@@ -89,15 +89,21 @@ struct Interp {
     funcs: HashMap<String, Rc<FuncData>>,
     structs: HashMap<String, Rc<StructData>>,
     enums: HashMap<String, Rc<EnumData>>,
+    /// What `args()` returns: the program's own command line, the program
+    /// itself at index 0. Supplied by the caller so the interpreter shows the
+    /// script's arguments, not `lux run`'s.
+    program_args: Vec<String>,
 }
 
-/// Run a parsed program.
-pub fn run(program: &[Stmt]) -> Result<(), LuxError> {
+/// Run a parsed program. `program_args` is the program's command line —
+/// the script (or binary) at index 0, then anything the user passed after it.
+pub fn run(program: &[Stmt], program_args: &[String]) -> Result<(), LuxError> {
     let mut interp = Interp {
         scopes: vec![HashMap::new()],
         funcs: HashMap::new(),
         structs: HashMap::new(),
         enums: HashMap::new(),
+        program_args: program_args.to_vec(),
     };
     // Option and Result are built-in enums, registered before anything else so
     // they exist for type-checking and so a user can't redeclare their names.
@@ -1002,6 +1008,60 @@ impl Interp {
                     )),
                 }
             }
+            // ----- the outside world: files, arguments, the standard streams ---
+            // Reading and writing can fail (a missing file, an unwritable path),
+            // so they hand the failure back as a value — `Result` — instead of
+            // crashing. The program decides what to do about it.
+            "readFile" => {
+                let path = self.one_str(name, args, span)?;
+                match std::fs::read_to_string(&path) {
+                    Ok(contents) => Ok(result_ok(Value::Str(contents))),
+                    Err(e) => Ok(result_err(Value::Str(format!("could not read {}: {}", path, e)))),
+                }
+            }
+            // Success here carries nothing — there's no value to hand back, only
+            // the fact that it worked. That's `Result<Unit, string>`: you still
+            // have to confirm it didn't fail, even when success is empty.
+            "writeFile" => {
+                let (path, contents) = self.two_str(name, args, span)?;
+                match std::fs::write(&path, &contents) {
+                    Ok(()) => Ok(result_ok(Value::Unit)),
+                    Err(e) => Ok(result_err(Value::Str(format!("could not write {}: {}", path, e)))),
+                }
+            }
+            // The command-line arguments, program name first — args()[0] is the
+            // program itself, the way every shell hands it over.
+            "args" => {
+                self.no_args(name, args, span)?;
+                let items = self.program_args.iter().cloned().map(Value::Str).collect();
+                Ok(Value::Array(items))
+            }
+            // One line from standard input, with its newline removed. `none` at
+            // end of input — so a loop reading until `none` works the same whether
+            // it's a person typing or a file piped in.
+            "readLine" => {
+                self.no_args(name, args, span)?;
+                let mut line = String::new();
+                match std::io::stdin().read_line(&mut line) {
+                    Ok(0) | Err(_) => Ok(option_none()),
+                    Ok(_) => {
+                        let text = line.strip_suffix('\n').unwrap_or(&line);
+                        let text = text.strip_suffix('\r').unwrap_or(text);
+                        Ok(option_some(Value::Str(text.to_string())))
+                    }
+                }
+            }
+            // Like `print`, but to standard error — the stream for diagnostics,
+            // kept separate so the real output on stdout stays clean for whatever
+            // program reads it next.
+            "eprint" => {
+                let mut parts = Vec::with_capacity(args.len());
+                for a in args {
+                    parts.push(display(&self.eval(a)?));
+                }
+                eprintln!("{}", parts.join(" "));
+                Ok(Value::Unit)
+            }
             // The built-in enum constructors. `none` has no value, so it's a
             // bare name handled in `eval`, not a call.
             "some" => Ok(option_some(self.one_arg(name, args, span)?)),
@@ -1021,6 +1081,64 @@ impl Interp {
         self.eval(&args[0])
     }
 
+    /// A built-in that takes exactly one string, like `readFile(path)`.
+    fn one_str(&mut self, name: &str, args: &[Expr], span: Span) -> Result<String, LuxError> {
+        match self.one_arg(name, args, span)? {
+            Value::Str(s) => Ok(s),
+            other => Err(LuxError::new(
+                format!("{} expects a string, but got {}", name, value_type(&other)),
+                span,
+            )),
+        }
+    }
+
+    /// A built-in that takes two strings, like `writeFile(path, contents)`.
+    fn two_str(
+        &mut self,
+        name: &str,
+        args: &[Expr],
+        span: Span,
+    ) -> Result<(String, String), LuxError> {
+        if args.len() != 2 {
+            return Err(LuxError::new(
+                format!("{} takes exactly two values, but got {}", name, args.len()),
+                span,
+            ));
+        }
+        let first = self.eval(&args[0])?;
+        let second = self.eval(&args[1])?;
+        let path = match first {
+            Value::Str(s) => s,
+            other => {
+                return Err(LuxError::new(
+                    format!("{} expects the path as a string, but got {}", name, value_type(&other)),
+                    span,
+                ));
+            }
+        };
+        let contents = match second {
+            Value::Str(s) => s,
+            other => {
+                return Err(LuxError::new(
+                    format!("{} expects the contents as a string, but got {}", name, value_type(&other)),
+                    span,
+                ));
+            }
+        };
+        Ok((path, contents))
+    }
+
+    /// A built-in that takes no values, like `args()` or `readLine()`.
+    fn no_args(&self, name: &str, args: &[Expr], span: Span) -> Result<(), LuxError> {
+        if !args.is_empty() {
+            return Err(LuxError::new(
+                format!("{} takes no values, but got {}", name, args.len()),
+                span,
+            ));
+        }
+        Ok(())
+    }
+
     /// Call a user-defined function. Arguments are checked against the declared
     /// parameter types (no coercion), the body runs in its own fresh scope —
     /// it sees its parameters and other functions, but not the caller's
@@ -1031,7 +1149,7 @@ impl Interp {
             Some(f) => Rc::clone(f),
             None => {
                 return Err(LuxError::new(format!("unknown function `{}`", name), span).with_note(
-                    "define it with `func`, or use a built-in: print, string, int, float, length",
+                    "define it with `func`, or use a built-in: print, eprint, string, int, float, length, readFile, writeFile, readLine, args",
                 ));
             }
         };
@@ -1144,12 +1262,15 @@ impl Interp {
                     )
                     .with_note(hint));
                 }
-                if matches!(n.as_str(), "int" | "float" | "string" | "bool") || self.type_exists(n)
+                // `Unit` is the type of "nothing" — the success of a `writeFile`
+                // that worked but has no value to return, as in `Result<Unit, string>`.
+                if matches!(n.as_str(), "int" | "float" | "string" | "bool" | "Unit")
+                    || self.type_exists(n)
                 {
                     Ok(())
                 } else {
                     Err(LuxError::new(format!("unknown type `{}`", n), ann.span).with_note(
-                        "known types: int, float, string, bool, arrays like [int], and any struct or enum you define",
+                        "known types: int, float, string, bool, Unit, arrays like [int], and any struct or enum you define",
                     ))
                 }
             }
@@ -1192,6 +1313,8 @@ impl Interp {
         match (&ann.kind, v) {
             (TypeKind::Named(n), Value::Struct { name, .. }) => n == name,
             (TypeKind::Named(n), Value::Enum { enum_name, .. }) => n == enum_name,
+            // The value prints as "nothing"; the type that describes it is `Unit`.
+            (TypeKind::Named(n), Value::Unit) => n == "Unit",
             (TypeKind::Named(n), _) => n == v.type_name(),
             (TypeKind::Array(elem), Value::Array(items)) => {
                 items.iter().all(|it| self.type_matches(elem, it))
