@@ -484,7 +484,8 @@ impl Interp {
                 Some(b) => Ok(b.value.clone()),
                 None if name == "none" => Ok(option_none()),
                 None => Err(LuxError::new(format!("`{}` is not defined", name), *span)
-                    .with_note("declare it with let or var before using it")),
+                    .with_note("declare it with let or var before using it")
+                    .with_learn("scope")),
             },
             Expr::Array(elems, _) => {
                 let mut items = Vec::with_capacity(elems.len());

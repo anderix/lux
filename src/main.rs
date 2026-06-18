@@ -71,17 +71,32 @@ fn convert_cmd(rest: &[String]) {
 }
 
 fn learn_cmd(rest: &[String]) {
-    match rest.first().map(String::as_str) {
+    // `--more` may sit anywhere after `learn`; the first plain word is the topic.
+    let more = rest.iter().any(|a| a == "--more");
+    let positional: Vec<&str> = rest
+        .iter()
+        .map(String::as_str)
+        .filter(|a| !a.starts_with("--"))
+        .collect();
+    match positional.first().copied() {
         None => print!("{}", learn::menu()),
         Some("tour") => print!("{}", learn::tour()),
-        Some(topic) => match learn::lookup(topic) {
-            Some(text) => print!("{}", text),
-            None => {
-                eprintln!("there's no lesson or topic called `{}`.\n", topic);
-                print!("{}", learn::menu());
-                exit(1);
+        Some("basics") => print!("{}", learn::basics()),
+        Some(topic) => {
+            let rendered = if more {
+                learn::topic_more(topic)
+            } else {
+                learn::lookup(topic)
+            };
+            match rendered {
+                Some(text) => print!("{}", text),
+                None => {
+                    eprintln!("there's no lesson or topic called `{}`.\n", topic);
+                    print!("{}", learn::menu());
+                    exit(1);
+                }
             }
-        },
+        }
     }
 }
 
@@ -167,7 +182,7 @@ fn print_usage() {
     println!("  lux run <file.lux>            run a program");
     println!("  lux build <file.lux>          compile to a native binary via Rust");
     println!("  lux convert <lang> <file.lux> translate to rust, swift, or go source");
-    println!("  lux learn [topic]             read the language, built in");
+    println!("  lux learn [topic] [--more]    read the language, built in");
     println!();
     println!("  -V, --version                 print version");
     println!("  -h, --help                    print this help");

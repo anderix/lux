@@ -6,21 +6,31 @@ Rust, Swift, and Go, so what you learn here carries straight over when you move
 on to one of those.
 
 This file is the whole language, one short topic at a time. Every example is
-real lux that runs — the test suite runs them all. You can read the same
-material in your terminal: `lux learn` for the menu, `lux learn <topic>` for one
-idea, `lux learn tour` for the whole thing.
+real lux that runs — the test suite runs them all. Each topic is a short card
+you can read in under a minute; add `--more` to any of them — `lux learn match
+--more` — for the deeper why and where the idea goes next. Read it in your
+terminal: `lux learn` for the menu, `lux learn <topic>` for one card, `lux learn
+basics` for the handful of shapes every language shares, `lux learn tour` for
+the whole thing.
 
 <!-- topic: hello -->
 ## hello — your first program
 
-There is no `main` and no boilerplate: statements run top to bottom, and `print`
-is built in.
+lux runs your statements from top to bottom, and `print` shows text on the
+screen. There is no setup to write first: the file is the program.
 
 ```lux
 // Two slashes start a comment. There is no block comment — one way to do it.
 print("Hello, world!")
 print("two", "words")   // print separates its arguments with spaces
 ```
+
+<!-- more -->
+Most languages make you write a `main` function and a little setup before
+anything runs — that is the boilerplate lux leaves out, so your first program is
+just the line you care about. When you move on to Rust, Go, Java, or C, `main`
+comes back, and now you will know what it was always for: the one place the
+program is told where to begin.
 
 <!-- topic: variables -->
 ## variables — let and var
@@ -38,6 +48,14 @@ print(name, "has", score, "points; pi is", pi)
 
 > try: add the line `pi = 3.0` and run it — lux stops you, because a `let` never changes.
 
+<!-- more -->
+Giving a value a name is *assignment*, the oldest idea in programming. The line
+lux draws — `let` for a name that holds still, `var` for one that moves — shows
+up nearly everywhere: Rust's `let` and `let mut`, Swift's `let` and `var`,
+`const` in many others. Reaching for `let` first and `var` only when something
+truly must change is a habit all of those languages reward, because a name that
+cannot change is one less thing that can surprise you.
+
 <!-- topic: numbers -->
 ## numbers — arithmetic
 
@@ -54,6 +72,15 @@ print("mix on purpose:", float(7) / 2.0)
 
 > try: change `float(7) / 2.0` to `7 / 2.0` and run — lux won't mix an int and a float unless you say so.
 
+<!-- more -->
+int and float are *scalar* types — single values, the atoms everything larger is
+built from, alongside bool. The rule that lux will not mix them without
+`float(...)` looks strict, but it is the same line Rust and Go draw: a silent
+jump from whole numbers to fractions is a classic place for bugs to hide, so the
+languages that care make you say when you mean it. The `%` remainder and
+integer division that drops the fraction are everywhere too — they are how you
+ask "is this even?" or "what is left over?" in almost any language.
+
 <!-- topic: strings -->
 ## strings — text
 
@@ -69,6 +96,14 @@ print("letters in café:", length("café"))   // 4 — characters, not bytes
 
 > try: drop the `string(...)` so it reads `"Score: " + 42` and run — lux won't glue a string to an int.
 
+<!-- more -->
+A string is really a *sequence* of characters — a compound value wearing a
+friendly face, which is why `length` measures it the way it measures an array.
+Most languages give strings their own type with a pile of built-in operations,
+but the constant across all of them is that text is data you measure, join, and
+take apart — never something the language quietly turns into a number for you,
+which is why lux makes you ask for `string(...)`.
+
 <!-- topic: booleans -->
 ## booleans — true and false
 
@@ -83,6 +118,13 @@ print("either one?", sunny || warm)    // or  — one is enough
 print("not sunny?", !sunny)
 print("3 > 2 is", 3 > 2)
 ```
+
+<!-- more -->
+bool is the third scalar type and the smallest — just `true` or `false`. Every
+decision a program makes comes down to one: a comparison like `3 > 2` produces a
+bool, and `if`, `while`, and the logic operators all run on them. Once you can
+see the bool flowing out of a condition and into the control flow, the branching
+in any language stops being mysterious — it is always a bool steering the road.
 
 <!-- topic: if -->
 ## if — making decisions
@@ -101,6 +143,13 @@ if score >= 90 {
 }
 ```
 
+<!-- more -->
+`if` is *selection*, one of the two control structures every procedural language
+is built from. The shape is universal — test a bool, run a block, optionally
+run another instead — and what changes between languages is only paint, like
+whether the condition needs parentheses around it. Read one if/else ladder and
+you can read the branching in all of them on sight.
+
 <!-- topic: while -->
 ## while — repeating
 
@@ -113,6 +162,13 @@ while n < 5 {
     n += 1
 }
 ```
+
+<!-- more -->
+`while` is *iteration*, the other control structure, and it is the honest one:
+keep going as long as a bool stays true. The `for` loop you will meet next is
+usually just a tidier `while` for a known range or a collection. Go drops the
+word `while` entirely and writes every loop with `for` — seeing that the two are
+the same idea underneath is the whole lesson.
 
 <!-- topic: arrays -->
 ## arrays — many values of one type
@@ -129,6 +185,13 @@ print("queue:", queue)
 ```
 
 > try: read `primes[10]` and run — lux stops you at an index past the end of the array.
+
+<!-- more -->
+An array is a *data structure* — the simplest compound type, many values of one
+type laid in a row and reached by an index that counts from 0. That zero-based
+indexing and the square brackets are nearly universal; what later languages add
+is variety — lists, slices, vectors, arrays that grow — but the mental model you
+have here, "a numbered row of values," carries straight into all of them.
 
 <!-- topic: for -->
 ## for — over things
@@ -148,6 +211,13 @@ for i in 0..3 {
 }
 ```
 
+<!-- more -->
+`for x in xs` is *iteration over a collection* — the loop you will write most,
+visiting each item once, in order. The range form `0..n` is the same loop
+counting instead of walking. Languages spell it differently — Go writes `for i,
+x := range xs` and Rust writes `for x in xs` just like lux — but the job never
+changes, and underneath it is still the `while` loop you already know.
+
 <!-- topic: functions -->
 ## functions — name a piece of work
 
@@ -163,6 +233,40 @@ func factorial(n: int) -> int {
 }
 print("5! =", factorial(5))
 ```
+
+<!-- more -->
+A function is *packaged work* with a name, *parameters* going in and a result
+coming back — the unit every language leans on to keep a program from becoming
+one endless script. Recursion, a function calling itself, and the fact that each
+call gets its own fresh set of names are not lux quirks; they are how functions
+behave everywhere, and that fresh set of names is exactly what `lux learn scope`
+is about.
+
+<!-- topic: scope -->
+## scope — where a name lives
+
+A name lives only inside the block where you declare it — the `{ }` of a
+function, an `if`, or a loop. Step outside that block and the name is gone.
+
+```lux
+let planet = "Earth"            // planet lives in the whole program
+func loud(word: string) -> string {
+    let banged = word + "!"     // banged lives only inside loud
+    return banged
+}
+print(loud(planet))
+print(planet, "is still here")  // planet is still in scope out here
+```
+
+> try: add `print(banged)` as the last line and run — lux says `banged` isn't defined out here, because it only ever existed inside `loud`.
+
+<!-- more -->
+Every language has *scope* — the region of a program where a name means
+something. lux keeps it simple: a fresh scope opens at every `{` and closes at
+its matching `}`, and an inner scope can see the names around it but never the
+other way around. The bigger languages add more kinds — file and module scope,
+namespaces, and *closures* that let a function carry its scope around with it —
+but the rule you just learned is the spine that all of them are built on.
 
 <!-- topic: structs -->
 ## structs — your own types
@@ -180,6 +284,14 @@ print("x is", here.x, "y is", here.y)
 print("same point?", here == Point(x: 3, y: 4))
 ```
 
+<!-- more -->
+A struct is a *record* — the other compound type, gathering values that belong
+together under one name. Where an array is many of the *same* thing, a struct is
+a few *different* things treated as a unit: a point is its `x` and its `y`.
+Almost every language has this shape, under names like record, struct, or data
+class, and it is the first step toward objects — which the larger languages
+build by attaching behaviour to the data a struct holds.
+
 <!-- topic: enums -->
 ## enums — one of several shapes
 
@@ -195,6 +307,14 @@ enum Shape {
 let c = Shape.circle(radius: 2.0)
 print(c)
 ```
+
+<!-- more -->
+An enum whose cases carry values is a *sum type*, also called a *tagged union*:
+a value that is exactly one of several shapes, each with its own data. It is the
+partner to the struct — a struct is "this *and* that," an enum is "this *or*
+that." Rust and Swift have it and lean on it hard; Go does not, which is why
+`lux convert go` has to fake it with structs and a tag field — a clear look at
+what the feature actually buys you.
 
 <!-- topic: match -->
 ## match — take a value apart
@@ -219,6 +339,14 @@ print("square:", area(Shape.square(side: 3.0)))
 
 > try: delete the `square` arm and run — lux refuses a match that leaves a case unhandled.
 
+<!-- more -->
+`match` is *pattern matching*: it picks the arm for the shape in hand and unpacks
+the values inside in a single move. The rule that you must cover every case is
+where its power comes from — the language itself, not your memory, guarantees
+nothing slips through. Rust and Swift's `switch` work this way; the older
+`switch` of C and Java does not, so forgetting a case there is a quiet bug
+instead of a refusal to run.
+
 <!-- topic: option -->
 ## option — a value that might be missing
 
@@ -242,6 +370,14 @@ match firstEven([1, 3, 4, 7]) {
 
 > try: search `[1, 3, 5]` instead — the `none` arm is how lux makes sure you handled "nothing there".
 
+<!-- more -->
+`Option` is how lux says "this might be missing" without a null. Null — a value
+that pretends to be there and is not — is famous enough to have a nickname, the
+billion-dollar mistake, for all the crashes it has caused. Languages that
+learned from it make "missing" a shape you have to open with `match` before you
+can reach what is inside: Rust's `Option`, Swift's `Optional`. That forced
+check, paid once up front, is the whole point.
+
 <!-- topic: result -->
 ## result — a value that might fail
 
@@ -263,10 +399,39 @@ for n in [8, 7] {
 }
 ```
 
+<!-- more -->
+`Result` is the same trick as `Option`, but for failure: a value that is either
+`ok` with the answer or `err` with a reason, the reason carried as ordinary data
+rather than thrown across the program. Go's `(value, error)` return is this idea
+in different clothes, and Rust's `Result` is `Option`'s sibling. Treating a
+failure as a value you `match` on, instead of a hidden mechanism that jumps out
+of your code, is what keeps the failure path in plain sight.
+
+## The shape every language shares
+
+lux is a launch pad, and so is this page. Almost every language you will meet is
+built from the same short list of parts. Learn them once here and most of the
+next language is just new spelling for things you already understand.
+
+| every language has | what it is | learn it here |
+|---|---|---|
+| scalar values | one value at a time: int, float, bool, text | `numbers`, `booleans`, `strings` |
+| compound values | many values gathered up | `arrays`, `structs` |
+| assignment | giving a value a name | `variables` |
+| selection | choosing what runs next | `if` |
+| iteration | repeating work | `while`, `for` |
+| packaged work | functions with parameters and a result | `functions` |
+| scope | where each name means something | `scope` |
+
+Spot those few shapes and most of any procedural language is readable; the rest
+is punctuation and keywords, the goofy syntax that makes the same ideas look
+different. That is what lets you open a "learn X in Y minutes" page for a
+language you have never seen and follow along.
+
 ## Where each feature takes you
 
-lux is a launch pad. Here is the map of what graduates where, so the next
-language is never a cold start.
+Here is the map of what graduates where, so the next language is never a cold
+start.
 
 | lux | Rust | Swift | Go |
 |---|---|---|---|
@@ -309,6 +474,13 @@ it in milestones, simplest first:
 6. **`lux convert swift` / `lux convert go`** — the remaining backends.
 7. **`lux learn`** — the reference and tutorial, built into the binary and
    cross-referenced from error messages.
+
+Milestone 7 grew a second level: every topic is a short *card* by default, with
+an optional `--more` page carrying the deeper why, the universal name for the
+concept, and where it goes in other languages. `lux learn basics` is the
+procedural-language skeleton; the cross-references that bind related topics live
+on the `--more` pages, each with a reason. The `scope` topic was added here,
+once the interpreter's block scoping was confirmed to enforce it.
 
 ### Settled syntax decisions
 

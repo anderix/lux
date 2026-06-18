@@ -5,12 +5,15 @@
 //! network or stray file. That one file is also the test corpus: every example
 //! here is real lux that the suite runs and converts.
 //!
-//! The file is a sequence of *topics*. Each topic is one screen: a stable id, a
-//! title, a one-sentence concept, a runnable example, and an optional footer
-//! that nudges the learner back to the editor. The id is the join key — it is
-//! what you type (`lux learn match`), what a guided lesson lists, and what an
-//! error message will point at. Everything `lux learn` shows is some traversal
-//! of this one list of topics.
+//! The file is a sequence of *topics*, each read at two levels. A topic's
+//! *card* is one screen — a stable id, a title, a one-sentence concept, a
+//! runnable example, and an optional `try:` experiment that nudges the learner
+//! back to the editor. An earned, optional *more* page carries the deeper why,
+//! the universal name for the idea, and reason-annotated cross-references. The
+//! id is the join key — what you type (`lux learn match`), what a guided lesson
+//! lists, and what an error message points at. Everything `lux learn` shows is
+//! some traversal of this one list of topics, plus two pages of furniture: the
+//! `basics` skeleton and the graduation `ladder`.
 
 const DOC: &str = include_str!("../learn-lux.md");
 
@@ -20,25 +23,32 @@ const DOC: &str = include_str!("../learn-lux.md");
 const PATHS: &[(&str, &[&str])] = &[
     ("start", &["hello", "variables", "numbers", "strings"]),
     ("logic", &["booleans", "if", "while"]),
-    ("data", &["arrays", "for", "functions"]),
+    ("data", &["arrays", "for", "functions", "scope"]),
     ("types", &["structs", "enums", "match"]),
     ("safety", &["option", "result"]),
 ];
 
-/// A single learnable idea: one screen of the language.
+/// A single learnable idea. The card is always present; `more` is earned.
 pub struct Topic {
     pub id: String,
     pub title: String,
     pub concept: String,
     pub example: String,
-    pub footer: Option<Footer>,
+    pub try_hint: Option<String>,
+    pub more: Option<More>,
 }
 
-/// The optional last line of a topic. `Try` is an experiment to type into the
-/// editor; `See` points at related topics. Earned, never required.
-pub enum Footer {
-    Try(String),
-    See(Vec<String>),
+/// The earned second level of a topic: the deeper prose, plus any
+/// reason-annotated cross-references to related topics.
+pub struct More {
+    pub prose: String,
+    pub see: Vec<See>,
+}
+
+/// One cross-reference: a topic id and the reason a learner would follow it.
+pub struct See {
+    pub id: String,
+    pub reason: String,
 }
 
 // --- parsing ---------------------------------------------------------------
@@ -69,6 +79,23 @@ pub fn topics() -> Vec<Topic> {
 }
 
 fn parse_topic(id: String, body: &str) -> Topic {
+    let (card, more_src) = match body.split_once("<!-- more -->") {
+        Some((c, m)) => (c, Some(m)),
+        None => (body, None),
+    };
+    let (title, concept, example, try_hint) = parse_card(card);
+    Topic {
+        id,
+        title,
+        concept,
+        example,
+        try_hint,
+        more: more_src.map(parse_more),
+    }
+}
+
+/// Parse a topic card: title, concept paragraph, example, and `try:` hint.
+fn parse_card(body: &str) -> (String, String, String, Option<String>) {
     let mut lines = body.lines().peekable();
 
     // Title: the `## ...` heading.
@@ -103,40 +130,62 @@ fn parse_topic(id: String, body: &str) -> Topic {
         example.push(line);
     }
 
-    // Footer: the first blockquote line after the example, if any.
-    let mut footer = None;
+    // try: hint — the first blockquote line after the example, if any. A card's
+    // only footer is an experiment; cross-references live on the more page.
+    let mut try_hint = None;
     for line in lines.by_ref() {
         let l = line.trim();
         if l.is_empty() {
             continue;
         }
         if let Some(rest) = l.strip_prefix("> ") {
-            footer = parse_footer(rest.trim());
+            let rest = rest.trim();
+            let hint = rest.strip_prefix("try:").map(str::trim).unwrap_or(rest);
+            try_hint = Some(hint.to_string());
         }
         break;
     }
 
-    Topic {
-        id,
-        title,
-        concept: concept.join(" "),
-        example: example.join("\n"),
-        footer,
-    }
+    (title, concept.join(" "), example.join("\n"), try_hint)
 }
 
-fn parse_footer(s: &str) -> Option<Footer> {
-    if let Some(rest) = s.strip_prefix("try:") {
-        Some(Footer::Try(rest.trim().to_string()))
-    } else if let Some(rest) = s.strip_prefix("see:") {
-        let ids = rest
-            .split([',', '·'])
-            .map(|x| x.trim().to_string())
-            .filter(|x| !x.is_empty())
-            .collect();
-        Some(Footer::See(ids))
-    } else {
-        Some(Footer::Try(s.to_string()))
+/// Parse a more page: the deeper prose, then an optional `> see:` block whose
+/// entries read `id — reason`, separated by `·`.
+fn parse_more(body: &str) -> More {
+    let mut prose = Vec::new();
+    let mut quote = String::new();
+    let mut in_quote = false;
+    for line in body.lines() {
+        let t = line.trim();
+        if let Some(rest) = t.strip_prefix("> ") {
+            in_quote = true;
+            if !quote.is_empty() {
+                quote.push(' ');
+            }
+            quote.push_str(rest.trim());
+        } else if !in_quote && !t.is_empty() {
+            prose.push(t.to_string());
+        }
+    }
+
+    let mut see = Vec::new();
+    if let Some(rest) = quote.strip_prefix("see:") {
+        for piece in rest.split('·') {
+            let p = piece.trim();
+            if p.is_empty() {
+                continue;
+            }
+            let (id, reason) = match p.split_once('—') {
+                Some((a, b)) => (a.trim().to_string(), b.trim().to_string()),
+                None => (p.to_string(), String::new()),
+            };
+            see.push(See { id, reason });
+        }
+    }
+
+    More {
+        prose: prose.join(" "),
+        see,
     }
 }
 
@@ -144,7 +193,9 @@ fn parse_footer(s: &str) -> Option<Footer> {
 
 const WIDTH: usize = 76;
 
-fn render_topic(t: &Topic) -> String {
+/// A topic's default view: the one-screen card, plus a pointer to its more page
+/// when one exists so the deeper level is discoverable.
+fn render_card(t: &Topic) -> String {
     let mut out = String::new();
     out.push_str(&plain(&t.title));
     out.push_str("\n\n");
@@ -159,17 +210,36 @@ fn render_topic(t: &Topic) -> String {
             out.push('\n');
         }
     }
-    if let Some(footer) = &t.footer {
+    if let Some(hint) = &t.try_hint {
         out.push('\n');
-        match footer {
-            Footer::Try(s) => out.push_str(&wrap(&plain(&format!("try: {}", s)), WIDTH)),
-            Footer::See(ids) => {
-                let refs: Vec<String> =
-                    ids.iter().map(|i| format!("lux learn {}", i)).collect();
-                out.push_str(&format!("see also: {}", refs.join(" · ")));
+        out.push_str(&wrap(&plain(&format!("try: {}", hint)), WIDTH));
+        out.push('\n');
+    }
+    if t.more.is_some() {
+        out.push_str(&format!("\nmore: lux learn {} --more\n", t.id));
+    }
+    out
+}
+
+/// A topic's earned second level: the deeper prose and its cross-references.
+fn render_more(t: &Topic, m: &More) -> String {
+    let mut out = String::new();
+    out.push_str(&plain(&t.title));
+    out.push_str(" — more\n\n");
+    out.push_str(&wrap(&plain(&m.prose), WIDTH));
+    out.push('\n');
+    if !m.see.is_empty() {
+        out.push_str("\nsee also:\n");
+        for s in &m.see {
+            if s.reason.is_empty() {
+                out.push_str(&format!("  lux learn {}\n", s.id));
+            } else {
+                let lead = format!("  lux learn {} — ", s.id);
+                let wrapped = wrap_indent(&plain(&s.reason), WIDTH, &lead, "    ");
+                out.push_str(&wrapped);
+                out.push('\n');
             }
         }
-        out.push('\n');
     }
     out
 }
@@ -181,20 +251,38 @@ fn plain(s: &str) -> String {
     s.chars().filter(|c| *c != '`' && *c != '*').collect()
 }
 
+/// Drop leading `#` heading markers from each line, so a furniture section
+/// reads as a plain title on a terminal rather than raw markdown.
+fn dehead(s: &str) -> String {
+    s.lines()
+        .map(|l| l.trim_start_matches('#').trim_start_matches(' '))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// Greedy word-wrap to a column width, so a long concept stays one screen.
 fn wrap(text: &str, width: usize) -> String {
+    wrap_indent(text, width, "", "")
+}
+
+/// Word-wrap with a one-time lead on the first line and a hanging indent on the
+/// rest — used for `see also:` entries where the reason trails the topic name.
+fn wrap_indent(text: &str, width: usize, lead: &str, hang: &str) -> String {
     let mut out = String::new();
-    let mut line = String::new();
+    let mut line = String::from(lead);
+    let mut has_word = false;
     for word in text.split_whitespace() {
-        if !line.is_empty() && line.len() + 1 + word.len() > width {
+        if has_word && line.len() + 1 + word.len() > width {
             out.push_str(&line);
             out.push('\n');
-            line.clear();
+            line = String::from(hang);
+            has_word = false;
         }
-        if !line.is_empty() {
+        if has_word {
             line.push(' ');
         }
         line.push_str(word);
+        has_word = true;
     }
     out.push_str(&line);
     out
@@ -226,18 +314,40 @@ fn tagline() -> String {
     }
 }
 
-/// The graduation table beneath the topics — part of the full tour, but not a
-/// jumpable topic of its own.
+/// A `## ...` furniture section of the learner region, from its heading to the
+/// next top-level heading or the end of the region.
+fn section(anchor: &str) -> String {
+    let region = learner_region();
+    let start = match region.find(anchor) {
+        Some(i) => i,
+        None => return String::new(),
+    };
+    let after = &region[start + anchor.len()..];
+    let end = after.find("\n## ").unwrap_or(after.len());
+    format!("{}{}", anchor, &after[..end]).trim_end().to_string()
+}
+
+/// The procedural-language skeleton: the pieces every language shares and where
+/// to learn each in lux. The inward companion to the graduation ladder.
+fn basics_page() -> String {
+    section("## The shape every language shares")
+}
+
+/// The graduation table beneath the topics — where each lux feature lands in
+/// Rust, Swift, and Go.
 fn ladder() -> String {
-    let anchor = "## Where each feature takes you";
-    match learner_region().find(anchor) {
-        Some(i) => learner_region()[i..].trim_end().to_string(),
-        None => String::new(),
-    }
+    section("## Where each feature takes you")
+}
+
+/// `lux learn basics`: the shape every procedural language shares.
+pub fn basics() -> String {
+    let mut out = plain(&dehead(&basics_page()));
+    out.push('\n');
+    out
 }
 
 /// `lux learn` with no argument: a short landing page — the guided lessons, how
-/// to look up one topic, and how to read the whole thing.
+/// to look up one topic, how to go deeper, and how to read the whole thing.
 pub fn menu() -> String {
     let topics = topics();
 
@@ -259,39 +369,61 @@ pub fn menu() -> String {
     let ids: Vec<&str> = topics.iter().map(|t| t.id.as_str()).collect();
     out.push_str(&wrap_ids(&ids, "    "));
 
-    out.push_str("\nread it all:\n");
-    out.push_str("  lux learn tour\n");
+    out.push_str("\ngo deeper on any topic:\n");
+    out.push_str("  lux learn <topic> --more\n");
+
+    out.push_str("\nthe bigger picture:\n");
+    out.push_str("  lux learn basics    the shape every language shares\n");
+    out.push_str("  lux learn tour      the whole language, top to bottom\n");
     out
 }
 
-/// The whole language top to bottom: intro, every topic, then the ladder.
+/// The whole language top to bottom: intro, the basics skeleton, every card,
+/// then the ladder.
 pub fn tour() -> String {
     let mut out = String::new();
     out.push_str(&intro());
     out.push_str("\n\n");
+    out.push_str(&rule());
+    out.push('\n');
+    out.push_str(&plain(&dehead(&basics_page())));
+    out.push_str("\n\n");
+    out.push_str(&rule());
+    out.push('\n');
     for t in topics() {
-        out.push_str(&render_topic(&t));
+        out.push_str(&render_card(&t));
         out.push('\n');
         out.push_str(&rule());
         out.push('\n');
     }
     let ladder = ladder();
     if !ladder.is_empty() {
-        out.push_str(&plain(&ladder));
+        out.push_str(&plain(&dehead(&ladder)));
         out.push('\n');
     }
     out
 }
 
-/// Resolve one `lux learn` argument: a guided lesson name or a topic id.
+/// Resolve one `lux learn` argument: a guided lesson name or a topic id (card).
 pub fn lookup(name: &str) -> Option<String> {
     if let Some((_, ids)) = PATHS.iter().find(|(n, _)| *n == name) {
         return Some(render_path(name, ids));
     }
-    topics()
-        .iter()
-        .find(|t| t.id == name)
-        .map(render_topic)
+    topics().iter().find(|t| t.id == name).map(render_card)
+}
+
+/// Resolve `lux learn <topic> --more`: the topic's deeper page, or its card
+/// with a note when the topic has no deeper page.
+pub fn topic_more(name: &str) -> Option<String> {
+    let t = topics().into_iter().find(|t| t.id == name)?;
+    Some(match &t.more {
+        Some(m) => render_more(&t, m),
+        None => {
+            let mut s = render_card(&t);
+            s.push_str("\n(this topic has no deeper page — the card above is the whole story.)\n");
+            s
+        }
+    })
 }
 
 fn render_path(name: &str, ids: &[&str]) -> String {
@@ -302,7 +434,7 @@ fn render_path(name: &str, ids: &[&str]) -> String {
     out.push('\n');
     for id in ids {
         if let Some(t) = all.iter().find(|t| &t.id == id) {
-            out.push_str(&render_topic(t));
+            out.push_str(&render_card(t));
             out.push('\n');
             out.push_str(&rule());
             out.push('\n');

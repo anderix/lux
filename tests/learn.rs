@@ -129,6 +129,12 @@ fn errors_point_at_real_topics() {
              print(area(Shape.circle(radius: 1.0)))\n",
             "match",
         ),
+        (
+            "read a name out of its scope",
+            "func loud(w: string) -> string {\n let banged = w + \"!\"\n return banged\n}\n\
+             print(loud(\"hi\"))\nprint(banged)\n",
+            "scope",
+        ),
     ];
 
     let topic_ids: Vec<String> = learn::topics().into_iter().map(|t| t.id).collect();
@@ -170,12 +176,45 @@ fn navigation_only_points_at_real_topics() {
         assert_eq!(count, 1, "topic `{}` should be in exactly one lesson, found {}", id, count);
     }
 
-    // Any `see:` cross-reference resolves to a real topic.
+    // Any `see:` cross-reference on a more page resolves to a real topic.
     for t in learn::topics() {
-        if let Some(learn::Footer::See(refs)) = &t.footer {
-            for r in refs {
-                assert!(exists(r), "topic `{}` cross-references missing `{}`", t.id, r);
+        if let Some(more) = &t.more {
+            for s in &more.see {
+                assert!(exists(&s.id), "topic `{}` cross-references missing `{}`", t.id, s.id);
             }
         }
+    }
+}
+
+#[test]
+fn every_more_page_has_prose() {
+    // A more page is earned, so it's optional — but when present it must say
+    // something, or the card's pointer leads nowhere.
+    for t in learn::topics() {
+        if let Some(more) = &t.more {
+            assert!(
+                !more.prose.trim().is_empty(),
+                "`{}` has a more page with no prose",
+                t.id
+            );
+        }
+    }
+}
+
+#[test]
+fn basics_names_real_topics() {
+    // The skeleton page is furniture, not a topic. It covers only the universal
+    // shapes (not enums/match/option/result), and every topic it does name by id
+    // must be a real one.
+    let basics = learn::basics();
+    assert!(!basics.trim().is_empty(), "basics page is empty");
+    let ids: Vec<String> = learn::topics().into_iter().map(|t| t.id).collect();
+    let shapes = [
+        "variables", "numbers", "booleans", "strings", "arrays", "structs", "if", "while", "for",
+        "functions", "scope",
+    ];
+    for id in shapes {
+        assert!(ids.iter().any(|t| t == id), "skeleton names `{}`, not a real topic", id);
+        assert!(basics.contains(id), "skeleton should name the `{}` shape", id);
     }
 }
