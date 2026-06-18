@@ -216,7 +216,7 @@ fn render_card(t: &Topic) -> String {
         out.push('\n');
     }
     if t.more.is_some() {
-        out.push_str(&format!("\nmore: lux learn {} --more\n", t.id));
+        out.push_str(&format!("\nmore: lux learn {} more\n", t.id));
     }
     out
 }
@@ -447,7 +447,7 @@ pub fn menu() -> String {
     out.push_str(&wrap_ids(&ids, "    "));
 
     out.push_str("\ngo deeper on any topic:\n");
-    out.push_str("  lux learn <topic> --more\n");
+    out.push_str("  lux learn <topic> more\n");
 
     out.push_str("\nthe bigger picture:\n");
     out.push_str("  lux learn basics    the shape every language shares\n");
@@ -489,7 +489,7 @@ pub fn lookup(name: &str) -> Option<String> {
     topics().iter().find(|t| t.id == name).map(render_card)
 }
 
-/// Resolve `lux learn <topic> --more`: the topic's deeper page, or its card
+/// Resolve `lux learn <topic> more`: the topic's deeper page, or its card
 /// with a note when the topic has no deeper page.
 pub fn topic_more(name: &str) -> Option<String> {
     let t = topics().into_iter().find(|t| t.id == name)?;

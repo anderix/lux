@@ -7,8 +7,8 @@ on to one of those.
 
 This file is the whole language, one short topic at a time. Every example is
 real lux that runs — the test suite runs them all. Each topic is a short card
-you can read in under a minute; add `--more` to any of them — `lux learn match
---more` — for the deeper why and where the idea goes next. Read it in your
+you can read in under a minute; add `more` to any of them — `lux learn match
+more` — for the deeper why and where the idea goes next. Read it in your
 terminal: `lux learn` for the menu, `lux learn <topic>` for one card, `lux learn
 basics` for the handful of shapes every language shares, `lux learn tour` for
 the whole thing.
@@ -506,10 +506,10 @@ it in milestones, simplest first:
    cross-referenced from error messages.
 
 Milestone 7 grew a second level: every topic is a short *card* by default, with
-an optional `--more` page carrying the deeper why, the universal name for the
+an optional `more` page carrying the deeper why, the universal name for the
 concept, and where it goes in other languages. `lux learn basics` is the
 procedural-language skeleton; the cross-references that bind related topics live
-on the `--more` pages, each with a reason. The `scope` topic was added here,
+on the `more` pages, each with a reason. The `scope` topic was added here,
 once the interpreter's block scoping was confirmed to enforce it.
 
 ### Settled syntax decisions

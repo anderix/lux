@@ -71,14 +71,13 @@ fn convert_cmd(rest: &[String]) {
 }
 
 fn learn_cmd(rest: &[String]) {
-    // `--more` may sit anywhere after `learn`; the first plain word is the topic.
-    let more = rest.iter().any(|a| a == "--more");
-    let positional: Vec<&str> = rest
-        .iter()
-        .map(String::as_str)
-        .filter(|a| !a.starts_with("--"))
-        .collect();
-    match positional.first().copied() {
+    let words: Vec<&str> = rest.iter().map(String::as_str).collect();
+    // A trailing `more` — `lux learn enums more` — asks for the topic's deeper page.
+    let (target, more) = match words.split_last() {
+        Some((&"more", head)) if !head.is_empty() => (head, true),
+        _ => (words.as_slice(), false),
+    };
+    match target.first().copied() {
         None => print!("{}", learn::menu()),
         Some("tour") => print!("{}", learn::tour()),
         Some("basics") => print!("{}", learn::basics()),
@@ -182,7 +181,7 @@ fn print_usage() {
     println!("  lux run <file.lux>            run a program");
     println!("  lux build <file.lux>          compile to a native binary via Rust");
     println!("  lux convert <lang> <file.lux> translate to rust, swift, or go source");
-    println!("  lux learn [topic] [--more]    read the language, built in");
+    println!("  lux learn [topic] [more]      read the language, built in");
     println!();
     println!("  -V, --version                 print version");
     println!("  -h, --help                    print this help");

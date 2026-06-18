@@ -39,7 +39,7 @@ runs the Rust translation through `rustc` to a native binary.
 
 The reference travels inside the binary. `lux learn` opens a menu of short
 topics and guided lessons. Each topic is a one-screen card — `lux learn match`
-prints the idea, a runnable example, and an experiment to try; add `--more` for
+prints the idea, a runnable example, and an experiment to try; add `more` for
 the deeper why, the universal name for the concept, and where it goes in Rust,
 Swift, and Go. `lux learn basics` lays out the handful of shapes every
 procedural language shares, so the next language is mostly new spelling, and
@@ -52,7 +52,7 @@ need it.
 ```
 lux learn               # the menu
 lux learn enums         # one topic, as a card
-lux learn enums --more  # the deeper level
+lux learn enums more    # the deeper level
 lux learn basics        # the shapes every language shares
 lux learn tour          # the whole language
 ```
