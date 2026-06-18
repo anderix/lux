@@ -344,7 +344,8 @@ impl Interp {
                         format!("cannot reassign `{}` — it was declared with let", name),
                         *span,
                     )
-                    .with_note("use `var` instead of `let` if it needs to change"));
+                    .with_note("use `var` instead of `let` if it needs to change")
+                    .with_learn("variables"));
                 }
                 let current = binding.value.clone();
                 let result = match op {
@@ -434,7 +435,8 @@ impl Interp {
                             format!("cannot loop over {}", value_type(&other)),
                             iter.span(),
                         )
-                        .with_note("for ... in needs an array or a range like 0..10"));
+                        .with_note("for ... in needs an array or a range like 0..10")
+                        .with_learn("for"));
                     }
                 }
                 Ok(Flow::Normal)
@@ -541,7 +543,8 @@ impl Interp {
                         return Err(LuxError::new(
                             format!("cannot index into {}; only arrays can be indexed", value_type(&other)),
                             base.span(),
-                        ));
+                        )
+                        .with_learn("arrays"));
                     }
                 };
                 let i = match idx {
@@ -550,7 +553,8 @@ impl Interp {
                         return Err(LuxError::new(
                             format!("an array index must be an int, but this is {}", value_type(&other)),
                             index.span(),
-                        ));
+                        )
+                        .with_learn("arrays"));
                     }
                 };
                 if i < 0 || i as usize >= items.len() {
@@ -567,7 +571,8 @@ impl Interp {
                         ),
                         *span,
                     )
-                    .with_note(note));
+                    .with_note(note)
+                    .with_learn("arrays"));
                 }
                 Ok(items[i as usize].clone())
             }
@@ -834,6 +839,7 @@ impl Interp {
                             format!("this match on `{}` doesn't handle every case", enum_name),
                             span,
                         )
+                        .with_learn("match")
                         .with_note(format!(
                             "add an arm for: {} (or a `_` catch-all)",
                             missing.join(", ")
@@ -903,7 +909,8 @@ impl Interp {
                 format!("this match on {} needs a `_` case", value_type(v)),
                 span,
             )
-            .with_note("matching a value (not an enum) can't be exhaustive, so add `_ => ...`"));
+            .with_note("matching a value (not an enum) can't be exhaustive, so add `_ => ...`")
+            .with_learn("match"));
         }
         for a in arms {
             let fits = match (&a.pattern, v) {
@@ -1472,7 +1479,16 @@ fn mix_or_type_error(verb: &str, a: &Value, b: &Value, span: Span) -> LuxError {
     if mixed {
         LuxError::new("cannot mix int and float — convert one first", span)
             .with_note("wrap a value in float(...) or int(...)")
+            .with_learn("numbers")
     } else {
+        // A string on either side of `+` is the classic "glue text to a number"
+        // mistake, which the strings topic answers with `string(...)`; other
+        // type mismatches are arithmetic, so they point at numbers.
+        let topic = if matches!(a, Value::Str(_)) || matches!(b, Value::Str(_)) {
+            "strings"
+        } else {
+            "numbers"
+        };
         LuxError::new(
             format!(
                 "cannot {} {} and {}",
@@ -1482,6 +1498,7 @@ fn mix_or_type_error(verb: &str, a: &Value, b: &Value, span: Span) -> LuxError {
             ),
             span,
         )
+        .with_learn(topic)
     }
 }
 

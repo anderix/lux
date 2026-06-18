@@ -41,7 +41,9 @@ The reference travels inside the binary. `lux learn` opens a menu of short
 topics and guided lessons; `lux learn <topic>` — say `lux learn match` — prints
 one idea on a single screen with a runnable example; and `lux learn tour` reads
 the whole language top to bottom. Every example is real lux you can paste into a
-file and run.
+file and run. And when a program hits an error, the diagnostic points you at the
+topic that explains it — a non-exhaustive `match` ends with `help: run lux learn
+match` — so you learn the idea at the moment you need it.
 
 ```
 lux learn          # the menu

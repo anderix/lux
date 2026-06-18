@@ -23,12 +23,14 @@ impl Span {
     }
 }
 
-/// An error with a message, the span it happened at, and an optional note.
+/// An error with a message, the span it happened at, an optional note, and an
+/// optional `lux learn` topic that explains the idea the learner tripped over.
 #[derive(Debug, Clone)]
 pub struct LuxError {
     pub message: String,
     pub span: Span,
     pub note: Option<String>,
+    pub learn: Option<&'static str>,
 }
 
 impl LuxError {
@@ -37,12 +39,20 @@ impl LuxError {
             message: message.into(),
             span,
             note: None,
+            learn: None,
         }
     }
 
     /// Attach a hint about how to fix the problem.
     pub fn with_note(mut self, note: impl Into<String>) -> Self {
         self.note = Some(note.into());
+        self
+    }
+
+    /// Point at the `lux learn` topic that teaches this. Set it only where there
+    /// is a clean topic that genuinely covers the mistake.
+    pub fn with_learn(mut self, topic: &'static str) -> Self {
+        self.learn = Some(topic);
         self
     }
 }
@@ -77,5 +87,8 @@ pub fn report(filename: &str, source: &str, err: &LuxError) {
 
     if let Some(note) = &err.note {
         eprintln!("note: {}", note);
+    }
+    if let Some(topic) = &err.learn {
+        eprintln!("help: run `lux learn {}` to read about this", topic);
     }
 }

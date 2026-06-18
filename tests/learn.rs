@@ -112,6 +112,47 @@ fn every_topic_compiles_as_go() {
 }
 
 #[test]
+fn errors_point_at_real_topics() {
+    // Each program makes a specific mistake, and the diagnostic should send the
+    // learner to the topic that explains it. Several of these mirror the `try:`
+    // experiments a topic suggests — the loop closes both ways.
+    let cases: &[(&str, &str, &str)] = &[
+        ("reassign a let", "let pi = 3.14\npi = 3.0\n", "variables"),
+        ("mix int and float", "print(7 / 2.0)\n", "numbers"),
+        ("glue a string to an int", "print(\"Score: \" + 42)\n", "strings"),
+        ("index past the end", "let xs = [1, 2, 3]\nprint(xs[10])\n", "arrays"),
+        ("loop over a non-array", "for x in 5 {\n print(x)\n}\n", "for"),
+        (
+            "non-exhaustive match",
+            "enum Shape {\n circle(radius: float)\n square(side: float)\n}\n\
+             func area(s: Shape) -> float {\n return match s {\n circle(let r) => r\n }\n}\n\
+             print(area(Shape.circle(radius: 1.0)))\n",
+            "match",
+        ),
+    ];
+
+    let topic_ids: Vec<String> = learn::topics().into_iter().map(|t| t.id).collect();
+    for (label, src, expected) in cases {
+        let err = interpreter::run(&program(src))
+            .expect_err(&format!("`{}` should be an error", label));
+        assert_eq!(
+            err.learn,
+            Some(*expected),
+            "`{}` should point at `{}`, got {:?}",
+            label,
+            expected,
+            err.learn
+        );
+        assert!(
+            topic_ids.iter().any(|t| t == expected),
+            "`{}` points at `{}`, which is not a real topic",
+            label,
+            expected
+        );
+    }
+}
+
+#[test]
 fn navigation_only_points_at_real_topics() {
     let ids: Vec<String> = learn::topics().into_iter().map(|t| t.id).collect();
     let exists = |id: &str| ids.iter().any(|t| t == id);
