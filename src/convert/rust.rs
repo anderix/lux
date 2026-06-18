@@ -1,160 +1,28 @@
-//! Translate a parsed lux program into idiomatic Rust source.
+//! The Rust backend: emit real Rust source.
 //!
-//! This is the first transpiler backend. It walks the same ast the interpreter
-//! runs and emits real Rust: `func` becomes `fn`, lux's lowercase enum cases
-//! become Rust's `PascalCase` variants, `Option`/`Result` map straight onto the
-//! standard library, and the top-level statements are wrapped in a `fn main`.
-//! The point is for a learner to watch their own program turn into the language
-//! they're growing toward, so the output is meant to be read.
-//!
-//! lux has no separate type checker yet, so to decide the handful of places
-//! where the same lux syntax must emit different Rust — string `+` versus
-//! numeric `+`, `length` on a string versus an array, `print` formatting — this
-//! module carries a small `type_of` that infers an expression's type on demand
-//! from the declared signatures. It assumes a well-formed program; rustc is the
-//! backstop for anything it can't see.
-
-use std::collections::HashMap;
+//! Rust is the closest match to lux's shape — enums with values, `Option` and
+//! `Result`, exhaustive `match`, value semantics — so most of the work is
+//! cosmetic: `func` becomes `fn`, lux's lowercase enum cases become PascalCase
+//! variants, camelCase names become snake_case. The one real wrinkle is that
+//! Rust *moves* a non-`Copy` value when you pass it, while lux copies, so a
+//! named place argument is cloned at the call site to preserve lux's semantics.
 
 use crate::ast::*;
 
-/// A lux type, inferred during translation. `User` covers both structs and
-/// enums (they emit the same way — by name); `Unknown` is the honest answer
-/// when a value doesn't pin its own type, like a bare `none`, and lets Rust's
-/// own inference take over.
-#[derive(Clone, PartialEq)]
-enum Ty {
-    Int,
-    Float,
-    Str,
-    Bool,
-    Array(Box<Ty>),
-    User(String),
-    Option(Box<Ty>),
-    Result(Box<Ty>, Box<Ty>),
-    Range,
-    Unit,
-    Unknown,
-}
-
-impl Ty {
-    fn has_unknown(&self) -> bool {
-        match self {
-            Ty::Unknown => true,
-            Ty::Array(t) | Ty::Option(t) => t.has_unknown(),
-            Ty::Result(a, b) => a.has_unknown() || b.has_unknown(),
-            _ => false,
-        }
-    }
-
-    /// Does this type involve `int`? lux's `int` is `i64`, but a bare Rust
-    /// integer literal defaults to `i32`, so any binding whose type involves an
-    /// int gets an explicit annotation to keep the two from drifting apart.
-    fn has_int(&self) -> bool {
-        match self {
-            Ty::Int => true,
-            Ty::Array(t) | Ty::Option(t) => t.has_int(),
-            Ty::Result(a, b) => a.has_int() || b.has_int(),
-            _ => false,
-        }
-    }
-
-    /// Scalars print with `{}`; everything else needs `{:?}`.
-    fn is_scalar(&self) -> bool {
-        matches!(self, Ty::Int | Ty::Float | Ty::Str | Ty::Bool)
-    }
-
-    fn rust(&self) -> String {
-        match self {
-            Ty::Int => "i64".into(),
-            Ty::Float => "f64".into(),
-            Ty::Str => "String".into(),
-            Ty::Bool => "bool".into(),
-            Ty::Array(t) => format!("Vec<{}>", t.rust()),
-            Ty::User(n) => n.clone(),
-            Ty::Option(t) => format!("Option<{}>", t.rust()),
-            Ty::Result(a, b) => format!("Result<{}, {}>", a.rust(), b.rust()),
-            Ty::Range => "std::ops::Range<i64>".into(),
-            Ty::Unit => "()".into(),
-            Ty::Unknown => "_".into(),
-        }
-    }
-
-    fn zero(&self) -> String {
-        match self {
-            Ty::Int => "0".into(),
-            Ty::Float => "0.0".into(),
-            Ty::Bool => "false".into(),
-            Ty::Str => "String::new()".into(),
-            Ty::Array(_) => "Vec::new()".into(),
-            Ty::Option(_) => "None".into(),
-            _ => "Default::default()".into(),
-        }
-    }
-}
-
-/// Turn a written annotation into an inferred type. Struct and enum names both
-/// land as `User`; the built-in generics are recognised by name.
-fn ty_from_ann(a: &TypeAnn) -> Ty {
-    match &a.kind {
-        TypeKind::Named(n) => match n.as_str() {
-            "int" => Ty::Int,
-            "float" => Ty::Float,
-            "string" => Ty::Str,
-            "bool" => Ty::Bool,
-            _ => Ty::User(n.clone()),
-        },
-        TypeKind::Array(inner) => Ty::Array(Box::new(ty_from_ann(inner))),
-        TypeKind::Generic(name, args) => match (name.as_str(), args.as_slice()) {
-            ("Option", [t]) => Ty::Option(Box::new(ty_from_ann(t))),
-            ("Result", [a, b]) => Ty::Result(Box::new(ty_from_ann(a)), Box::new(ty_from_ann(b))),
-            _ => Ty::Unknown,
-        },
-    }
-}
-
-/// What the translator knows about the program's declared names, gathered in
-/// one pass up front so a call or field access can be typed wherever it appears.
-struct Env {
-    structs: HashMap<String, Vec<FieldDef>>,
-    enums: HashMap<String, Vec<VariantDef>>,
-    funcs: HashMap<String, (Vec<Param>, Option<TypeAnn>)>,
-}
+use super::{
+    bin_prec, escape, format_float, indent, op_str, to_pascal, to_snake, ty_from_ann, Ty, Types,
+};
 
 struct Gen {
-    env: Env,
-    scopes: Vec<HashMap<String, Ty>>,
+    t: Types,
     out: String,
     indent: usize,
 }
 
 /// Translate a whole program to Rust source text.
 pub fn to_rust(program: &[Stmt]) -> String {
-    let mut env = Env {
-        structs: HashMap::new(),
-        enums: HashMap::new(),
-        funcs: HashMap::new(),
-    };
-    for stmt in program {
-        match stmt {
-            Stmt::Struct { name, fields, .. } => {
-                env.structs.insert(name.clone(), fields.clone());
-            }
-            Stmt::Enum { name, variants, .. } => {
-                env.enums.insert(name.clone(), variants.clone());
-            }
-            Stmt::Func {
-                name, params, ret, ..
-            } => {
-                env.funcs.insert(name.clone(), (params.clone(), ret.clone()));
-            }
-            _ => {}
-        }
-    }
-
     let mut g = Gen {
-        env,
-        scopes: vec![HashMap::new()],
+        t: Types::new(program),
         out: String::new(),
         indent: 0,
     };
@@ -184,7 +52,7 @@ pub fn to_rust(program: &[Stmt]) -> String {
 
     g.line("fn main() {".into());
     g.indent += 1;
-    g.push_scope();
+    g.t.push_scope();
     for stmt in program {
         if !matches!(
             stmt,
@@ -193,11 +61,41 @@ pub fn to_rust(program: &[Stmt]) -> String {
             g.emit_stmt(stmt);
         }
     }
-    g.pop_scope();
+    g.t.pop_scope();
     g.indent -= 1;
     g.line("}".into());
 
     g.out
+}
+
+/// A lux type as Rust source text.
+fn ty_text(t: &Ty) -> String {
+    match t {
+        Ty::Int => "i64".into(),
+        Ty::Float => "f64".into(),
+        Ty::Str => "String".into(),
+        Ty::Bool => "bool".into(),
+        Ty::Array(t) => format!("Vec<{}>", ty_text(t)),
+        Ty::User(n) => n.clone(),
+        Ty::Option(t) => format!("Option<{}>", ty_text(t)),
+        Ty::Result(a, b) => format!("Result<{}, {}>", ty_text(a), ty_text(b)),
+        Ty::Range => "std::ops::Range<i64>".into(),
+        Ty::Unit => "()".into(),
+        Ty::Unknown => "_".into(),
+    }
+}
+
+/// The natural empty value for a `var` that was declared without one.
+fn zero(t: &Ty) -> String {
+    match t {
+        Ty::Int => "0".into(),
+        Ty::Float => "0.0".into(),
+        Ty::Bool => "false".into(),
+        Ty::Str => "String::new()".into(),
+        Ty::Array(_) => "Vec::new()".into(),
+        Ty::Option(_) => "None".into(),
+        _ => "Default::default()".into(),
+    }
 }
 
 impl Gen {
@@ -211,34 +109,17 @@ impl Gen {
         self.out.push('\n');
     }
 
-    fn push_scope(&mut self) {
-        self.scopes.push(HashMap::new());
-    }
-
-    fn pop_scope(&mut self) {
-        self.scopes.pop();
-    }
-
-    fn declare(&mut self, name: String, ty: Ty) {
-        self.scopes.last_mut().unwrap().insert(name, ty);
-    }
-
-    fn lookup(&self, name: &str) -> Ty {
-        for scope in self.scopes.iter().rev() {
-            if let Some(t) = scope.get(name) {
-                return t.clone();
-            }
-        }
-        Ty::Unknown
-    }
-
     // --- declarations ------------------------------------------------------
 
     fn emit_struct(&mut self, name: &str, fields: &[FieldDef]) {
         self.line("#[derive(Debug, Clone, PartialEq)]".into());
         self.line(format!("struct {} {{", name));
         for f in fields {
-            self.line(format!("    {}: {},", to_snake(&f.name), ty_from_ann(&f.ty).rust()));
+            self.line(format!(
+                "    {}: {},",
+                to_snake(&f.name),
+                ty_text(&ty_from_ann(&f.ty))
+            ));
         }
         self.line("}".into());
         self.blank();
@@ -251,7 +132,8 @@ impl Gen {
             if v.fields.is_empty() {
                 self.line(format!("    {},", to_pascal(&v.name)));
             } else {
-                let tys: Vec<String> = v.fields.iter().map(|f| ty_from_ann(&f.ty).rust()).collect();
+                let tys: Vec<String> =
+                    v.fields.iter().map(|f| ty_text(&ty_from_ann(&f.ty))).collect();
                 self.line(format!("    {}({}),", to_pascal(&v.name), tys.join(", ")));
             }
         }
@@ -262,21 +144,21 @@ impl Gen {
     fn emit_func(&mut self, name: &str, params: &[Param], ret: Option<&TypeAnn>, body: &[Stmt]) {
         let ps: Vec<String> = params
             .iter()
-            .map(|p| format!("{}: {}", to_snake(&p.name), ty_from_ann(&p.ty).rust()))
+            .map(|p| format!("{}: {}", to_snake(&p.name), ty_text(&ty_from_ann(&p.ty))))
             .collect();
         let r = ret
-            .map(|t| format!(" -> {}", ty_from_ann(t).rust()))
+            .map(|t| format!(" -> {}", ty_text(&ty_from_ann(t))))
             .unwrap_or_default();
         self.line(format!("fn {}({}){} {{", to_snake(name), ps.join(", "), r));
         self.indent += 1;
-        self.push_scope();
+        self.t.push_scope();
         for p in params {
-            self.declare(p.name.clone(), ty_from_ann(&p.ty));
+            self.t.declare(p.name.clone(), ty_from_ann(&p.ty));
         }
         for stmt in body {
             self.emit_stmt(stmt);
         }
-        self.pop_scope();
+        self.t.pop_scope();
         self.indent -= 1;
         self.line("}".into());
         self.blank();
@@ -286,7 +168,9 @@ impl Gen {
 
     fn emit_stmt(&mut self, stmt: &Stmt) {
         match stmt {
-            Stmt::Let { name, ty, value, .. } => self.emit_binding(name, ty.as_ref(), value, false),
+            Stmt::Let {
+                name, ty, value, ..
+            } => self.emit_binding(name, ty.as_ref(), value, false),
             Stmt::Var {
                 name,
                 ty,
@@ -300,13 +184,15 @@ impl Gen {
                 ..
             } => {
                 let vty = ty_from_ann(ann);
-                let zero = vty.zero();
+                let z = zero(&vty);
                 let snake = to_snake(name);
-                self.declare(name.clone(), vty.clone());
-                self.line(format!("let mut {}: {} = {};", snake, vty.rust(), zero));
+                self.t.declare(name.clone(), vty.clone());
+                self.line(format!("let mut {}: {} = {};", snake, ty_text(&vty), z));
             }
             Stmt::Var { value: None, .. } => {} // a var with neither type nor value can't occur
-            Stmt::Assign { name, op, value, .. } => self.emit_assign(name, *op, value),
+            Stmt::Assign {
+                name, op, value, ..
+            } => self.emit_assign(name, *op, value),
             Stmt::Return { value, .. } => match value {
                 Some(v) => {
                     let e = self.emit_expr(v);
@@ -326,15 +212,21 @@ impl Gen {
                 self.block(body);
                 self.line("}".into());
             }
-            Stmt::For { var, iter, body, .. } => self.emit_for(var, iter, body),
+            Stmt::For {
+                var, iter, body, ..
+            } => self.emit_for(var, iter, body),
             Stmt::Expr(e) => {
                 let s = self.emit_expr(e);
                 self.line(format!("{};", s));
             }
             // Declarations are hoisted to module scope in the top-level pass.
-            Stmt::Func { name, params, ret, body, .. } => {
-                self.emit_func(name, params, ret.as_ref(), body)
-            }
+            Stmt::Func {
+                name,
+                params,
+                ret,
+                body,
+                ..
+            } => self.emit_func(name, params, ret.as_ref(), body),
             Stmt::Struct { .. } | Stmt::Enum { .. } => {}
         }
     }
@@ -342,34 +234,34 @@ impl Gen {
     /// A block that owns its own scope, indented one level.
     fn block(&mut self, body: &[Stmt]) {
         self.indent += 1;
-        self.push_scope();
+        self.t.push_scope();
         for stmt in body {
             self.emit_stmt(stmt);
         }
-        self.pop_scope();
+        self.t.pop_scope();
         self.indent -= 1;
     }
 
     fn emit_binding(&mut self, name: &str, ann: Option<&TypeAnn>, value: &Expr, mutable: bool) {
         let snake = to_snake(name);
-        let vty = ann.map(ty_from_ann).unwrap_or_else(|| self.type_of(value));
+        let vty = ann.map(ty_from_ann).unwrap_or_else(|| self.t.type_of(value));
         // A bare `none` (or anything that leaves its type open) carries no type
         // of its own, so when the source named one, write it down for Rust.
-        let value_open = self.type_of(value).has_unknown();
+        let value_open = self.t.type_of(value).has_unknown();
         let annotate = !vty.has_unknown() && ((ann.is_some() && value_open) || vty.has_int());
         let kw = if mutable { "let mut" } else { "let" };
         let expr = self.emit_expr(value);
         if annotate {
-            self.line(format!("{} {}: {} = {};", kw, snake, vty.rust(), expr));
+            self.line(format!("{} {}: {} = {};", kw, snake, ty_text(&vty), expr));
         } else {
             self.line(format!("{} {} = {};", kw, snake, expr));
         }
-        self.declare(name.to_string(), vty);
+        self.t.declare(name.to_string(), vty);
     }
 
     fn emit_assign(&mut self, name: &str, op: AssignOp, value: &Expr) {
         let snake = to_snake(name);
-        let lty = self.lookup(name);
+        let lty = self.t.lookup(name);
         match op {
             AssignOp::Set => {
                 let e = self.emit_expr(value);
@@ -439,7 +331,7 @@ impl Gen {
 
     fn emit_for(&mut self, var: &str, iter: &Expr, body: &[Stmt]) {
         let svar = to_snake(var);
-        let (iter_str, elem_ty) = match self.type_of(iter) {
+        let (iter_str, elem_ty) = match self.t.type_of(iter) {
             Ty::Range => (self.emit_expr(iter), Ty::Int),
             Ty::Array(t) => {
                 let base = self.emit_expr(iter);
@@ -451,12 +343,12 @@ impl Gen {
         };
         self.line(format!("for {} in {} {{", svar, iter_str));
         self.indent += 1;
-        self.push_scope();
-        self.declare(var.to_string(), elem_ty);
+        self.t.push_scope();
+        self.t.declare(var.to_string(), elem_ty);
         for stmt in body {
             self.emit_stmt(stmt);
         }
-        self.pop_scope();
+        self.t.pop_scope();
         self.indent -= 1;
         self.line("}".into());
     }
@@ -495,7 +387,7 @@ impl Gen {
                 }
             }
             Expr::Binary { op, lhs, rhs, .. } => {
-                if *op == BinOp::Add && self.type_of(lhs) == Ty::Str {
+                if *op == BinOp::Add && self.t.type_of(lhs) == Ty::Str {
                     let l = self.display_arg(lhs);
                     let r = self.display_arg(rhs);
                     format!("format!(\"{{}}{{}}\", {}, {})", l, r)
@@ -542,7 +434,7 @@ impl Gen {
                 // `Shape.dot` parses as a field access but is a payload-less
                 // enum case — emit it as construction.
                 if let Expr::Ident(n, _) = &**base
-                    && let Some(variants) = self.env.enums.get(n)
+                    && let Some(variants) = self.t.env.enums.get(n)
                     && variants.iter().any(|v| v.name == *field)
                 {
                     return format!("{}::{}", n, to_pascal(field));
@@ -550,7 +442,9 @@ impl Gen {
                 let b = self.emit_expr(base);
                 format!("{}.{}", b, to_snake(field))
             }
-            Expr::Match { scrutinee, arms, .. } => self.emit_match(scrutinee, arms),
+            Expr::Match {
+                scrutinee, arms, ..
+            } => self.emit_match(scrutinee, arms),
         }
     }
 
@@ -573,7 +467,7 @@ impl Gen {
     /// its own, so a named value of a non-`Copy` type is cloned at the call
     /// site to preserve that — exactly what lux does under the hood.
     fn emit_call_arg(&mut self, a: &Expr) -> String {
-        let clone = !is_copy(&self.type_of(a)) && is_place(a);
+        let clone = !is_copy(&self.t.type_of(a)) && is_place(a);
         let s = self.emit_expr(a);
         if clone {
             format!("{}.clone()", s)
@@ -603,7 +497,7 @@ impl Gen {
                     }
                     // `{:?}` on an f64 keeps the decimal point (`9.0`), matching
                     // how lux prints floats; plain scalars use `{}`.
-                    let ty = self.type_of(a);
+                    let ty = self.t.type_of(a);
                     fmt.push_str(if ty == Ty::Float || !ty.is_scalar() {
                         "{:?}"
                     } else {
@@ -620,7 +514,7 @@ impl Gen {
             "string" => {
                 // `{:?}` keeps a whole float's decimal point, the way lux's
                 // `string(2.0)` yields "2.0" rather than "2".
-                let is_float = self.type_of(&args[0]) == Ty::Float;
+                let is_float = self.t.type_of(&args[0]) == Ty::Float;
                 let e = self.emit_expr(&args[0]);
                 if is_float {
                     format!("format!(\"{{:?}}\", {})", e)
@@ -629,7 +523,7 @@ impl Gen {
                 }
             }
             "int" => {
-                let inner = self.type_of(&args[0]);
+                let inner = self.t.type_of(&args[0]);
                 let e = self.emit_expr(&args[0]);
                 match inner {
                     Ty::Str => format!("({}).parse::<i64>().unwrap()", e),
@@ -639,7 +533,7 @@ impl Gen {
                 }
             }
             "float" => {
-                let inner = self.type_of(&args[0]);
+                let inner = self.t.type_of(&args[0]);
                 let e = self.emit_expr(&args[0]);
                 match inner {
                     Ty::Int => format!("({}) as f64", e),
@@ -649,7 +543,7 @@ impl Gen {
                 }
             }
             "length" => {
-                let inner = self.type_of(&args[0]);
+                let inner = self.t.type_of(&args[0]);
                 let e = self.emit_expr(&args[0]);
                 if inner == Ty::Str {
                     format!("({}).chars().count() as i64", e)
@@ -676,15 +570,10 @@ impl Gen {
         }
     }
 
-    fn emit_enum_lit(
-        &mut self,
-        enum_name: &str,
-        variant: &str,
-        fields: &[(String, Expr)],
-    ) -> String {
+    fn emit_enum_lit(&mut self, enum_name: &str, variant: &str, fields: &[(String, Expr)]) -> String {
         // Tuple variants are positional, so emit the values in the order the
         // enum declared its fields, not the order they were written.
-        let order: Option<Vec<String>> = self.env.enums.get(enum_name).and_then(|variants| {
+        let order: Option<Vec<String>> = self.t.env.enums.get(enum_name).and_then(|variants| {
             variants
                 .iter()
                 .find(|v| v.name == variant)
@@ -714,10 +603,8 @@ impl Gen {
         let base = self.indent;
         let ind = indent(base);
         let ind1 = indent(base + 1);
-        let st = self.type_of(scrutinee);
-        let needs_as_str = arms
-            .iter()
-            .any(|a| matches!(a.pattern, Pattern::Str(..)));
+        let st = self.t.type_of(scrutinee);
+        let needs_as_str = arms.iter().any(|a| matches!(a.pattern, Pattern::Str(..)));
         let scrut = if needs_as_str {
             let s = self.emit_expr(scrutinee);
             format!("{}.as_str()", s)
@@ -729,13 +616,13 @@ impl Gen {
             let pat = self.emit_pattern(&arm.pattern, &st);
             // Bring the pattern's captures into scope so the arm body types
             // correctly (a captured string should print without quotes).
-            self.push_scope();
+            self.t.push_scope();
             self.declare_bindings(&arm.pattern, &st);
             // Arm bodies sit one level in, so a nested match nests cleanly.
             self.indent = base + 1;
             let body = self.emit_expr(&arm.body);
             self.indent = base;
-            self.pop_scope();
+            self.t.pop_scope();
             s.push_str(&format!("{}{} => {},\n", ind1, pat, body));
         }
         s.push_str(&format!("{}}}", ind));
@@ -781,6 +668,7 @@ impl Gen {
             Ty::Result(o, _) if name == "ok" => vec![(**o).clone()],
             Ty::Result(_, e) if name == "err" => vec![(**e).clone()],
             Ty::User(en) => self
+                .t
                 .env
                 .enums
                 .get(en)
@@ -790,87 +678,7 @@ impl Gen {
             _ => Vec::new(),
         };
         for (b, t) in bindings.iter().zip(types) {
-            self.declare(b.clone(), t);
-        }
-    }
-
-    // --- type inference ----------------------------------------------------
-
-    fn type_of(&self, e: &Expr) -> Ty {
-        match e {
-            Expr::Int(..) => Ty::Int,
-            Expr::Float(..) => Ty::Float,
-            Expr::Str(..) => Ty::Str,
-            Expr::Bool(..) => Ty::Bool,
-            Expr::Ident(name, _) => {
-                if name == "none" {
-                    Ty::Option(Box::new(Ty::Unknown))
-                } else {
-                    self.lookup(name)
-                }
-            }
-            Expr::Array(els, _) => match els.first() {
-                Some(first) => Ty::Array(Box::new(self.type_of(first))),
-                None => Ty::Array(Box::new(Ty::Unknown)),
-            },
-            Expr::Unary { op, rhs, .. } => match op {
-                UnOp::Neg => self.type_of(rhs),
-                UnOp::Not => Ty::Bool,
-            },
-            Expr::Binary { op, lhs, .. } => match op {
-                BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge
-                | BinOp::And | BinOp::Or => Ty::Bool,
-                _ => self.type_of(lhs),
-            },
-            Expr::Index { base, .. } => match self.type_of(base) {
-                Ty::Array(t) => *t,
-                other => other,
-            },
-            Expr::Range { .. } => Ty::Range,
-            Expr::Call { name, args, .. } => self.call_type(name, args),
-            Expr::StructLit { name, .. } => Ty::User(name.clone()),
-            Expr::EnumLit { enum_name, .. } => Ty::User(enum_name.clone()),
-            Expr::Field { base, field, .. } => self.field_type(base, field),
-            Expr::Match { arms, .. } => arms
-                .first()
-                .map(|a| self.type_of(&a.body))
-                .unwrap_or(Ty::Unknown),
-        }
-    }
-
-    fn call_type(&self, name: &str, args: &[Expr]) -> Ty {
-        match name {
-            "print" => Ty::Unit,
-            "string" => Ty::Str,
-            "int" | "length" => Ty::Int,
-            "float" => Ty::Float,
-            "some" => Ty::Option(Box::new(self.type_of(&args[0]))),
-            "ok" => Ty::Result(Box::new(self.type_of(&args[0])), Box::new(Ty::Unknown)),
-            "err" => Ty::Result(Box::new(Ty::Unknown), Box::new(self.type_of(&args[0]))),
-            _ => match self.env.funcs.get(name) {
-                Some((_, Some(ret))) => ty_from_ann(ret),
-                Some((_, None)) => Ty::Unit,
-                None => Ty::Unknown,
-            },
-        }
-    }
-
-    fn field_type(&self, base: &Expr, field: &str) -> Ty {
-        if let Expr::Ident(n, _) = base
-            && let Some(variants) = self.env.enums.get(n)
-            && variants.iter().any(|v| v.name == *field)
-        {
-            return Ty::User(n.clone());
-        }
-        match self.type_of(base) {
-            Ty::User(s) => self
-                .env
-                .structs
-                .get(&s)
-                .and_then(|fields| fields.iter().find(|f| f.name == *field))
-                .map(|f| ty_from_ann(&f.ty))
-                .unwrap_or(Ty::Unknown),
-            _ => Ty::Unknown,
+            self.t.declare(b.clone(), t);
         }
     }
 }
@@ -880,18 +688,6 @@ fn paren_or_empty(binds: &[String]) -> String {
         String::new()
     } else {
         format!("({})", binds.join(", "))
-    }
-}
-
-/// Binding strength of a binary operator, loosest (`||`) to tightest (`*`).
-/// Used to decide which operands actually need parentheses.
-fn bin_prec(op: BinOp) -> u8 {
-    match op {
-        BinOp::Or => 1,
-        BinOp::And => 2,
-        BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => 3,
-        BinOp::Add | BinOp::Sub => 4,
-        BinOp::Mul | BinOp::Div | BinOp::Mod => 5,
     }
 }
 
@@ -907,88 +703,5 @@ fn is_place(e: &Expr) -> bool {
         Expr::Ident(n, _) => n != "none",
         Expr::Field { .. } | Expr::Index { .. } => true,
         _ => false,
-    }
-}
-
-fn op_str(op: BinOp) -> &'static str {
-    match op {
-        BinOp::Add => "+",
-        BinOp::Sub => "-",
-        BinOp::Mul => "*",
-        BinOp::Div => "/",
-        BinOp::Mod => "%",
-        BinOp::Eq => "==",
-        BinOp::Ne => "!=",
-        BinOp::Lt => "<",
-        BinOp::Gt => ">",
-        BinOp::Le => "<=",
-        BinOp::Ge => ">=",
-        BinOp::And => "&&",
-        BinOp::Or => "||",
-    }
-}
-
-fn indent(n: usize) -> String {
-    "    ".repeat(n)
-}
-
-/// `firstEven` becomes `first_even` — lux's camelCase identifiers become Rust's
-/// snake_case for functions, variables, and fields.
-fn to_snake(s: &str) -> String {
-    let mut out = String::new();
-    for (i, c) in s.chars().enumerate() {
-        if c.is_uppercase() {
-            if i != 0 {
-                out.push('_');
-            }
-            out.extend(c.to_lowercase());
-        } else {
-            out.push(c);
-        }
-    }
-    out
-}
-
-/// `circle` becomes `Circle` — lux's lowercase enum cases become Rust's
-/// PascalCase variants.
-fn to_pascal(s: &str) -> String {
-    let mut out = String::new();
-    let mut upper = true;
-    for c in s.chars() {
-        if c == '_' {
-            upper = true;
-        } else if upper {
-            out.extend(c.to_uppercase());
-            upper = false;
-        } else {
-            out.push(c);
-        }
-    }
-    out
-}
-
-fn escape(s: &str) -> String {
-    let mut out = String::new();
-    for c in s.chars() {
-        match c {
-            '\\' => out.push_str("\\\\"),
-            '"' => out.push_str("\\\""),
-            '\n' => out.push_str("\\n"),
-            '\t' => out.push_str("\\t"),
-            '\r' => out.push_str("\\r"),
-            _ => out.push(c),
-        }
-    }
-    out
-}
-
-/// Render a float so it always carries a decimal point, the way a Rust `f64`
-/// literal must: `2.0`, not `2`.
-fn format_float(f: f64) -> String {
-    let s = format!("{}", f);
-    if s.contains('.') || s.contains('e') || s.contains("inf") || s.contains("NaN") {
-        s
-    } else {
-        format!("{}.0", s)
     }
 }

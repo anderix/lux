@@ -15,9 +15,9 @@ reference, the tutorial, and the test corpus all at once.
 lux run examples/tour.lux
 ```
 
-`lux run` interprets a program directly. `lux convert rust <file.lux>` prints
-your program as real Rust source, and `lux build <file.lux>` runs that through
-`rustc` to a native binary. The `swift` and `go` convert backends come next.
+`lux run` interprets a program directly. `lux convert <rust|swift|go> <file.lux>`
+prints your program as real source in that language, and `lux build <file.lux>`
+runs the Rust translation through `rustc` to a native binary.
 
 ## Building from source
 
@@ -34,9 +34,12 @@ Early, and growing in milestones. `lux run` now covers the core (`print`,
 `let`/`var`, the four basic types, arithmetic, strings, `if`/`else`, `while`),
 functions with recursion, `for ... in`, ranges, and arrays, your own types
 (structs, enums with associated values, and exhaustive `match`), and no null —
-`Option<T>` and `Result<T, E>` instead. The first transpiler backend is live:
-`lux convert rust` turns any of these into idiomatic Rust, and `lux build`
-compiles it. Swift and Go follow. See the v0.1 scope notes at the bottom of
+`Option<T>` and `Result<T, E>` instead. All three transpiler backends are live:
+`lux convert` turns any of these into idiomatic Rust, Swift, or Go, each leaning
+on what that language already has — Swift's enums and `Optional`, Go's interfaces
+and `(value, error)` returns — and `lux build` compiles the Rust to a binary.
+That completes the v0.1 teaching surface: every feature is runnable and
+translatable to all three. See the scope notes at the bottom of
 [learn-lux.md](learn-lux.md).
 
 ## License
