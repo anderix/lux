@@ -73,3 +73,26 @@ for i in 1..6 {
     squares += i * i
 }
 print("squares:", squares)
+
+// Structs group related values into a type of your own.
+struct Point {
+    x: int
+    y: int
+}
+let here = Point(x: 3, y: 4)
+print("here:", here, "— x is", here.x)
+
+// Enums say a value is exactly one of a fixed set of cases, each able to carry
+// its own values. `match` takes them apart, and must cover every case.
+enum Shape {
+    circle(radius: float)
+    square(side: float)
+}
+func area(s: Shape) -> float {
+    return match s {
+        circle(let r) => 3.14159 * r * r
+        square(let a) => a * a
+    }
+}
+print("circle area:", area(Shape.circle(radius: 2.0)))
+print("square area:", area(Shape.square(side: 3.0)))

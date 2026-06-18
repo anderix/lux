@@ -23,6 +23,17 @@ pub enum Value {
     Array(Vec<Value>),
     /// A half-open range, the thing a `for i in 0..5` walks.
     Range(i64, i64),
+    /// A struct value: a named record of labelled fields, in declared order.
+    Struct {
+        name: String,
+        fields: Vec<(String, Value)>,
+    },
+    /// An enum value: one named case of an enum, carrying its labelled values.
+    Enum {
+        enum_name: String,
+        variant: String,
+        fields: Vec<(String, Value)>,
+    },
     /// The result of something done only for its effect, like `print`.
     Unit,
 }
@@ -36,6 +47,8 @@ impl Value {
             Value::Bool(_) => "bool",
             Value::Array(_) => "array",
             Value::Range(..) => "range",
+            Value::Struct { .. } => "struct",
+            Value::Enum { .. } => "enum",
             Value::Unit => "nothing",
         }
     }
@@ -55,6 +68,16 @@ struct FuncData {
     body: Vec<Stmt>,
 }
 
+/// A declared struct type: its fields, in declared order.
+struct StructData {
+    fields: Vec<FieldDef>,
+}
+
+/// A declared enum type: its cases, in declared order.
+struct EnumData {
+    variants: Vec<VariantDef>,
+}
+
 /// How a statement finished: either normally, or by hitting a `return`.
 enum Flow {
     Normal,
@@ -64,6 +87,8 @@ enum Flow {
 struct Interp {
     scopes: Vec<HashMap<String, Binding>>,
     funcs: HashMap<String, Rc<FuncData>>,
+    structs: HashMap<String, Rc<StructData>>,
+    enums: HashMap<String, Rc<EnumData>>,
 }
 
 /// Run a parsed program.
@@ -71,13 +96,83 @@ pub fn run(program: &[Stmt]) -> Result<(), LuxError> {
     let mut interp = Interp {
         scopes: vec![HashMap::new()],
         funcs: HashMap::new(),
+        structs: HashMap::new(),
+        enums: HashMap::new(),
     };
+    // Collect every type and function up front, so a program can refer to them
+    // before they appear in the file. Types come first because the validation
+    // pass and the functions can mention them.
+    interp.register_types(program)?;
+    interp.validate_type_decls(program)?;
     interp.register_funcs(program)?;
     interp.exec_block(program)?;
     Ok(())
 }
 
 impl Interp {
+    /// Collect every top-level `struct` and `enum`, checking for name clashes.
+    fn register_types(&mut self, program: &[Stmt]) -> Result<(), LuxError> {
+        for s in program {
+            match s {
+                Stmt::Struct { name, fields, span } => {
+                    if self.type_exists(name) {
+                        return Err(already_defined(name, *span));
+                    }
+                    self.structs.insert(
+                        name.clone(),
+                        Rc::new(StructData {
+                            fields: fields.clone(),
+                        }),
+                    );
+                }
+                Stmt::Enum {
+                    name,
+                    variants,
+                    span,
+                } => {
+                    if self.type_exists(name) {
+                        return Err(already_defined(name, *span));
+                    }
+                    self.enums.insert(
+                        name.clone(),
+                        Rc::new(EnumData {
+                            variants: variants.clone(),
+                        }),
+                    );
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    fn type_exists(&self, name: &str) -> bool {
+        self.structs.contains_key(name) || self.enums.contains_key(name)
+    }
+
+    /// Now that every type is registered, confirm each struct field and enum
+    /// case names a type that actually exists.
+    fn validate_type_decls(&self, program: &[Stmt]) -> Result<(), LuxError> {
+        for s in program {
+            match s {
+                Stmt::Struct { fields, .. } => {
+                    for f in fields {
+                        self.validate_type(&f.ty)?;
+                    }
+                }
+                Stmt::Enum { variants, .. } => {
+                    for v in variants {
+                        for f in &v.fields {
+                            self.validate_type(&f.ty)?;
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
     /// Collect every top-level `func` up front, so a program can call a
     /// function before it appears in the file.
     fn register_funcs(&mut self, program: &[Stmt]) -> Result<(), LuxError> {
@@ -158,7 +253,7 @@ impl Interp {
             } => {
                 let v = self.eval(value)?;
                 if let Some(ann) = ty {
-                    check_type(ann, &v)?;
+                    self.check_type(ann, &v)?;
                 }
                 if self.current_has(name) {
                     return Err(LuxError::new(
@@ -180,7 +275,7 @@ impl Interp {
                     Some(e) => {
                         let v = self.eval(e)?;
                         if let Some(ann) = ty {
-                            check_type(ann, &v)?;
+                            self.check_type(ann, &v)?;
                         }
                         v
                     }
@@ -189,7 +284,7 @@ impl Interp {
                             LuxError::new(format!("`{}` needs a type or a value", name), *span)
                                 .with_note("write `var x: int` or `var x = 0`")
                         })?;
-                        zero_value(ann)?
+                        self.zero_value(ann)?
                     }
                 };
                 if self.current_has(name) {
@@ -224,13 +319,13 @@ impl Interp {
                 let current = binding.value.clone();
                 let result = match op {
                     AssignOp::Set => {
-                        if current.type_name() != new.type_name() {
+                        if !same_type(&current, &new) {
                             return Err(LuxError::new(
                                 format!(
                                     "`{}` is {} but you assigned {}",
                                     name,
-                                    named(current.type_name()),
-                                    named(new.type_name())
+                                    value_type(&current),
+                                    value_type(&new)
                                 ),
                                 *span,
                             ));
@@ -244,9 +339,9 @@ impl Interp {
                 Ok(Flow::Normal)
             }
 
-            // Functions are registered up front; the declaration itself does
-            // nothing when execution reaches it.
-            Stmt::Func { .. } => Ok(Flow::Normal),
+            // Functions and types are registered up front; the declarations
+            // themselves do nothing when execution reaches them.
+            Stmt::Func { .. } | Stmt::Struct { .. } | Stmt::Enum { .. } => Ok(Flow::Normal),
 
             Stmt::Return { value, .. } => {
                 let v = match value {
@@ -365,9 +460,8 @@ impl Interp {
                 }
                 // Arrays are homogeneous: every element shares one type.
                 if let Some(first) = items.first() {
-                    let want = first.type_name();
                     for (v, e) in items.iter().zip(elems).skip(1) {
-                        if v.type_name() != want {
+                        if !same_type(first, v) {
                             return Err(LuxError::new(
                                 format!(
                                     "an array's elements must all be the same type, but found {} and {}",
@@ -463,7 +557,342 @@ impl Interp {
                 }
             }
             Expr::Call { name, args, span } => self.call(name, args, *span),
+            Expr::StructLit { name, fields, span } => self.eval_struct_lit(name, fields, *span),
+            Expr::EnumLit {
+                enum_name,
+                variant,
+                fields,
+                span,
+            } => self.construct_enum(enum_name, variant, fields, *span),
+            Expr::Field { base, field, span } => self.eval_field(base, field, *span),
+            Expr::Match {
+                scrutinee,
+                arms,
+                span,
+            } => self.eval_match(scrutinee, arms, *span),
         }
+    }
+
+    /// Build a struct value: evaluate each declared field in order, checking
+    /// that every field is supplied exactly once, with the right type.
+    fn eval_struct_lit(
+        &mut self,
+        name: &str,
+        provided: &[(String, Expr)],
+        span: Span,
+    ) -> Result<Value, LuxError> {
+        let data = match self.structs.get(name) {
+            Some(d) => Rc::clone(d),
+            None => {
+                return Err(LuxError::new(format!("unknown struct `{}`", name), span)
+                    .with_note("define it with `struct`, or check the spelling"));
+            }
+        };
+        // Reject fields that aren't part of this struct, blaming the field.
+        for (k, e) in provided {
+            if !data.fields.iter().any(|f| &f.name == k) {
+                return Err(LuxError::new(
+                    format!("struct `{}` has no field `{}`", name, k),
+                    e.span(),
+                ));
+            }
+        }
+        let mut built = Vec::with_capacity(data.fields.len());
+        for f in &data.fields {
+            let value_expr = match provided.iter().find(|(k, _)| k == &f.name) {
+                Some((_, e)) => e,
+                None => {
+                    return Err(LuxError::new(
+                        format!("missing field `{}` for struct `{}`", f.name, name),
+                        span,
+                    )
+                    .with_note(format!("`{}` has a field `{}: {}`", name, f.name, describe_type(&f.ty))));
+                }
+            };
+            let v = self.eval(value_expr)?;
+            if !self.type_matches(&f.ty, &v) {
+                return Err(LuxError::new(
+                    format!(
+                        "field `{}` of `{}` should be {}, but got {}",
+                        f.name,
+                        name,
+                        describe_type(&f.ty),
+                        value_type(&v)
+                    ),
+                    value_expr.span(),
+                ));
+            }
+            built.push((f.name.clone(), v));
+        }
+        Ok(Value::Struct {
+            name: name.to_string(),
+            fields: built,
+        })
+    }
+
+    /// Build an enum value: find the case, then match the supplied labelled
+    /// values against the case's declared fields.
+    fn construct_enum(
+        &mut self,
+        enum_name: &str,
+        variant: &str,
+        provided: &[(String, Expr)],
+        span: Span,
+    ) -> Result<Value, LuxError> {
+        let data = match self.enums.get(enum_name) {
+            Some(d) => Rc::clone(d),
+            None => {
+                return Err(LuxError::new(format!("unknown enum `{}`", enum_name), span)
+                    .with_note("define it with `enum`, or check the spelling"));
+            }
+        };
+        let vdef = match data.variants.iter().find(|v| v.name == variant) {
+            Some(v) => v,
+            None => {
+                return Err(LuxError::new(
+                    format!("enum `{}` has no case `{}`", enum_name, variant),
+                    span,
+                )
+                .with_note(format!("cases are: {}", variant_names(&data))));
+            }
+        };
+        if provided.len() != vdef.fields.len() {
+            return Err(LuxError::new(
+                format!(
+                    "`{}.{}` carries {}, but you gave {}",
+                    enum_name,
+                    variant,
+                    count(vdef.fields.len(), "value"),
+                    provided.len()
+                ),
+                span,
+            ));
+        }
+        let mut built = Vec::with_capacity(vdef.fields.len());
+        for f in &vdef.fields {
+            let value_expr = match provided.iter().find(|(k, _)| k == &f.name) {
+                Some((_, e)) => e,
+                None => {
+                    return Err(LuxError::new(
+                        format!("missing value `{}` for `{}.{}`", f.name, enum_name, variant),
+                        span,
+                    ));
+                }
+            };
+            let v = self.eval(value_expr)?;
+            if !self.type_matches(&f.ty, &v) {
+                return Err(LuxError::new(
+                    format!(
+                        "`{}` in `{}.{}` should be {}, but got {}",
+                        f.name,
+                        enum_name,
+                        variant,
+                        describe_type(&f.ty),
+                        value_type(&v)
+                    ),
+                    value_expr.span(),
+                ));
+            }
+            built.push((f.name.clone(), v));
+        }
+        Ok(Value::Enum {
+            enum_name: enum_name.to_string(),
+            variant: variant.to_string(),
+            fields: built,
+        })
+    }
+
+    /// Read a struct field, or construct a payload-less enum case written as
+    /// `Shape.dot`. The two look identical, so the enum table decides: if the
+    /// thing before the dot is an enum name (and not a variable), it's a case.
+    fn eval_field(&mut self, base: &Expr, field: &str, span: Span) -> Result<Value, LuxError> {
+        if let Expr::Ident(n, nspan) = base {
+            if self.lookup(n).is_none() {
+                if self.enums.contains_key(n) {
+                    return self.construct_enum(n, field, &[], span);
+                }
+                // `Name.field` where `Name` is neither a value nor an enum: most
+                // likely a misspelled type or variable. Point at both fixes.
+                return Err(LuxError::new(format!("`{}` is not defined", n), *nspan)
+                    .with_note("if it's an enum, declare it with `enum`; otherwise declare the value with let or var"));
+            }
+        }
+        let v = self.eval(base)?;
+        match v {
+            Value::Struct { name, fields } => match fields.iter().find(|(k, _)| k == field) {
+                Some((_, val)) => Ok(val.clone()),
+                None => Err(LuxError::new(
+                    format!("struct `{}` has no field `{}`", name, field),
+                    span,
+                )),
+            },
+            other => Err(LuxError::new(
+                format!(
+                    "cannot read field `{}` of {}; only structs have fields",
+                    field,
+                    value_type(&other)
+                ),
+                base.span(),
+            )),
+        }
+    }
+
+    /// Evaluate a `match`: check it covers its cases, then run the one arm whose
+    /// pattern fits the scrutinee, binding any captured values.
+    fn eval_match(
+        &mut self,
+        scrutinee: &Expr,
+        arms: &[MatchArm],
+        span: Span,
+    ) -> Result<Value, LuxError> {
+        let v = self.eval(scrutinee)?;
+        match &v {
+            Value::Enum {
+                enum_name,
+                variant,
+                fields,
+            } => {
+                let data = Rc::clone(
+                    self.enums
+                        .get(enum_name)
+                        .expect("an enum value implies a registered enum"),
+                );
+                let has_wildcard = arms
+                    .iter()
+                    .any(|a| matches!(a.pattern, Pattern::Wildcard(_)));
+
+                // Every arm of an enum match must name a real case (or be `_`).
+                for a in arms {
+                    match &a.pattern {
+                        Pattern::Variant { name, span: psp, .. } => {
+                            if !data.variants.iter().any(|vd| &vd.name == name) {
+                                return Err(LuxError::new(
+                                    format!("enum `{}` has no case `{}`", enum_name, name),
+                                    *psp,
+                                )
+                                .with_note(format!("cases are: {}", variant_names(&data))));
+                            }
+                        }
+                        Pattern::Wildcard(_) => {}
+                        other => {
+                            return Err(LuxError::new(
+                                format!(
+                                    "this matches on enum `{}`, so each arm must be a case name or `_`",
+                                    enum_name
+                                ),
+                                other.span(),
+                            ));
+                        }
+                    }
+                }
+
+                // Exhaustiveness: without a `_`, every case must be handled.
+                if !has_wildcard {
+                    let missing: Vec<String> = data
+                        .variants
+                        .iter()
+                        .filter(|vd| {
+                            !arms.iter().any(|a| {
+                                matches!(&a.pattern, Pattern::Variant { name, .. } if name == &vd.name)
+                            })
+                        })
+                        .map(|vd| vd.name.clone())
+                        .collect();
+                    if !missing.is_empty() {
+                        return Err(LuxError::new(
+                            format!("this match on `{}` doesn't handle every case", enum_name),
+                            span,
+                        )
+                        .with_note(format!(
+                            "add an arm for: {} (or a `_` catch-all)",
+                            missing.join(", ")
+                        )));
+                    }
+                }
+
+                // Run the first arm that fits, top to bottom.
+                for a in arms {
+                    match &a.pattern {
+                        Pattern::Variant { name, bindings, span: psp } if name == variant => {
+                            if bindings.len() != fields.len() {
+                                return Err(LuxError::new(
+                                    format!(
+                                        "case `{}` carries {}, but the pattern captures {}",
+                                        name,
+                                        count(fields.len(), "value"),
+                                        bindings.len()
+                                    ),
+                                    *psp,
+                                ));
+                            }
+                            self.push();
+                            for (b, (_, val)) in bindings.iter().zip(fields.iter()) {
+                                self.declare(b.clone(), val.clone(), false);
+                            }
+                            let r = self.eval(&a.body);
+                            self.pop();
+                            return r;
+                        }
+                        Pattern::Wildcard(_) => return self.eval(&a.body),
+                        _ => continue,
+                    }
+                }
+                unreachable!("exhaustiveness guarantees a matching arm")
+            }
+            other => self.match_value(other, arms, scrutinee.span(), span),
+        }
+    }
+
+    /// Match a plain value (int, string, bool) against literal patterns. These
+    /// domains are open, so a `_` catch-all is required.
+    fn match_value(
+        &mut self,
+        v: &Value,
+        arms: &[MatchArm],
+        scrutinee_span: Span,
+        span: Span,
+    ) -> Result<Value, LuxError> {
+        if !matches!(v, Value::Int(_) | Value::Str(_) | Value::Bool(_)) {
+            return Err(LuxError::new(
+                format!(
+                    "cannot match on {}; match works on enums, int, string, and bool",
+                    value_type(v)
+                ),
+                scrutinee_span,
+            ));
+        }
+        // A value match needs a `_`, since int and string have endless values.
+        // bool is the exception: `true` and `false` together cover everything.
+        let has_wildcard = arms.iter().any(|a| matches!(a.pattern, Pattern::Wildcard(_)));
+        let bool_exhaustive = matches!(v, Value::Bool(_))
+            && arms.iter().any(|a| matches!(a.pattern, Pattern::Bool(true, _)))
+            && arms.iter().any(|a| matches!(a.pattern, Pattern::Bool(false, _)));
+        if !has_wildcard && !bool_exhaustive {
+            return Err(LuxError::new(
+                format!("this match on {} needs a `_` case", value_type(v)),
+                span,
+            )
+            .with_note("matching a value (not an enum) can't be exhaustive, so add `_ => ...`"));
+        }
+        for a in arms {
+            let fits = match (&a.pattern, v) {
+                (Pattern::Wildcard(_), _) => true,
+                (Pattern::Int(n, _), Value::Int(m)) => n == m,
+                (Pattern::Str(s, _), Value::Str(t)) => s == t,
+                (Pattern::Bool(b, _), Value::Bool(c)) => b == c,
+                (Pattern::Variant { span: psp, .. }, _) => {
+                    return Err(LuxError::new(
+                        format!("this is {}, not an enum, so it has no cases", value_type(v)),
+                        *psp,
+                    ));
+                }
+                _ => false,
+            };
+            if fits {
+                return self.eval(&a.body);
+            }
+        }
+        unreachable!("the required `_` arm guarantees a match")
     }
 
     fn eval_bool(&mut self, e: &Expr) -> Result<bool, LuxError> {
@@ -579,8 +1008,8 @@ impl Interp {
         let mut frame = HashMap::new();
         for (param, arg) in func.params.iter().zip(args) {
             let v = self.eval(arg)?;
-            validate_type(&param.ty)?;
-            if !type_matches(&param.ty, &v) {
+            self.validate_type(&param.ty)?;
+            if !self.type_matches(&param.ty, &v) {
                 return Err(LuxError::new(
                     format!(
                         "`{}` expects `{}` to be {}, but got {}",
@@ -613,7 +1042,7 @@ impl Interp {
 
         match &func.ret {
             Some(ann) => {
-                validate_type(ann)?;
+                self.validate_type(ann)?;
                 if matches!(returned, Value::Unit) {
                     return Err(LuxError::new(
                         format!(
@@ -624,7 +1053,7 @@ impl Interp {
                         span,
                     ));
                 }
-                if !type_matches(ann, &returned) {
+                if !self.type_matches(ann, &returned) {
                     return Err(LuxError::new(
                         format!(
                             "`{}` should return {}, but returned {}",
@@ -646,6 +1075,82 @@ impl Interp {
                     .with_note("add `-> type` to the signature if it should return something"));
                 }
                 Ok(Value::Unit)
+            }
+        }
+    }
+
+    // ----- types: annotations, matching, and zero values --------------------
+
+    /// Check that every name in an annotation is a real type: a built-in, or a
+    /// struct or enum the program declares.
+    fn validate_type(&self, ann: &TypeAnn) -> Result<(), LuxError> {
+        match &ann.kind {
+            TypeKind::Named(n) => {
+                if matches!(n.as_str(), "int" | "float" | "string" | "bool") || self.type_exists(n)
+                {
+                    Ok(())
+                } else {
+                    Err(LuxError::new(format!("unknown type `{}`", n), ann.span).with_note(
+                        "known types: int, float, string, bool, arrays like [int], and any struct or enum you define",
+                    ))
+                }
+            }
+            TypeKind::Array(elem) => self.validate_type(elem),
+        }
+    }
+
+    /// Does a runtime value satisfy a type annotation? Assumes the annotation's
+    /// names are already known (see `validate_type`). An empty array satisfies
+    /// any array type, since it has no elements to disagree.
+    fn type_matches(&self, ann: &TypeAnn, v: &Value) -> bool {
+        match (&ann.kind, v) {
+            (TypeKind::Named(n), Value::Struct { name, .. }) => n == name,
+            (TypeKind::Named(n), Value::Enum { enum_name, .. }) => n == enum_name,
+            (TypeKind::Named(n), _) => n == v.type_name(),
+            (TypeKind::Array(elem), Value::Array(items)) => {
+                items.iter().all(|it| self.type_matches(elem, it))
+            }
+            _ => false,
+        }
+    }
+
+    /// Validate an annotation and confirm a value matches it. Used by `let`/`var`
+    /// type annotations, where the annotation is the thing to blame.
+    fn check_type(&self, ann: &TypeAnn, v: &Value) -> Result<(), LuxError> {
+        self.validate_type(ann)?;
+        if !self.type_matches(ann, v) {
+            return Err(LuxError::new(
+                format!(
+                    "type mismatch: annotated `{}` but the value is {}",
+                    describe_type(ann),
+                    value_type(v)
+                ),
+                ann.span,
+            ));
+        }
+        Ok(())
+    }
+
+    /// The starting value for a `var` declared with a type but no initializer.
+    /// Structs and enums have no obvious zero, so they need an explicit value.
+    fn zero_value(&self, ann: &TypeAnn) -> Result<Value, LuxError> {
+        match &ann.kind {
+            TypeKind::Named(n) => match n.as_str() {
+                "int" => Ok(Value::Int(0)),
+                "float" => Ok(Value::Float(0.0)),
+                "string" => Ok(Value::Str(String::new())),
+                "bool" => Ok(Value::Bool(false)),
+                _ if self.type_exists(n) => Err(LuxError::new(
+                    format!("a `var` of type `{}` needs a starting value", n),
+                    ann.span,
+                )
+                .with_note(format!("write `var x = {}(...)`", n))),
+                _ => Err(LuxError::new(format!("unknown type `{}`", n), ann.span)
+                    .with_note("v0.1 has int, float, string, bool, and arrays like [int]")),
+            },
+            TypeKind::Array(elem) => {
+                self.validate_type(elem)?;
+                Ok(Value::Array(Vec::new()))
             }
         }
     }
@@ -700,9 +1205,11 @@ fn named(type_name: &str) -> String {
 fn value_type(v: &Value) -> String {
     match v {
         Value::Array(items) => match items.first() {
-            Some(first) => format!("[{}]", first.type_name()),
+            Some(first) => format!("[{}]", value_type(first)),
             None => "[]".to_string(),
         },
+        Value::Struct { name, .. } => name.clone(),
+        Value::Enum { enum_name, .. } => enum_name.clone(),
         other => other.type_name().to_string(),
     }
 }
@@ -712,12 +1219,12 @@ fn append_or_add(current: Value, new: Value, span: Span) -> Result<Value, LuxErr
     match current {
         Value::Array(mut items) => {
             if let Some(first) = items.first() {
-                if first.type_name() != new.type_name() {
+                if !same_type(first, &new) {
                     return Err(LuxError::new(
                         format!(
                             "cannot add {} to an array of {}",
                             value_type(&new),
-                            first.type_name()
+                            value_type(first)
                         ),
                         span,
                     ));
@@ -780,13 +1287,9 @@ fn modulo(a: &Value, b: &Value, span: Span) -> Result<Value, LuxError> {
 }
 
 fn equality(a: &Value, b: &Value, span: Span, negate: bool) -> Result<Value, LuxError> {
-    if a.type_name() != b.type_name() {
+    if !same_type(a, b) {
         return Err(LuxError::new(
-            format!(
-                "cannot compare {} with {}",
-                named(a.type_name()),
-                named(b.type_name())
-            ),
+            format!("cannot compare {} with {}", value_type(a), value_type(b)),
             span,
         )
         .with_note("both sides of == and != must be the same type"));
@@ -862,67 +1365,33 @@ fn describe_type(ann: &TypeAnn) -> String {
     }
 }
 
-/// Does a runtime value satisfy a type annotation? Assumes the annotation's
-/// names are already known (see `validate_type`). An empty array satisfies any
-/// array type, since it has no elements to disagree.
-fn type_matches(ann: &TypeAnn, v: &Value) -> bool {
-    match (&ann.kind, v) {
-        (TypeKind::Named(n), _) => n == v.type_name(),
-        (TypeKind::Array(elem), Value::Array(items)) => {
-            items.iter().all(|it| type_matches(elem, it))
-        }
-        _ => false,
-    }
-}
-
-/// Check that every name in an annotation is a real type.
-fn validate_type(ann: &TypeAnn) -> Result<(), LuxError> {
-    match &ann.kind {
-        TypeKind::Named(n) => {
-            if matches!(n.as_str(), "int" | "float" | "string" | "bool") {
-                Ok(())
-            } else {
-                Err(LuxError::new(format!("unknown type `{}`", n), ann.span)
-                    .with_note("v0.1 has int, float, string, bool, and arrays like [int]"))
-            }
-        }
-        TypeKind::Array(elem) => validate_type(elem),
-    }
-}
-
-/// Validate an annotation and confirm a value matches it. Used by `let`/`var`
-/// type annotations, where the annotation is the thing to blame.
-fn check_type(ann: &TypeAnn, v: &Value) -> Result<(), LuxError> {
-    validate_type(ann)?;
-    if !type_matches(ann, v) {
-        return Err(LuxError::new(
-            format!(
-                "type mismatch: annotated `{}` but the value is {}",
-                describe_type(ann),
-                value_type(v)
-            ),
-            ann.span,
-        ));
-    }
-    Ok(())
-}
-
-/// The starting value for a `var` declared with a type but no initializer.
-fn zero_value(ann: &TypeAnn) -> Result<Value, LuxError> {
-    match &ann.kind {
-        TypeKind::Named(n) => match n.as_str() {
-            "int" => Ok(Value::Int(0)),
-            "float" => Ok(Value::Float(0.0)),
-            "string" => Ok(Value::Str(String::new())),
-            "bool" => Ok(Value::Bool(false)),
-            _ => Err(LuxError::new(format!("unknown type `{}`", n), ann.span)
-                .with_note("v0.1 has int, float, string, bool, and arrays like [int]")),
+/// Do two values share a type? For scalars this is just their type name; for
+/// structs and enums it's the declared type name (a Point is not a Color); for
+/// arrays it's the element type, with an empty array compatible with any.
+fn same_type(a: &Value, b: &Value) -> bool {
+    match (a, b) {
+        (Value::Struct { name: x, .. }, Value::Struct { name: y, .. }) => x == y,
+        (Value::Enum { enum_name: x, .. }, Value::Enum { enum_name: y, .. }) => x == y,
+        (Value::Array(x), Value::Array(y)) => match (x.first(), y.first()) {
+            (Some(a), Some(b)) => same_type(a, b),
+            _ => true,
         },
-        TypeKind::Array(elem) => {
-            validate_type(elem)?;
-            Ok(Value::Array(Vec::new()))
-        }
+        _ => a.type_name() == b.type_name(),
     }
+}
+
+/// The comma-separated case names of an enum, for "did you mean" notes.
+fn variant_names(data: &EnumData) -> String {
+    data.variants
+        .iter()
+        .map(|v| v.name.clone())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// The error for declaring two types with the same name.
+fn already_defined(name: &str, span: Span) -> LuxError {
+    LuxError::new(format!("type `{}` is already defined", name), span)
 }
 
 /// "1 value" / "2 values" — small helper for argument-count errors.
@@ -949,6 +1418,20 @@ fn display(v: &Value) -> String {
             format!("[{}]", parts.join(", "))
         }
         Value::Range(lo, hi) => format!("{}..{}", lo, hi),
+        Value::Struct { name, fields } => {
+            format!("{}({})", name, display_fields(fields))
+        }
+        Value::Enum {
+            enum_name,
+            variant,
+            fields,
+        } => {
+            if fields.is_empty() {
+                format!("{}.{}", enum_name, variant)
+            } else {
+                format!("{}.{}({})", enum_name, variant, display_fields(fields))
+            }
+        }
         Value::Unit => String::new(),
     }
 }
@@ -959,4 +1442,14 @@ fn format_float(f: f64) -> String {
     } else {
         format!("{}", f)
     }
+}
+
+/// Render labelled fields as `name: value, name: value`, shared by structs and
+/// enum cases so they print the way they were built.
+fn display_fields(fields: &[(String, Value)]) -> String {
+    fields
+        .iter()
+        .map(|(k, v)| format!("{}: {}", k, display(v)))
+        .collect::<Vec<_>>()
+        .join(", ")
 }

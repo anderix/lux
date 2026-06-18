@@ -1,0 +1,67 @@
+// Milestone 3 adds your own types: structs group related values, and enums say
+// a value is exactly one of a fixed set of cases. `match` takes them apart.
+
+// A struct groups values under one name. Build it by naming its fields.
+struct Point {
+    x: int
+    y: int
+}
+
+let origin = Point(x: 0, y: 0)
+let corner = Point(x: 3, y: 4)
+
+// Read a field with a dot.
+print("corner is", corner.x, corner.y)
+
+// Structs pass to functions and come back from them like any other value.
+func distanceSquared(p: Point) -> int {
+    return p.x * p.x + p.y * p.y
+}
+print("distance^2 from origin:", distanceSquared(corner))
+
+// Two structs are equal when every field is equal.
+print("origin == origin:", origin == origin)
+print("origin == corner:", origin == corner)
+
+// An enum is one of a fixed set of cases, and a case can carry its own values.
+enum Shape {
+    circle(radius: float)
+    rectangle(width: float, height: float)
+    dot
+}
+
+// `match` picks the arm for the case in hand and binds the values it carries.
+// Every case must be handled — leave one out and lux refuses to run.
+func area(s: Shape) -> float {
+    return match s {
+        circle(let r)           => 3.14159 * r * r
+        rectangle(let w, let h) => w * h
+        dot                     => 0.0
+    }
+}
+
+let shapes = [
+    Shape.circle(radius: 2.0),
+    Shape.rectangle(width: 3.0, height: 4.0),
+    Shape.dot,
+]
+
+for shape in shapes {
+    print(shape, "has area", area(shape))
+}
+
+// match works on plain values too, but an int has no end of cases, so a value
+// match needs a `_` catch-all.
+func sign(n: int) -> string {
+    return match n {
+        0 => "zero"
+        _ => match n > 0 {
+            true  => "positive"
+            false => "negative"
+        }
+    }
+}
+
+for n in [-3, 0, 5] {
+    print(n, "is", sign(n))
+}

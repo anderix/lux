@@ -111,6 +111,8 @@ impl Parser {
             Tok::Var => self.var_stmt(),
             Tok::Func => self.func_stmt(),
             Tok::Return => self.return_stmt(),
+            Tok::Struct => self.struct_stmt(),
+            Tok::Enum => self.enum_stmt(),
             Tok::If => self.if_stmt(),
             Tok::While => self.while_stmt(),
             Tok::For => self.for_stmt(),
@@ -196,6 +198,9 @@ impl Parser {
                 params.push(Param { name, ty, span });
                 if matches!(self.peek_tok(), Tok::Comma) {
                     self.advance();
+                    if matches!(self.peek_tok(), Tok::RParen) {
+                        break;
+                    }
                 } else {
                     break;
                 }
@@ -203,6 +208,79 @@ impl Parser {
         }
         self.expect(&Tok::RParen, "')' to close the parameter list")?;
         Ok(params)
+    }
+
+    fn struct_stmt(&mut self) -> Result<Stmt, LuxError> {
+        let start = self.span();
+        self.advance(); // struct
+        let (name, _) = self.ident("a struct name after 'struct'")?;
+        self.expect(&Tok::LBrace, "'{' to start the struct body")?;
+        let mut fields = Vec::new();
+        while !matches!(self.peek_tok(), Tok::RBrace | Tok::Eof) {
+            fields.push(self.field_def()?);
+            // Fields are separated by newlines; a comma between them is allowed.
+            if matches!(self.peek_tok(), Tok::Comma) {
+                self.advance();
+            }
+        }
+        self.expect(&Tok::RBrace, "'}' to close the struct")?;
+        Ok(Stmt::Struct {
+            name,
+            fields,
+            span: start,
+        })
+    }
+
+    fn enum_stmt(&mut self) -> Result<Stmt, LuxError> {
+        let start = self.span();
+        self.advance(); // enum
+        let (name, _) = self.ident("an enum name after 'enum'")?;
+        self.expect(&Tok::LBrace, "'{' to start the enum body")?;
+        let mut variants = Vec::new();
+        while !matches!(self.peek_tok(), Tok::RBrace | Tok::Eof) {
+            let (vname, vspan) = self.ident("a case name")?;
+            let mut fields = Vec::new();
+            if matches!(self.peek_tok(), Tok::LParen) {
+                self.advance(); // (
+                if !matches!(self.peek_tok(), Tok::RParen) {
+                    loop {
+                        fields.push(self.field_def()?);
+                        if matches!(self.peek_tok(), Tok::Comma) {
+                            self.advance();
+                            if matches!(self.peek_tok(), Tok::RParen) {
+                                break;
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                self.expect(&Tok::RParen, "')' to close the case's values")?;
+            }
+            variants.push(VariantDef {
+                name: vname,
+                fields,
+                span: vspan,
+            });
+            if matches!(self.peek_tok(), Tok::Comma) {
+                self.advance();
+            }
+        }
+        self.expect(&Tok::RBrace, "'}' to close the enum")?;
+        Ok(Stmt::Enum {
+            name,
+            variants,
+            span: start,
+        })
+    }
+
+    /// Parse one `name: type` field declaration.
+    fn field_def(&mut self) -> Result<FieldDef, LuxError> {
+        let (name, name_span) = self.ident("a field name")?;
+        self.expect(&Tok::Colon, "':' and a type for the field")?;
+        let ty = self.parse_type()?;
+        let span = name_span.to(ty.span);
+        Ok(FieldDef { name, ty, span })
     }
 
     fn return_stmt(&mut self) -> Result<Stmt, LuxError> {
@@ -437,21 +515,183 @@ impl Parser {
         }
     }
 
-    /// A primary expression followed by any number of `[index]` lookups.
+    /// A primary expression followed by any number of `[index]` lookups and
+    /// `.field` accesses. A `.case(...)` after a bare name is enum construction.
     fn postfix(&mut self) -> Result<Expr, LuxError> {
         let mut e = self.primary()?;
-        while matches!(self.peek_tok(), Tok::LBracket) {
-            self.advance();
-            let index = self.expression()?;
-            let close = self.expect(&Tok::RBracket, "']' to close the index")?;
-            let span = e.span().to(close.span);
-            e = Expr::Index {
-                base: Box::new(e),
-                index: Box::new(index),
-                span,
-            };
+        loop {
+            match self.peek_tok() {
+                Tok::LBracket => {
+                    self.advance();
+                    let index = self.expression()?;
+                    let close = self.expect(&Tok::RBracket, "']' to close the index")?;
+                    let span = e.span().to(close.span);
+                    e = Expr::Index {
+                        base: Box::new(e),
+                        index: Box::new(index),
+                        span,
+                    };
+                }
+                Tok::Dot => {
+                    self.advance();
+                    let (field, field_span) = self.ident("a field or case name after '.'")?;
+                    if matches!(self.peek_tok(), Tok::LParen) {
+                        // `Name.case(label: value, ...)` — enum construction. The
+                        // thing before the dot must be a bare enum name.
+                        let enum_name = match &e {
+                            Expr::Ident(n, _) => n.clone(),
+                            _ => {
+                                return Err(LuxError::new(
+                                    "only an enum name can be used like `Name.case(...)`",
+                                    e.span(),
+                                ));
+                            }
+                        };
+                        self.advance(); // (
+                        let fields = self.label_list()?;
+                        let close = self.expect(&Tok::RParen, "')' to close the case's values")?;
+                        let span = e.span().to(close.span);
+                        e = Expr::EnumLit {
+                            enum_name,
+                            variant: field,
+                            fields,
+                            span,
+                        };
+                    } else {
+                        let span = e.span().to(field_span);
+                        e = Expr::Field {
+                            base: Box::new(e),
+                            field,
+                            span,
+                        };
+                    }
+                }
+                _ => break,
+            }
         }
         Ok(e)
+    }
+
+    /// Parse a parenthesized list of `name: value` pairs, with the opening `(`
+    /// already consumed and the closing `)` left for the caller. Shared by
+    /// struct literals and enum construction.
+    fn label_list(&mut self) -> Result<Vec<(String, Expr)>, LuxError> {
+        let mut fields = Vec::new();
+        if !matches!(self.peek_tok(), Tok::RParen) {
+            loop {
+                let (name, _) = self.ident("a field name")?;
+                self.expect(&Tok::Colon, "':' after the field name")?;
+                let value = self.expression()?;
+                fields.push((name, value));
+                if matches!(self.peek_tok(), Tok::Comma) {
+                    self.advance();
+                    if matches!(self.peek_tok(), Tok::RParen) {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+        }
+        Ok(fields)
+    }
+
+    /// `match scrutinee { pattern => expr ... }`.
+    fn match_expr(&mut self) -> Result<Expr, LuxError> {
+        let start = self.span();
+        self.advance(); // match
+        let scrutinee = self.expression()?;
+        self.expect(&Tok::LBrace, "'{' to start the match arms")?;
+        let mut arms = Vec::new();
+        while !matches!(self.peek_tok(), Tok::RBrace | Tok::Eof) {
+            let pattern = self.pattern()?;
+            self.expect(&Tok::FatArrow, "'=>' after the pattern")?;
+            let body = self.expression()?;
+            let span = pattern.span().to(body.span());
+            arms.push(MatchArm {
+                pattern,
+                body,
+                span,
+            });
+        }
+        let close = self.expect(&Tok::RBrace, "'}' to close the match")?;
+        Ok(Expr::Match {
+            scrutinee: Box::new(scrutinee),
+            arms,
+            span: start.to(close.span),
+        })
+    }
+
+    /// Parse one match pattern: a literal, an enum case (with optional captured
+    /// names), or `_`.
+    fn pattern(&mut self) -> Result<Pattern, LuxError> {
+        let t = self.peek().clone();
+        match t.tok {
+            Tok::Int(v) => {
+                self.advance();
+                Ok(Pattern::Int(v, t.span))
+            }
+            Tok::Minus => {
+                self.advance();
+                let nt = self.peek().clone();
+                if let Tok::Int(v) = nt.tok {
+                    self.advance();
+                    Ok(Pattern::Int(-v, t.span.to(nt.span)))
+                } else {
+                    Err(LuxError::new("expected a number after '-' in a pattern", nt.span))
+                }
+            }
+            Tok::Str(s) => {
+                self.advance();
+                Ok(Pattern::Str(s, t.span))
+            }
+            Tok::True => {
+                self.advance();
+                Ok(Pattern::Bool(true, t.span))
+            }
+            Tok::False => {
+                self.advance();
+                Ok(Pattern::Bool(false, t.span))
+            }
+            Tok::Ident(name) => {
+                self.advance();
+                if name == "_" {
+                    Ok(Pattern::Wildcard(t.span))
+                } else if matches!(self.peek_tok(), Tok::LParen) {
+                    self.advance(); // (
+                    let mut bindings = Vec::new();
+                    if !matches!(self.peek_tok(), Tok::RParen) {
+                        loop {
+                            self.expect(&Tok::Let, "'let' before each captured name, like circle(let r)")?;
+                            let (b, _) = self.ident("a name to bind")?;
+                            bindings.push(b);
+                            if matches!(self.peek_tok(), Tok::Comma) {
+                                self.advance();
+                                if matches!(self.peek_tok(), Tok::RParen) {
+                                    break;
+                                }
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                    let close = self.expect(&Tok::RParen, "')' to close the pattern")?;
+                    Ok(Pattern::Variant {
+                        name,
+                        bindings,
+                        span: t.span.to(close.span),
+                    })
+                } else {
+                    Ok(Pattern::Variant {
+                        name,
+                        bindings: Vec::new(),
+                        span: t.span,
+                    })
+                }
+            }
+            _ => Err(LuxError::new("expected a pattern", t.span)
+                .with_note("a pattern is a case name, a literal (int, string, true/false), or `_`")),
+        }
     }
 
     fn primary(&mut self) -> Result<Expr, LuxError> {
@@ -491,6 +731,10 @@ impl Parser {
                         elems.push(self.expression()?);
                         if matches!(self.peek_tok(), Tok::Comma) {
                             self.advance();
+                            // A trailing comma is allowed: stop if the list closed.
+                            if matches!(self.peek_tok(), Tok::RBracket) {
+                                break;
+                            }
                         } else {
                             break;
                         }
@@ -499,27 +743,46 @@ impl Parser {
                 let close = self.expect(&Tok::RBracket, "']' to close the array")?;
                 Ok(Expr::Array(elems, t.span.to(close.span)))
             }
+            Tok::Match => self.match_expr(),
             Tok::Ident(name) => {
                 self.advance();
                 if matches!(self.peek_tok(), Tok::LParen) {
-                    self.advance();
-                    let mut args = Vec::new();
-                    if !matches!(self.peek_tok(), Tok::RParen) {
-                        loop {
-                            args.push(self.expression()?);
-                            if matches!(self.peek_tok(), Tok::Comma) {
-                                self.advance();
-                            } else {
-                                break;
+                    self.advance(); // (
+                    // `Name(field: ...)` is a struct literal; `Name(value, ...)`
+                    // is a function call. Labelled fields have a `:` after the
+                    // first name, which never appears in a positional argument.
+                    if matches!(self.peek_tok(), Tok::Ident(_))
+                        && matches!(self.next_tok(), Tok::Colon)
+                    {
+                        let fields = self.label_list()?;
+                        let close = self.expect(&Tok::RParen, "')' to close the struct fields")?;
+                        Ok(Expr::StructLit {
+                            name,
+                            fields,
+                            span: t.span.to(close.span),
+                        })
+                    } else {
+                        let mut args = Vec::new();
+                        if !matches!(self.peek_tok(), Tok::RParen) {
+                            loop {
+                                args.push(self.expression()?);
+                                if matches!(self.peek_tok(), Tok::Comma) {
+                                    self.advance();
+                                    if matches!(self.peek_tok(), Tok::RParen) {
+                                        break;
+                                    }
+                                } else {
+                                    break;
+                                }
                             }
                         }
+                        let close = self.expect(&Tok::RParen, "')' to close the call")?;
+                        Ok(Expr::Call {
+                            name,
+                            args,
+                            span: t.span.to(close.span),
+                        })
                     }
-                    let close = self.expect(&Tok::RParen, "')' to close the call")?;
-                    Ok(Expr::Call {
-                        name,
-                        args,
-                        span: t.span.to(close.span),
-                    })
                 } else {
                     Ok(Expr::Ident(name, t.span))
                 }

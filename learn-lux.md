@@ -254,18 +254,20 @@ enum Shape {
 let c = Shape.circle(radius: 2.0)
 
 // `match` looks at which case a value is and pulls out the values inside it.
-// You must handle every case — lux won't compile if you forget one.
+// You must handle every case, or lux stops you. A `match` is an expression —
+// it produces the value of the one arm that fits — so you `return` it.
 func area(s: Shape) -> float {
-    match s {
+    return match s {
         circle(let r)           => 3.14159 * r * r
         rectangle(let w, let h) => w * h
         dot                     => 0.0
     }
 }
 
-// match works on plain values too, with _ as the catch-all:
+// match works on plain values too, with _ as the catch-all. Because the set of
+// ints is open-ended, a value match always needs a `_`:
 func name_of(n: int) -> string {
-    match n {
+    return match n {
         0 => "zero"
         1 => "one"
         _ => "many"
@@ -368,6 +370,10 @@ milestones, simplest first, so there's something runnable from week one:
   return *type*, `=>` maps a pattern to a *value* — and lux teaches that
   distinction the same way Rust draws it, so both transfer cleanly.
 - **Ranges use `0..10`** (end-exclusive), matching Rust.
+- **A trailing comma is allowed** in any comma-separated list (arrays, call
+  arguments, struct/enum fields, parameters, match captures), the way Rust and
+  Swift allow it — handy for multi-line literals. lux never requires one, unlike
+  Go.
 - **No string interpolation in v0.1** — `+` with explicit `string(...)`
   conversion, plus multi-argument `print`. Keeps the no-coercion lesson front
   and center; interpolation can come later if the kids want it.
