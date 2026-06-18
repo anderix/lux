@@ -76,9 +76,10 @@ functions with recursion, `for ... in`, ranges, and arrays, your own types
 `lux convert` turns any of these into idiomatic Rust, Swift, or Go, each leaning
 on what that language already has — Swift's enums and `Optional`, Go's interfaces
 and `(value, error)` returns — and `lux build` compiles the Rust to a binary.
-That completes the v0.1 teaching surface: every feature is runnable and
-translatable to all three. See the scope notes at the bottom of
-[learn-lux.md](learn-lux.md).
+That completes the teaching surface: every feature is runnable and translatable
+to all three. The milestones since have gone into `lux learn` — the built-in
+reference, now a two-level card-and-`more` system cross-referenced from error
+messages. See the scope notes at the bottom of [learn-lux.md](learn-lux.md).
 
 ## License
 

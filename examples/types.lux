@@ -1,4 +1,4 @@
-// Milestone 3 adds your own types: structs group related values, and enums say
+// Your own types: structs group related values, and enums say
 // a value is exactly one of a fixed set of cases. `match` takes them apart.
 
 // A struct groups values under one name. Build it by naming its fields.

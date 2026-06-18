@@ -1,4 +1,4 @@
-// Milestone 4 removes null. A value that might be missing has type Option<T>:
+// lux has no null. A value that might be missing has type Option<T>:
 // it is either some(value) or none. A value that might fail has type
 // Result<T, E>: either ok(value) or err(reason). You can't forget the missing
 // or failing case, because match makes you handle it.

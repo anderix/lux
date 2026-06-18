@@ -22,7 +22,7 @@ pub enum TypeKind {
     Named(String),
     /// An array type: `[int]`, `[[string]]`.
     Array(Box<TypeAnn>),
-    /// A type with parameters: `Option<int>`, `Result<int, string>`. In v0.1
+    /// A type with parameters: `Option<int>`, `Result<int, string>`. So far
     /// only the built-in `Option` and `Result` take parameters — user-defined
     /// generics are a later milestone.
     Generic(String, Vec<TypeAnn>),

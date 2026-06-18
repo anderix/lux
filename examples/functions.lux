@@ -1,5 +1,5 @@
-// Functions are the heart of milestone 2: name a piece of work once, then
-// reuse it. A function takes typed parameters and may return one value.
+// Functions name a piece of work once, then reuse it. A function takes typed
+// parameters and may return one value.
 
 // A plain function with a return value.
 func square(x: int) -> int {

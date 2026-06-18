@@ -1,4 +1,4 @@
-// A tour of everything lux v0.1 can do today.
+// A tour of everything lux can do today.
 
 // Immutable and mutable bindings.
 let name = "Ada"

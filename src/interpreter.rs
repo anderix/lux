@@ -2,7 +2,7 @@
 //!
 //! This is a tree-walking interpreter. It keeps a stack of scopes (one per
 //! block) holding the live bindings, plus a table of function definitions.
-//! lux is statically typed by design, but v0.1 has no separate type checker
+//! lux is statically typed by design, but has no separate type checker
 //! yet — instead the interpreter enforces lux's no-coercion rule at the moment
 //! of each operation, so `"5" + 3` fails with a clear error rather than
 //! silently guessing. A real checker that catches these before the program
@@ -1180,7 +1180,7 @@ impl Interp {
                     format!("`{}` is not a parameterized type", name),
                     ann.span,
                 )
-                .with_note("only Option and Result take type parameters in lux v0.1")),
+                .with_note("only Option and Result take type parameters in lux")),
             },
         }
     }
@@ -1255,7 +1255,7 @@ impl Interp {
                 )
                 .with_note(format!("write `var x = {}(...)`", n))),
                 _ => Err(LuxError::new(format!("unknown type `{}`", n), ann.span)
-                    .with_note("v0.1 has int, float, string, bool, and arrays like [int]")),
+                    .with_note("lux has int, float, string, bool, and arrays like [int]")),
             },
             TypeKind::Array(elem) => {
                 self.validate_type(elem)?;

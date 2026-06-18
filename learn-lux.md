@@ -454,7 +454,7 @@ next language is just new spelling for things you already understand.
 | scope | where each name means something | `scope` |
 
 Spot those few shapes and most of any procedural language is readable; the rest
-is punctuation and keywords, the goofy syntax that makes the same ideas look
+is punctuation and keywords, the syntax that makes the same ideas look
 different. That is what lets you open a "learn X in Y minutes" page for a
 language you have never seen and follow along.
 
@@ -490,7 +490,7 @@ The sections below are notes on lux itself, not part of `lux learn`.
 
 ### Scope
 
-The teaching surface above is the whole of lux v0.1. The interpreter grew toward
+The teaching surface above is the whole language. The interpreter grew toward
 it in milestones, simplest first:
 
 1. **`lux run` core** — `print`, `let`/`var`, the four basic types, arithmetic,
@@ -504,13 +504,15 @@ it in milestones, simplest first:
 6. **`lux convert swift` / `lux convert go`** — the remaining backends.
 7. **`lux learn`** — the reference and tutorial, built into the binary and
    cross-referenced from error messages.
+8. **`lux learn`, second level** — cards by default, an optional `more` page per
+   topic, the `lux learn basics` skeleton, and reason-annotated cross-references.
 
-Milestone 7 grew a second level: every topic is a short *card* by default, with
-an optional `more` page carrying the deeper why, the universal name for the
-concept, and where it goes in other languages. `lux learn basics` is the
-procedural-language skeleton; the cross-references that bind related topics live
-on the `more` pages, each with a reason. The `scope` topic was added here,
-once the interpreter's block scoping was confirmed to enforce it.
+That second level: every topic is a short *card* by default, with an optional
+`more` page carrying the deeper why, the universal name for the concept, and
+where it goes in other languages. `lux learn basics` is the procedural-language
+skeleton; the cross-references that bind related topics live on the `more` pages,
+each with a reason. The `scope` topic was added here, once the interpreter's
+block scoping was confirmed to enforce it.
 
 ### Settled syntax decisions
 
@@ -522,5 +524,5 @@ once the interpreter's block scoping was confirmed to enforce it.
   names a return *type*, `=>` maps a pattern to a *value*.
 - **Ranges use `0..10`** (end-exclusive), matching Rust.
 - **A trailing comma is allowed** in any comma-separated list.
-- **No string interpolation in v0.1** — `+` with explicit `string(...)`, plus
+- **No string interpolation** — `+` with explicit `string(...)`, plus
   multi-argument `print`, keeps the no-coercion lesson front and center.
