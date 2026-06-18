@@ -260,6 +260,83 @@ fn dehead(s: &str) -> String {
         .join("\n")
 }
 
+/// Reflow any markdown tables in a block into aligned columns for the terminal,
+/// passing every other line through untouched. The markdown source stays a real
+/// table — this only changes how it looks on a screen, not on GitHub.
+fn format_tables(text: &str) -> String {
+    let mut out = String::new();
+    let mut block: Vec<&str> = Vec::new();
+    for line in text.lines() {
+        if line.trim_start().starts_with('|') {
+            block.push(line);
+        } else {
+            if !block.is_empty() {
+                out.push_str(&render_table(&block));
+                block.clear();
+            }
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    if !block.is_empty() {
+        out.push_str(&render_table(&block));
+    }
+    out
+}
+
+/// One markdown table → space-aligned columns with a rule under the header.
+fn render_table(lines: &[&str]) -> String {
+    let rows: Vec<Vec<String>> = lines
+        .iter()
+        .filter(|l| !is_rule_row(l))
+        .map(|l| split_cells(l))
+        .collect();
+    if rows.is_empty() {
+        return String::new();
+    }
+    let cols = rows.iter().map(|r| r.len()).max().unwrap_or(0);
+    let mut widths = vec![0usize; cols];
+    for r in &rows {
+        for (i, c) in r.iter().enumerate() {
+            widths[i] = widths[i].max(c.chars().count());
+        }
+    }
+
+    let gap = "  ";
+    let mut out = String::new();
+    for (ri, r) in rows.iter().enumerate() {
+        let mut line = String::new();
+        for (i, c) in r.iter().enumerate() {
+            line.push_str(c);
+            if i + 1 < r.len() {
+                let pad = widths[i].saturating_sub(c.chars().count());
+                line.push_str(&" ".repeat(pad));
+                line.push_str(gap);
+            }
+        }
+        out.push_str(line.trim_end());
+        out.push('\n');
+        if ri == 0 {
+            let width: usize = widths.iter().sum::<usize>() + gap.len() * cols.saturating_sub(1);
+            out.push_str(&"─".repeat(width));
+            out.push('\n');
+        }
+    }
+    out
+}
+
+/// A markdown table's `|---|---|` separator row: cells of only dashes.
+fn is_rule_row(line: &str) -> bool {
+    split_cells(line)
+        .iter()
+        .all(|c| !c.is_empty() && c.chars().all(|ch| ch == '-'))
+}
+
+/// Split a markdown table row into trimmed cells, dropping the outer pipes.
+fn split_cells(line: &str) -> Vec<String> {
+    line.trim().trim_matches('|').split('|').map(|c| c.trim().to_string()).collect()
+}
+
 /// Greedy word-wrap to a column width, so a long concept stays one screen.
 fn wrap(text: &str, width: usize) -> String {
     wrap_indent(text, width, "", "")
@@ -341,7 +418,7 @@ fn ladder() -> String {
 
 /// `lux learn basics`: the shape every procedural language shares.
 pub fn basics() -> String {
-    let mut out = plain(&dehead(&basics_page()));
+    let mut out = format_tables(&plain(&dehead(&basics_page())));
     out.push('\n');
     out
 }
@@ -386,7 +463,7 @@ pub fn tour() -> String {
     out.push_str("\n\n");
     out.push_str(&rule());
     out.push('\n');
-    out.push_str(&plain(&dehead(&basics_page())));
+    out.push_str(&format_tables(&plain(&dehead(&basics_page()))));
     out.push_str("\n\n");
     out.push_str(&rule());
     out.push('\n');
@@ -398,7 +475,7 @@ pub fn tour() -> String {
     }
     let ladder = ladder();
     if !ladder.is_empty() {
-        out.push_str(&plain(&dehead(&ladder)));
+        out.push_str(&format_tables(&plain(&dehead(&ladder))));
         out.push('\n');
     }
     out

@@ -56,6 +56,8 @@ up nearly everywhere: Rust's `let` and `let mut`, Swift's `let` and `var`,
 truly must change is a habit all of those languages reward, because a name that
 cannot change is one less thing that can surprise you.
 
+> see: scope — a name you make has to live somewhere, and that somewhere is its scope
+
 <!-- topic: numbers -->
 ## numbers — arithmetic
 
@@ -81,6 +83,8 @@ languages that care make you say when you mean it. The `%` remainder and
 integer division that drops the fraction are everywhere too — they are how you
 ask "is this even?" or "what is left over?" in almost any language.
 
+> see: strings — the scalar that holds text, and why turning a number into one is on you
+
 <!-- topic: strings -->
 ## strings — text
 
@@ -104,6 +108,8 @@ but the constant across all of them is that text is data you measure, join, and
 take apart — never something the language quietly turns into a number for you,
 which is why lux makes you ask for `string(...)`.
 
+> see: arrays — a string is a sequence of characters, measured the way an array is
+
 <!-- topic: booleans -->
 ## booleans — true and false
 
@@ -125,6 +131,8 @@ decision a program makes comes down to one: a comparison like `3 > 2` produces a
 bool, and `if`, `while`, and the logic operators all run on them. Once you can
 see the bool flowing out of a condition and into the control flow, the branching
 in any language stops being mysterious — it is always a bool steering the road.
+
+> see: if — a bool is exactly what an `if` tests · while — and what a loop tests to keep going
 
 <!-- topic: if -->
 ## if — making decisions
@@ -150,6 +158,8 @@ run another instead — and what changes between languages is only paint, like
 whether the condition needs parentheses around it. Read one if/else ladder and
 you can read the branching in all of them on sight.
 
+> see: while — the other control structure: repeating instead of choosing · booleans — the bool an `if` runs on
+
 <!-- topic: while -->
 ## while — repeating
 
@@ -169,6 +179,8 @@ keep going as long as a bool stays true. The `for` loop you will meet next is
 usually just a tidier `while` for a known range or a collection. Go drops the
 word `while` entirely and writes every loop with `for` — seeing that the two are
 the same idea underneath is the whole lesson.
+
+> see: for — the tidier loop for a range or a collection · if — the control structure that chooses instead of repeats
 
 <!-- topic: arrays -->
 ## arrays — many values of one type
@@ -192,6 +204,8 @@ type laid in a row and reached by an index that counts from 0. That zero-based
 indexing and the square brackets are nearly universal; what later languages add
 is variety — lists, slices, vectors, arrays that grow — but the mental model you
 have here, "a numbered row of values," carries straight into all of them.
+
+> see: for — the loop built for walking an array · structs — the other compound type, a few different things instead of many of the same
 
 <!-- topic: for -->
 ## for — over things
@@ -218,6 +232,8 @@ counting instead of walking. Languages spell it differently — Go writes `for i
 x := range xs` and Rust writes `for x in xs` just like lux — but the job never
 changes, and underneath it is still the `while` loop you already know.
 
+> see: while — what a `for` loop is underneath · arrays — the collection it walks
+
 <!-- topic: functions -->
 ## functions — name a piece of work
 
@@ -241,6 +257,8 @@ one endless script. Recursion, a function calling itself, and the fact that each
 call gets its own fresh set of names are not lux quirks; they are how functions
 behave everywhere, and that fresh set of names is exactly what `lux learn scope`
 is about.
+
+> see: scope — each call gets its own, which is why a name made inside stays inside
 
 <!-- topic: scope -->
 ## scope — where a name lives
@@ -268,6 +286,8 @@ other way around. The bigger languages add more kinds — file and module scope,
 namespaces, and *closures* that let a function carry its scope around with it —
 but the rule you just learned is the spine that all of them are built on.
 
+> see: functions — the most common fresh scope, one per call · variables — the names that live in a scope
+
 <!-- topic: structs -->
 ## structs — your own types
 
@@ -292,6 +312,8 @@ Almost every language has this shape, under names like record, struct, or data
 class, and it is the first step toward objects — which the larger languages
 build by attaching behaviour to the data a struct holds.
 
+> see: enums — its partner: a struct is "this and that," an enum is "this or that"
+
 <!-- topic: enums -->
 ## enums — one of several shapes
 
@@ -315,6 +337,8 @@ partner to the struct — a struct is "this *and* that," an enum is "this *or*
 that." Rust and Swift have it and lean on it hard; Go does not, which is why
 `lux convert go` has to fake it with structs and a tag field — a clear look at
 what the feature actually buys you.
+
+> see: match — how you take an enum apart, one case at a time · structs — its partner shape, "and" to the enum's "or"
 
 <!-- topic: match -->
 ## match — take a value apart
@@ -347,6 +371,8 @@ nothing slips through. Rust and Swift's `switch` work this way; the older
 `switch` of C and Java does not, so forgetting a case there is a quiet bug
 instead of a refusal to run.
 
+> see: enums — the shapes a `match` takes apart · option — the missing-or-present value you match on
+
 <!-- topic: option -->
 ## option — a value that might be missing
 
@@ -378,6 +404,8 @@ learned from it make "missing" a shape you have to open with `match` before you
 can reach what is inside: Rust's `Option`, Swift's `Optional`. That forced
 check, paid once up front, is the whole point.
 
+> see: result — its sibling, for failing with a reason instead of just being absent · match — how you open one safely
+
 <!-- topic: result -->
 ## result — a value that might fail
 
@@ -407,6 +435,8 @@ in different clothes, and Rust's `Result` is `Option`'s sibling. Treating a
 failure as a value you `match` on, instead of a hidden mechanism that jumps out
 of your code, is what keeps the failure path in plain sight.
 
+> see: option — its sibling, for "missing" rather than "failed" · match — how you handle both arms
+
 ## The shape every language shares
 
 lux is a launch pad, and so is this page. Almost every language you will meet is
@@ -415,12 +445,12 @@ next language is just new spelling for things you already understand.
 
 | every language has | what it is | learn it here |
 |---|---|---|
-| scalar values | one value at a time: int, float, bool, text | `numbers`, `booleans`, `strings` |
+| scalar values | int, float, bool, or text | `numbers`, `booleans`, `strings` |
 | compound values | many values gathered up | `arrays`, `structs` |
 | assignment | giving a value a name | `variables` |
 | selection | choosing what runs next | `if` |
 | iteration | repeating work | `while`, `for` |
-| packaged work | functions with parameters and a result | `functions` |
+| packaged work | functions with parameters | `functions` |
 | scope | where each name means something | `scope` |
 
 Spot those few shapes and most of any procedural language is readable; the rest
