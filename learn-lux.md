@@ -299,6 +299,10 @@ match indexOf(primes, 5) {
     none          => print("not in the list")
 }
 
+// `none` on its own doesn't say what it's an Option *of*, so when there's
+// nothing else to go on, name the type:
+let missing: Option<int> = none
+
 // When an operation can *fail with a reason*, use Result<T, E>: either
 // `ok(value)` or `err(reason)`. This is how lux does errors — they're just
 // values you match on, not a separate hidden mechanism.

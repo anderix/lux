@@ -1,0 +1,60 @@
+// Milestone 4 removes null. A value that might be missing has type Option<T>:
+// it is either some(value) or none. A value that might fail has type
+// Result<T, E>: either ok(value) or err(reason). You can't forget the missing
+// or failing case, because match makes you handle it.
+
+let primes = [2, 3, 5, 7, 11]
+
+// Option: search returns some(index) on a hit, none on a miss. The return type
+// Option<int> is what fixes what `none` means here.
+func indexOf(items: [int], target: int) -> Option<int> {
+    var i = 0
+    for item in items {
+        if item == target {
+            return some(i)
+        }
+        i += 1
+    }
+    return none
+}
+
+match indexOf(primes, 5) {
+    some(let idx) => print("5 is at index", idx)
+    none          => print("5 is not in the list")
+}
+match indexOf(primes, 4) {
+    some(let idx) => print("4 is at index", idx)
+    none          => print("4 is not in the list")
+}
+
+// Result: when the failure has something to say, carry a reason in err.
+func half(n: int) -> Result<int, string> {
+    if n % 2 == 0 {
+        return ok(n / 2)
+    }
+    return err("not even")
+}
+
+for n in [8, 7] {
+    match half(n) {
+        ok(let h)  => print(n, "halves to", h)
+        err(let e) => print(n, "can't:", e)
+    }
+}
+
+// An Option can sit inside your own types. A var of an Option type starts as
+// none, the natural "nothing yet".
+struct Contact {
+    name: string
+    email: Option<string>
+}
+
+let withEmail = Contact(name: "Ada", email: some("ada@example.com"))
+let noEmail = Contact(name: "Grace", email: none)
+
+for who in [withEmail, noEmail] {
+    match who.email {
+        some(let e) => print(who.name, "<" + e + ">")
+        none        => print(who.name, "(no email on file)")
+    }
+}

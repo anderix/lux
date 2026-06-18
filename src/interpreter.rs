@@ -99,6 +99,9 @@ pub fn run(program: &[Stmt]) -> Result<(), LuxError> {
         structs: HashMap::new(),
         enums: HashMap::new(),
     };
+    // Option and Result are built-in enums, registered before anything else so
+    // they exist for type-checking and so a user can't redeclare their names.
+    interp.register_builtin_types();
     // Collect every type and function up front, so a program can refer to them
     // before they appear in the file. Types come first because the validation
     // pass and the functions can mention them.
@@ -110,6 +113,31 @@ pub fn run(program: &[Stmt]) -> Result<(), LuxError> {
 }
 
 impl Interp {
+    /// Register the built-in enums `Option` (`some`/`none`) and `Result`
+    /// (`ok`/`err`). They are ordinary enum values under the hood, so `match`,
+    /// exhaustiveness, and printing all work the same way they do for the
+    /// enums a program declares itself. Their cases carry no declared fields
+    /// here — the payload's type lives on each value, since these are generic.
+    fn register_builtin_types(&mut self) {
+        let variant = |name: &str| VariantDef {
+            name: name.to_string(),
+            fields: Vec::new(),
+            span: Span::new(0, 0),
+        };
+        self.enums.insert(
+            "Option".to_string(),
+            Rc::new(EnumData {
+                variants: vec![variant("some"), variant("none")],
+            }),
+        );
+        self.enums.insert(
+            "Result".to_string(),
+            Rc::new(EnumData {
+                variants: vec![variant("ok"), variant("err")],
+            }),
+        );
+    }
+
     /// Collect every top-level `struct` and `enum`, checking for name clashes.
     fn register_types(&mut self, program: &[Stmt]) -> Result<(), LuxError> {
         for s in program {
@@ -252,8 +280,9 @@ impl Interp {
                 span,
             } => {
                 let v = self.eval(value)?;
-                if let Some(ann) = ty {
-                    self.check_type(ann, &v)?;
+                match ty {
+                    Some(ann) => self.check_type(ann, &v)?,
+                    None => ensure_determined(&v, value.span())?,
                 }
                 if self.current_has(name) {
                     return Err(LuxError::new(
@@ -274,8 +303,9 @@ impl Interp {
                 let v = match value {
                     Some(e) => {
                         let v = self.eval(e)?;
-                        if let Some(ann) = ty {
-                            self.check_type(ann, &v)?;
+                        match ty {
+                            Some(ann) => self.check_type(ann, &v)?,
+                            None => ensure_determined(&v, e.span())?,
                         }
                         v
                     }
@@ -450,6 +480,7 @@ impl Interp {
             Expr::Bool(b, _) => Ok(Value::Bool(*b)),
             Expr::Ident(name, span) => match self.lookup(name) {
                 Some(b) => Ok(b.value.clone()),
+                None if name == "none" => Ok(option_none()),
                 None => Err(LuxError::new(format!("`{}` is not defined", name), *span)
                     .with_note("declare it with let or var before using it")),
             },
@@ -963,6 +994,11 @@ impl Interp {
                     )),
                 }
             }
+            // The built-in enum constructors. `none` has no value, so it's a
+            // bare name handled in `eval`, not a call.
+            "some" => Ok(option_some(self.one_arg(name, args, span)?)),
+            "ok" => Ok(result_ok(self.one_arg(name, args, span)?)),
+            "err" => Ok(result_err(self.one_arg(name, args, span)?)),
             _ => self.call_user(name, args, span),
         }
     }
@@ -1086,6 +1122,20 @@ impl Interp {
     fn validate_type(&self, ann: &TypeAnn) -> Result<(), LuxError> {
         match &ann.kind {
             TypeKind::Named(n) => {
+                // Option and Result are real types, but they always need their
+                // parameters — `Option` alone says nothing about what it holds.
+                if matches!(n.as_str(), "Option" | "Result") {
+                    let hint = if n == "Option" {
+                        "write `Option<int>`"
+                    } else {
+                        "write `Result<int, string>`"
+                    };
+                    return Err(LuxError::new(
+                        format!("`{}` needs a type in angle brackets", n),
+                        ann.span,
+                    )
+                    .with_note(hint));
+                }
                 if matches!(n.as_str(), "int" | "float" | "string" | "bool") || self.type_exists(n)
                 {
                     Ok(())
@@ -1096,6 +1146,34 @@ impl Interp {
                 }
             }
             TypeKind::Array(elem) => self.validate_type(elem),
+            TypeKind::Generic(name, args) => match name.as_str() {
+                "Option" => {
+                    if args.len() != 1 {
+                        return Err(LuxError::new(
+                            format!("`Option` takes one type, but got {}", args.len()),
+                            ann.span,
+                        )
+                        .with_note("write `Option<int>`"));
+                    }
+                    self.validate_type(&args[0])
+                }
+                "Result" => {
+                    if args.len() != 2 {
+                        return Err(LuxError::new(
+                            format!("`Result` takes two types, but got {}", args.len()),
+                            ann.span,
+                        )
+                        .with_note("write `Result<int, string>` — the value type and the error type"));
+                    }
+                    self.validate_type(&args[0])?;
+                    self.validate_type(&args[1])
+                }
+                _ => Err(LuxError::new(
+                    format!("`{}` is not a parameterized type", name),
+                    ann.span,
+                )
+                .with_note("only Option and Result take type parameters in lux v0.1")),
+            },
         }
     }
 
@@ -1110,7 +1188,30 @@ impl Interp {
             (TypeKind::Array(elem), Value::Array(items)) => {
                 items.iter().all(|it| self.type_matches(elem, it))
             }
+            // A generic annotation matches a built-in enum value when the value's
+            // case fits and the payload it carries matches the right parameter.
+            // `none` carries nothing, so it satisfies any `Option<T>` — the same
+            // way an empty array satisfies any array type.
+            (TypeKind::Generic(name, args), Value::Enum { enum_name, variant, fields })
+                if name == enum_name =>
+            {
+                match (name.as_str(), variant.as_str()) {
+                    ("Option", "none") => true,
+                    ("Option", "some") => self.payload_matches(&args[0], fields),
+                    ("Result", "ok") => self.payload_matches(&args[0], fields),
+                    ("Result", "err") => self.payload_matches(&args[1], fields),
+                    _ => false,
+                }
+            }
             _ => false,
+        }
+    }
+
+    /// Does a built-in enum's single carried value match the given type?
+    fn payload_matches(&self, ann: &TypeAnn, fields: &[(String, Value)]) -> bool {
+        match fields.first() {
+            Some((_, v)) => self.type_matches(ann, v),
+            None => false,
         }
     }
 
@@ -1151,6 +1252,19 @@ impl Interp {
             TypeKind::Array(elem) => {
                 self.validate_type(elem)?;
                 Ok(Value::Array(Vec::new()))
+            }
+            TypeKind::Generic(name, _) => {
+                self.validate_type(ann)?;
+                if name == "Option" {
+                    // The natural empty Option is `none`.
+                    Ok(option_none())
+                } else {
+                    Err(LuxError::new(
+                        format!("a `var` of type `{}` needs a starting value", describe_type(ann)),
+                        ann.span,
+                    )
+                    .with_note("a Result is either ok(...) or err(...) — there's no empty one"))
+                }
             }
         }
     }
@@ -1209,6 +1323,22 @@ fn value_type(v: &Value) -> String {
             None => "[]".to_string(),
         },
         Value::Struct { name, .. } => name.clone(),
+        // For the built-in generics, show what's known about the parameters and
+        // leave the unknown ones as `?`: `none` is `Option<?>`, `ok(5)` is
+        // `Result<int, ?>`.
+        Value::Enum { enum_name, variant, fields } if enum_name == "Option" => {
+            match (variant.as_str(), fields.first()) {
+                ("some", Some((_, v))) => format!("Option<{}>", value_type(v)),
+                _ => "Option<?>".to_string(),
+            }
+        }
+        Value::Enum { enum_name, variant, fields } if enum_name == "Result" => {
+            match (variant.as_str(), fields.first()) {
+                ("ok", Some((_, v))) => format!("Result<{}, ?>", value_type(v)),
+                ("err", Some((_, v))) => format!("Result<?, {}>", value_type(v)),
+                _ => "Result".to_string(),
+            }
+        }
         Value::Enum { enum_name, .. } => enum_name.clone(),
         other => other.type_name().to_string(),
     }
@@ -1362,6 +1492,10 @@ fn describe_type(ann: &TypeAnn) -> String {
     match &ann.kind {
         TypeKind::Named(n) => n.clone(),
         TypeKind::Array(elem) => format!("[{}]", describe_type(elem)),
+        TypeKind::Generic(name, args) => {
+            let inner: Vec<String> = args.iter().map(describe_type).collect();
+            format!("{}<{}>", name, inner.join(", "))
+        }
     }
 }
 
@@ -1371,12 +1505,110 @@ fn describe_type(ann: &TypeAnn) -> String {
 fn same_type(a: &Value, b: &Value) -> bool {
     match (a, b) {
         (Value::Struct { name: x, .. }, Value::Struct { name: y, .. }) => x == y,
-        (Value::Enum { enum_name: x, .. }, Value::Enum { enum_name: y, .. }) => x == y,
+        (
+            Value::Enum { enum_name: x, variant: vx, fields: fx },
+            Value::Enum { enum_name: y, variant: vy, fields: fy },
+        ) => {
+            if x != y {
+                return false;
+            }
+            // For the built-in generics, two values share a type only when their
+            // known payloads agree. A `none` knows no payload, so it fits any
+            // Option; an `ok` and an `err` constrain different parameters, so
+            // they never conflict.
+            match x.as_str() {
+                "Option" => payloads_compatible(fx, fy),
+                "Result" if vx == vy => payloads_compatible(fx, fy),
+                "Result" => true,
+                _ => true,
+            }
+        }
         (Value::Array(x), Value::Array(y)) => match (x.first(), y.first()) {
             (Some(a), Some(b)) => same_type(a, b),
             _ => true,
         },
         _ => a.type_name() == b.type_name(),
+    }
+}
+
+/// Do two built-in enum payloads agree? A missing payload (like `none`'s) is
+/// compatible with anything, mirroring how an empty array fits any array type.
+fn payloads_compatible(fx: &[(String, Value)], fy: &[(String, Value)]) -> bool {
+    match (fx.first(), fy.first()) {
+        (Some((_, a)), Some((_, b))) => same_type(a, b),
+        _ => true,
+    }
+}
+
+// ----- the built-in generics: Option and Result -----------------------------
+
+/// The single field name carried inside a built-in enum value. It never shows
+/// (these print positionally), and matching binds by position, so the name is
+/// just internal bookkeeping.
+const PAYLOAD: &str = "value";
+
+fn option_none() -> Value {
+    Value::Enum {
+        enum_name: "Option".to_string(),
+        variant: "none".to_string(),
+        fields: Vec::new(),
+    }
+}
+
+fn option_some(v: Value) -> Value {
+    Value::Enum {
+        enum_name: "Option".to_string(),
+        variant: "some".to_string(),
+        fields: vec![(PAYLOAD.to_string(), v)],
+    }
+}
+
+fn result_ok(v: Value) -> Value {
+    Value::Enum {
+        enum_name: "Result".to_string(),
+        variant: "ok".to_string(),
+        fields: vec![(PAYLOAD.to_string(), v)],
+    }
+}
+
+fn result_err(v: Value) -> Value {
+    Value::Enum {
+        enum_name: "Result".to_string(),
+        variant: "err".to_string(),
+        fields: vec![(PAYLOAD.to_string(), v)],
+    }
+}
+
+/// Reject a `let`/`var` with no annotation whose value can't pin its own type:
+/// `none` could be any `Option`, an `ok`/`err` leaves Result's other half open.
+/// lux can't infer what it won't run, so it asks for an annotation — the same
+/// thing Rust and Swift do for a bare `None`/`nil`.
+fn ensure_determined(v: &Value, span: Span) -> Result<(), LuxError> {
+    if fully_determined(v) {
+        Ok(())
+    } else {
+        Err(LuxError::new(
+            format!("can't tell what type this is — {} leaves it open", value_type(v)),
+            span,
+        )
+        .with_note("name the type, like `let x: Option<int> = none`"))
+    }
+}
+
+/// Is a value's full type knowable from the value alone? Everything is, except
+/// a built-in generic that hasn't pinned all its parameters.
+fn fully_determined(v: &Value) -> bool {
+    match v {
+        Value::Enum { enum_name, variant, fields } if enum_name == "Option" => {
+            variant == "some" && fields.first().is_some_and(|(_, x)| fully_determined(x))
+        }
+        // A Result value is always just one side, so the other parameter is
+        // never known from the value — it needs an annotation.
+        Value::Enum { enum_name, .. } if enum_name == "Result" => false,
+        // One determined element fixes a homogeneous array; an empty array
+        // stays as loose as it has always been.
+        Value::Array(items) => items.is_empty() || items.iter().any(fully_determined),
+        _ => true,
     }
 }
 
@@ -1421,6 +1653,16 @@ fn display(v: &Value) -> String {
         Value::Struct { name, fields } => {
             format!("{}({})", name, display_fields(fields))
         }
+        // The built-in generics print the way they're written — `some(5)`,
+        // `none`, `err("nope")` — not in the labelled `Enum.case(...)` form.
+        Value::Enum {
+            enum_name,
+            variant,
+            fields,
+        } if enum_name == "Option" || enum_name == "Result" => match fields.first() {
+            Some((_, payload)) => format!("{}({})", variant, display(payload)),
+            None => variant.clone(),
+        },
         Value::Enum {
             enum_name,
             variant,

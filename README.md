@@ -32,10 +32,10 @@ cargo build --release
 
 Early, and growing in milestones. `lux run` now covers the core (`print`,
 `let`/`var`, the four basic types, arithmetic, strings, `if`/`else`, `while`),
-functions with recursion, `for ... in`, ranges, and arrays, plus your own types:
-structs, enums with associated values, and exhaustive `match`. `Option`/`Result`
-and the transpiler backends follow, simplest first. See the v0.1 scope notes at
-the bottom of [learn-lux.md](learn-lux.md).
+functions with recursion, `for ... in`, ranges, and arrays, your own types
+(structs, enums with associated values, and exhaustive `match`), and no null —
+`Option<T>` and `Result<T, E>` instead. The transpiler backends follow. See the
+v0.1 scope notes at the bottom of [learn-lux.md](learn-lux.md).
 
 ## License
 

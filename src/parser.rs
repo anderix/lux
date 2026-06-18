@@ -96,10 +96,33 @@ impl Parser {
             })
         } else {
             let (name, span) = self.ident("a type name")?;
-            Ok(TypeAnn {
-                kind: TypeKind::Named(name),
-                span,
-            })
+            // `Name<...>` is a parameterized type, like `Option<int>`.
+            if matches!(self.peek_tok(), Tok::Lt) {
+                self.advance(); // <
+                let mut args = Vec::new();
+                loop {
+                    args.push(self.parse_type()?);
+                    if matches!(self.peek_tok(), Tok::Comma) {
+                        self.advance();
+                        // A trailing comma is allowed: stop if the list closed.
+                        if matches!(self.peek_tok(), Tok::Gt) {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+                let close = self.expect(&Tok::Gt, "'>' to close the type parameters")?;
+                Ok(TypeAnn {
+                    kind: TypeKind::Generic(name, args),
+                    span: span.to(close.span),
+                })
+            } else {
+                Ok(TypeAnn {
+                    kind: TypeKind::Named(name),
+                    span,
+                })
+            }
         }
     }
 

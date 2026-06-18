@@ -96,3 +96,19 @@ func area(s: Shape) -> float {
 }
 print("circle area:", area(Shape.circle(radius: 2.0)))
 print("square area:", area(Shape.square(side: 3.0)))
+
+// There is no null. A missing value is Option<T> — some(x) or none — and a
+// fallible one is Result<T, E> — ok(x) or err(reason). match makes you handle
+// the empty or failing case, so it can never slip past you.
+func firstEven(xs: [int]) -> Option<int> {
+    for x in xs {
+        if x % 2 == 0 {
+            return some(x)
+        }
+    }
+    return none
+}
+match firstEven([1, 3, 4, 7]) {
+    some(let x) => print("first even:", x)
+    none        => print("no even number")
+}
