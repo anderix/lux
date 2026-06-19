@@ -142,6 +142,27 @@ impl Interp {
                 variants: vec![variant("ok"), variant("err")],
             }),
         );
+        // `Output` is the one built-in struct: what `run` hands back on success.
+        // Registering it here reserves the name and lets a program spell it in a
+        // type annotation, the way `Option` and `Result` are reserved above.
+        let field = |name: &str, ty: &str| FieldDef {
+            name: name.to_string(),
+            ty: TypeAnn {
+                kind: TypeKind::Named(ty.to_string()),
+                span: Span::new(0, 0),
+            },
+            span: Span::new(0, 0),
+        };
+        self.structs.insert(
+            "Output".to_string(),
+            Rc::new(StructData {
+                fields: vec![
+                    field("status", "int"),
+                    field("stdout", "string"),
+                    field("stderr", "string"),
+                ],
+            }),
+        );
     }
 
     /// Collect every top-level `struct` and `enum`, checking for name clashes.
@@ -1062,6 +1083,31 @@ impl Interp {
                 eprintln!("{}", parts.join(" "));
                 Ok(Value::Unit)
             }
+            // Run another program and capture what it produced. Two layers of
+            // truth: the `Result` says whether it *launched* (the program might
+            // not exist), and the `status` inside says whether the command itself
+            // *succeeded* (it can run fine and still report failure with a
+            // non-zero code). The arguments are a list, never a shell string, so
+            // there is no shell to inject into. The child's input is empty.
+            "run" => {
+                let (program, arg_list) = self.program_and_args(name, args, span)?;
+                match std::process::Command::new(&program)
+                    .args(&arg_list)
+                    .stdin(std::process::Stdio::null())
+                    .output()
+                {
+                    Ok(out) => {
+                        let status = out.status.code().unwrap_or(-1) as i64;
+                        let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+                        let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+                        Ok(result_ok(output_value(status, stdout, stderr)))
+                    }
+                    Err(e) => Ok(result_err(Value::Str(format!(
+                        "could not run {}: {}",
+                        program, e
+                    )))),
+                }
+            }
             // The built-in enum constructors. `none` has no value, so it's a
             // bare name handled in `eval`, not a call.
             "some" => Ok(option_some(self.one_arg(name, args, span)?)),
@@ -1139,6 +1185,59 @@ impl Interp {
         Ok(())
     }
 
+    /// `run`'s arguments: a program name and a list of string arguments. The
+    /// arg-vector shape is deliberate — there is no shell string to inject into.
+    fn program_and_args(
+        &mut self,
+        name: &str,
+        args: &[Expr],
+        span: Span,
+    ) -> Result<(String, Vec<String>), LuxError> {
+        if args.len() != 2 {
+            return Err(LuxError::new(
+                format!(
+                    "{} takes a program name and a list of arguments, but got {}",
+                    name,
+                    args.len()
+                ),
+                span,
+            ));
+        }
+        let program = match self.eval(&args[0])? {
+            Value::Str(s) => s,
+            other => {
+                return Err(LuxError::new(
+                    format!("{} expects the program name as a string, but got {}", name, value_type(&other)),
+                    span,
+                ));
+            }
+        };
+        let arg_list = match self.eval(&args[1])? {
+            Value::Array(items) => {
+                let mut out = Vec::with_capacity(items.len());
+                for it in items {
+                    match it {
+                        Value::Str(s) => out.push(s),
+                        other => {
+                            return Err(LuxError::new(
+                                format!("{} expects the arguments as a list of strings, but one was {}", name, value_type(&other)),
+                                span,
+                            ));
+                        }
+                    }
+                }
+                out
+            }
+            other => {
+                return Err(LuxError::new(
+                    format!("{} expects the arguments as a list of strings, but got {}", name, value_type(&other)),
+                    span,
+                ));
+            }
+        };
+        Ok((program, arg_list))
+    }
+
     /// Call a user-defined function. Arguments are checked against the declared
     /// parameter types (no coercion), the body runs in its own fresh scope —
     /// it sees its parameters and other functions, but not the caller's
@@ -1149,7 +1248,7 @@ impl Interp {
             Some(f) => Rc::clone(f),
             None => {
                 return Err(LuxError::new(format!("unknown function `{}`", name), span).with_note(
-                    "define it with `func`, or use a built-in: print, eprint, string, int, float, length, readFile, writeFile, readLine, args",
+                    "define it with `func`, or use a built-in: print, eprint, string, int, float, length, readFile, writeFile, readLine, args, run",
                 ));
             }
         };
@@ -1717,6 +1816,19 @@ fn result_err(v: Value) -> Value {
         enum_name: "Result".to_string(),
         variant: "err".to_string(),
         fields: vec![(PAYLOAD.to_string(), v)],
+    }
+}
+
+/// The `Output` struct `run` hands back: the exit status and the two captured
+/// streams, in the order the built-in struct declares its fields.
+fn output_value(status: i64, stdout: String, stderr: String) -> Value {
+    Value::Struct {
+        name: "Output".to_string(),
+        fields: vec![
+            ("status".to_string(), Value::Int(status)),
+            ("stdout".to_string(), Value::Str(stdout)),
+            ("stderr".to_string(), Value::Str(stderr)),
+        ],
     }
 }
 

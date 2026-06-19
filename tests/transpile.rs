@@ -9,7 +9,7 @@ use std::process::Command;
 
 use lux::{convert, lexer, parser};
 
-const EXAMPLES: &[&str] = &["hello", "functions", "types", "option", "tour", "io"];
+const EXAMPLES: &[&str] = &["hello", "functions", "types", "option", "tour", "io", "shell"];
 
 fn parse(name: &str) -> Vec<lux::ast::Stmt> {
     let path = format!("{}/examples/{}.lux", env!("CARGO_MANIFEST_DIR"), name);

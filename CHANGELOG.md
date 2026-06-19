@@ -4,6 +4,32 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-06-18
+
+### Added
+
+- **Running other programs.** `run(program, [args])` launches a command and
+  captures what it produced, returning `Result<Output, string>`. `Output` is the
+  first built-in struct lux hands to a program — `status`, `stdout`, and `stderr`,
+  read by name. Failure comes in two layers, both in plain sight: the `Result`
+  says whether the command *launched* (a missing program is the `err` arm), and
+  the `status` inside says whether it *succeeded* (a command can launch fine and
+  still report failure with a non-zero code, the way `false` does). The arguments
+  are a list, never a shell string, so there is no shell in the middle to misread
+  a space or a quote, and nothing to inject. The child's input is empty; feeding
+  a program its input is left out on purpose, a lesson for a bigger language.
+- **`lux learn shell`** — a topic card and `more` page on running other programs,
+  added as the capstone of the `safety` guided lesson, with a new row in the
+  graduation ladder. The `more` page names the one honest limit: `run` is batch
+  capture, not a live pipe.
+
+### Changed
+
+- `run` translates through every backend: Rust's `std::process::Command`, Go's
+  `os/exec` with a `bytes.Buffer` per stream, and Swift's `Foundation` `Process`
+  reached through `/usr/bin/env` so a bare program name gets the same `PATH`
+  lookup it does everywhere else.
+
 ## [0.4.0] - 2026-06-18
 
 ### Added
@@ -82,6 +108,7 @@ All notable changes to lux are recorded here. The format follows
   `lux build` compiles the Rust translation to a native binary.
 - A `curl` installer and uninstaller.
 
+[0.5.0]: https://github.com/anderix/lux/releases/tag/v0.5.0
 [0.4.0]: https://github.com/anderix/lux/releases/tag/v0.4.0
 [0.3.2]: https://github.com/anderix/lux/releases/tag/v0.3.2
 [0.3.1]: https://github.com/anderix/lux/releases/tag/v0.3.1

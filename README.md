@@ -81,9 +81,12 @@ to all three. The milestones since have gone into `lux learn` — the built-in
 reference, now a two-level card-and-`more` system cross-referenced from error
 messages — and into the outside world: `readFile`, `writeFile`, `args`,
 `readLine`, and `print`/`eprint` across stdout and stderr, fallible I/O modeled
-as the same `Option` and `Result` lux already teaches. See the scope notes at
-the bottom of [learn-lux.md](learn-lux.md), or [CHANGELOG.md](CHANGELOG.md) for
-the version history.
+as the same `Option` and `Result` lux already teaches. The latest milestone runs
+other programs: `run(program, [args])` returns `Result<Output, string>`, where
+`Output` — `status`, `stdout`, `stderr` — is the first built-in struct, and the
+two-layer result keeps "did it launch" and "did it succeed" apart. See the scope
+notes at the bottom of [learn-lux.md](learn-lux.md), or
+[CHANGELOG.md](CHANGELOG.md) for the version history.
 
 ## License
 

@@ -26,6 +26,9 @@ struct Gen {
     uses_read_file: bool,
     uses_write_file: bool,
     uses_eprint: bool,
+    /// `run` needs Foundation's `Process`, the built-in `Output` struct, and the
+    /// `String: Error` conformance its `Result` shares with the file helpers.
+    uses_run: bool,
 }
 
 /// Translate a whole program to Swift source text.
@@ -37,6 +40,7 @@ pub fn to_swift(program: &[Stmt]) -> String {
         uses_read_file: false,
         uses_write_file: false,
         uses_eprint: false,
+        uses_run: false,
     };
 
     for stmt in program {
@@ -122,10 +126,14 @@ impl Gen {
     /// need, the `String: Error` conformance a string-carrying `Result` needs,
     /// and the helpers themselves — to the already-emitted body.
     fn assemble(&self, program: &[Stmt]) -> String {
-        let uses_io = self.uses_read_file || self.uses_write_file || self.uses_eprint;
-        // readFile/writeFile both produce a `Result<_, String>`, so they pull in
-        // the same conformance an annotated one would.
-        let needs_error = needs_string_error(program) || self.uses_read_file || self.uses_write_file;
+        let uses_io =
+            self.uses_read_file || self.uses_write_file || self.uses_eprint || self.uses_run;
+        // readFile/writeFile/run all produce a `Result<_, String>`, so they pull
+        // in the same conformance an annotated one would.
+        let needs_error = needs_string_error(program)
+            || self.uses_read_file
+            || self.uses_write_file
+            || self.uses_run;
 
         let mut head = String::new();
         if uses_io {
@@ -165,6 +173,43 @@ impl Gen {
                 "func eprint(_ items: Any...) {\n\
                  \tlet line = items.map { \"\\($0)\" }.joined(separator: \" \")\n\
                  \tFileHandle.standardError.write(Data((line + \"\\n\").utf8))\n\
+                 }\n\n",
+            );
+        }
+        if self.uses_run {
+            // /usr/bin/env gives the same PATH lookup Rust and Go do from a bare
+            // program name; the child's input is the null device. A throw means
+            // it never launched (lux's err); a non-zero exit rides in Output.
+            head.push_str(
+                "struct Output: Equatable {\n\
+                 \tlet status: Int\n\
+                 \tlet stdout: String\n\
+                 \tlet stderr: String\n\
+                 }\n\n",
+            );
+            head.push_str(
+                "func run(_ program: String, _ args: [String]) -> Result<Output, String> {\n\
+                 \tlet process = Process()\n\
+                 \tprocess.executableURL = URL(fileURLWithPath: \"/usr/bin/env\")\n\
+                 \tprocess.arguments = [program] + args\n\
+                 \tlet outPipe = Pipe()\n\
+                 \tlet errPipe = Pipe()\n\
+                 \tprocess.standardOutput = outPipe\n\
+                 \tprocess.standardError = errPipe\n\
+                 \tprocess.standardInput = FileHandle.nullDevice\n\
+                 \tdo {\n\
+                 \t\ttry process.run()\n\
+                 \t} catch {\n\
+                 \t\treturn .failure(\"\\(error)\")\n\
+                 \t}\n\
+                 \tlet outData = outPipe.fileHandleForReading.readDataToEndOfFile()\n\
+                 \tlet errData = errPipe.fileHandleForReading.readDataToEndOfFile()\n\
+                 \tprocess.waitUntilExit()\n\
+                 \treturn .success(Output(\n\
+                 \t\tstatus: Int(process.terminationStatus),\n\
+                 \t\tstdout: String(data: outData, encoding: .utf8) ?? \"\",\n\
+                 \t\tstderr: String(data: errData, encoding: .utf8) ?? \"\"\n\
+                 \t))\n\
                  }\n\n",
             );
         }
@@ -624,6 +669,12 @@ impl Gen {
             }
             "args" => "CommandLine.arguments".to_string(),
             "readLine" => "readLine()".to_string(),
+            "run" => {
+                self.uses_run = true;
+                let p = self.emit_expr(&args[0]);
+                let a = self.emit_expr(&args[1]);
+                format!("run({}, {})", p, a)
+            }
             // Swift's `String(...)` keeps a whole float's decimal point, the way
             // lux's `string(2.0)` yields "2.0".
             "string" => {

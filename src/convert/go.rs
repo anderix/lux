@@ -38,6 +38,9 @@ struct Gen {
     uses_read_file: bool,
     uses_write_file: bool,
     uses_read_line: bool,
+    /// `run` pulls in `bytes` and `os/exec`, the built-in `Output` struct, and a
+    /// helper that adapts `exec`'s error into lux's launch-or-status split.
+    uses_run: bool,
 }
 
 /// Translate a whole program to Go source text.
@@ -56,6 +59,7 @@ pub fn to_go(program: &[Stmt]) -> String {
         uses_read_file: false,
         uses_write_file: false,
         uses_read_line: false,
+        uses_run: false,
     };
 
     for stmt in program {
@@ -151,10 +155,15 @@ impl Gen {
     /// used, and any helper the program leans on.
     fn assemble(&self) -> String {
         let mut head = String::from("package main\n\n");
-        // Go orders imports alphabetically; gofmt would anyway, so list them so.
+        // Collect what's used, then sort so the block reads the way gofmt orders
+        // it — which is the plain lexical order of the import paths.
         let mut imports: Vec<&str> = Vec::new();
         if self.uses_bufio {
             imports.push("bufio");
+        }
+        if self.uses_run {
+            imports.push("bytes");
+            imports.push("os/exec");
         }
         if self.uses_errors {
             imports.push("errors");
@@ -168,6 +177,7 @@ impl Gen {
         if self.uses_strings {
             imports.push("strings");
         }
+        imports.sort_unstable();
         match imports.len() {
             0 => {}
             1 => head.push_str(&format!("import \"{}\"\n\n", imports[0])),
@@ -212,6 +222,35 @@ impl Gen {
                  \t}\n\
                  \tline = strings.TrimRight(line, \"\\r\\n\")\n\
                  \treturn &line\n\
+                 }\n\n",
+            );
+        }
+        if self.uses_run {
+            // exec splits failure two ways: an *ExitError means it ran and
+            // reported a non-zero status (still a launch, so the status rides
+            // back in Output); any other error means it never launched, which is
+            // lux's err. A nil Stdin gives the child an empty input.
+            head.push_str(
+                "type Output struct {\n\
+                 \tstatus int\n\
+                 \tstdout string\n\
+                 \tstderr string\n\
+                 }\n\n",
+            );
+            head.push_str(
+                "func run(program string, args []string) (Output, error) {\n\
+                 \tcmd := exec.Command(program, args...)\n\
+                 \tvar stdout, stderr bytes.Buffer\n\
+                 \tcmd.Stdout = &stdout\n\
+                 \tcmd.Stderr = &stderr\n\
+                 \terr := cmd.Run()\n\
+                 \tif err != nil {\n\
+                 \t\tif exit, ok := err.(*exec.ExitError); ok {\n\
+                 \t\t\treturn Output{status: exit.ExitCode(), stdout: stdout.String(), stderr: stderr.String()}, nil\n\
+                 \t\t}\n\
+                 \t\treturn Output{}, err\n\
+                 \t}\n\
+                 \treturn Output{status: 0, stdout: stdout.String(), stderr: stderr.String()}, nil\n\
                  }\n\n",
             );
         }
@@ -852,6 +891,20 @@ impl Gen {
             "args" => {
                 self.uses_os = true;
                 "os.Args".to_string()
+            }
+            "run" => {
+                self.uses_run = true;
+                let p = self.emit_expr(&args[0]);
+                // run's arguments are always [string]; emit the element type
+                // outright so an empty list is `[]string{}`, not Go's `[]any{}`.
+                let a = match &args[1] {
+                    Expr::Array(els, _) => {
+                        let parts: Vec<String> = els.iter().map(|x| self.emit_expr(x)).collect();
+                        format!("[]string{{{}}}", parts.join(", "))
+                    }
+                    other => self.emit_expr(other),
+                };
+                format!("run({}, {})", p, a)
             }
             "readLine" => {
                 self.uses_read_line = true;

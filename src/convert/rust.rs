@@ -20,6 +20,9 @@ struct Gen {
     /// `readLine()` reads from the shared stdin handle the same way each call,
     /// which is a few lines; emit it once as a helper when the program asks.
     uses_read_line: bool,
+    /// `run` needs the built-in `Output` struct and a helper that spawns a
+    /// command, emitted once when the program reaches for it.
+    uses_run: bool,
 }
 
 /// Reading one line, returning `None` at end of input — the helper `readLine()`
@@ -34,6 +37,33 @@ fn read_line() -> Option<String> {
 }
 ";
 
+/// The built-in `Output` struct and the helper `run` lowers to. Rust's
+/// `Command` mirrors lux's shape closely: a launch failure is the `Err`, and the
+/// exit code rides inside `Output` on success. The child's input is closed off.
+const RUN_HELPER: &str = "\
+#[derive(Debug, Clone, PartialEq)]
+struct Output {
+    status: i64,
+    stdout: String,
+    stderr: String,
+}
+
+fn run(program: String, args: Vec<String>) -> Result<Output, String> {
+    match std::process::Command::new(&program)
+        .args(&args)
+        .stdin(std::process::Stdio::null())
+        .output()
+    {
+        Ok(out) => Ok(Output {
+            status: out.status.code().unwrap_or(-1) as i64,
+            stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+        }),
+        Err(e) => Err(e.to_string()),
+    }
+}
+";
+
 /// Translate a whole program to Rust source text.
 pub fn to_rust(program: &[Stmt]) -> String {
     let mut g = Gen {
@@ -41,6 +71,7 @@ pub fn to_rust(program: &[Stmt]) -> String {
         out: String::new(),
         indent: 0,
         uses_read_line: false,
+        uses_run: false,
     };
 
     for stmt in program {
@@ -81,11 +112,16 @@ pub fn to_rust(program: &[Stmt]) -> String {
     g.indent -= 1;
     g.line("}".into());
 
-    if g.uses_read_line {
-        format!("{}\n{}", READ_LINE_HELPER, g.out)
-    } else {
-        g.out
+    let mut preamble = String::new();
+    if g.uses_run {
+        preamble.push_str(RUN_HELPER);
+        preamble.push('\n');
     }
+    if g.uses_read_line {
+        preamble.push_str(READ_LINE_HELPER);
+        preamble.push('\n');
+    }
+    format!("{}{}", preamble, g.out)
 }
 
 /// A lux type as Rust source text.
@@ -551,6 +587,12 @@ impl Gen {
             "readLine" => {
                 self.uses_read_line = true;
                 "read_line()".to_string()
+            }
+            "run" => {
+                self.uses_run = true;
+                let p = self.emit_call_arg(&args[0]);
+                let a = self.emit_call_arg(&args[1]);
+                format!("run({}, {})", p, a)
             }
             "string" => {
                 // `{:?}` keeps a whole float's decimal point, the way lux's

@@ -1,0 +1,27 @@
+// Running other programs: your lux program becomes a conductor of the rest of
+// the system. run launches a command and captures what it produced — there are
+// two layers of truth to read.
+
+// The Result says whether the command *launched*. On success it carries an
+// Output: the exit status, plus whatever the command wrote to its two streams.
+func report(label: string, out: Output) {
+    print(label, "exited with status", out.status)
+    if length(out.stdout) > 0 {
+        print("  it said:", out.stdout)
+    }
+}
+
+// echo launches and succeeds — status 0, its text waiting in stdout. The
+// arguments are a list, never a shell string, so there is nothing to inject.
+match run("echo", ["hello", "from", "lux"]) {
+    ok(let out) => report("echo", out)
+    err(let e)  => print("could not launch echo:", e)
+}
+
+// false launches just fine, then reports failure the only way a command can:
+// a non-zero status. That is the second layer — running is not the same as
+// succeeding, so you read the status even when the launch went fine.
+match run("false", []) {
+    ok(let out) => report("false", out)
+    err(let e)  => print("could not launch false:", e)
+}

@@ -472,6 +472,43 @@ already an `Optional`.
 
 > see: result — the shape every fallible call hands back · option — what readLine gives at end of input · match — how you face both arms
 
+<!-- topic: shell -->
+## shell — running other programs
+
+Your program can run other programs and read back what they made. `run` takes a
+command and a list of arguments and hands back a `Result`: `ok` with an
+`Output` — its exit status and the text it wrote — or `err` if it could not even
+start. That `Output` is a struct, so you read its parts by name.
+
+```lux
+match run("echo", ["hello from lux"]) {
+    ok(let result) => print("status", result.status, "->", result.stdout)
+    err(let e)     => print("could not launch echo:", e)
+}
+```
+
+> try: change `"echo"` to `"false"` — it launches fine but comes back with status 1, the command's own way of saying it failed.
+
+<!-- more -->
+`run` is the first built-in that succeeds with a *struct*: an `Output` holding
+`status`, `stdout`, and `stderr`, three named fields you read off the result.
+There are two layers of truth to keep apart. The `Result` says whether the
+command *launched* — the program might not exist, and that is the `err` arm.
+The `status` inside says whether the command *succeeded* — a program can launch
+perfectly and still report failure with a non-zero exit code, the way `false`
+does, so you read the status even when the launch went fine. The arguments are a
+list, never one shell string, which is deliberate: there is no shell in the
+middle to misread a space or a quote, so a filename with a space in it is just an
+argument, and there is nothing to inject. `stdout` and `stderr` come back
+separate, the same two streams `print` and `eprint` write to. One honest limit:
+`run` collects all of a command's output and hands it back when the command
+finishes — it is not a live pipe feeding another program character by character.
+It gives you the Unix mindset, one program's output becoming your input, without
+the streaming. Down the ladder this is Rust's `std::process::Command`, Go's
+`os/exec`, and Swift's `Foundation` `Process`.
+
+> see: result — the shape run hands back · structs — what an Output is, a value with named fields · match — how you read both arms
+
 ## The shape every language shares
 
 lux is a launch pad, and so is this page. Almost every language you will meet is
@@ -511,6 +548,7 @@ start.
 | `[int]` | `Vec<i32>` | `[Int]` | `[]int` |
 | `readFile` / `args` | `std::fs` / `std::env` | `Foundation` / `CommandLine` | `os` package |
 | `print` / `eprint` | `println!` / `eprintln!` | `print` / `FileHandle` | `fmt` / `os.Stderr` |
+| `run` | `process::Command` | `Process` | `os/exec` |
 
 Going **up** the ladder (Swift, Rust) you gain hard new ideas lux left out on
 purpose: classes and protocols are the Swift lesson; ownership and lifetimes are
@@ -546,6 +584,11 @@ it in milestones, simplest first:
 9. **The outside world** — `readFile`/`writeFile`, `args`, `readLine`, and
    `print`/`eprint` across stdout and stderr: fallible I/O modeled as
    `Option`/`Result`, the first surface that genuinely needs them.
+10. **Running other programs** — `run(program, [args])` returning
+    `Result<Output, string>`, where `Output` is the one built-in struct
+    (`status`, `stdout`, `stderr`). Teaches the two-layer failure split (did it
+    launch vs. did it succeed) and the arg-vector security posture. The honest
+    limit named for learners: it is batch capture, not a live pipe.
 
 That second level: every topic is a short *card* by default, with an optional
 `more` page carrying the deeper why, the universal name for the concept, and

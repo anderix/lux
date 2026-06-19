@@ -1,6 +1,6 @@
 [package]
 name = "lux"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 description = "A small teaching language that runs anywhere and transpiles to Rust, Swift, and Go"
 license = "MIT"

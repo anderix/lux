@@ -25,6 +25,7 @@ pub use swift::to_swift;
 use std::collections::HashMap;
 
 use crate::ast::*;
+use crate::diagnostic::Span;
 
 /// A lux type, inferred during translation. `User` covers both structs and
 /// enums (each backend emits them by name); `Unknown` is the honest answer when
@@ -133,6 +134,10 @@ impl Types {
                 _ => {}
             }
         }
+        // `Output` is the built-in struct `run` returns. Registering its fields
+        // here lets a field access like `result.status` type correctly in every
+        // backend, the same as a struct the program declared itself.
+        env.structs.insert("Output".to_string(), output_fields());
         Types {
             env,
             scopes: vec![HashMap::new()],
@@ -218,6 +223,9 @@ impl Types {
             "args" => Ty::Array(Box::new(Ty::Str)),
             "readLine" => Ty::Option(Box::new(Ty::Str)),
             "eprint" => Ty::Unit,
+            // `run` is the one built-in that succeeds with a struct: the captured
+            // status and streams, or a string reason it could not launch.
+            "run" => Ty::Result(Box::new(Ty::User("Output".into())), Box::new(Ty::Str)),
             _ => match self.env.funcs.get(name) {
                 Some((_, Some(ret))) => ty_from_ann(ret),
                 Some((_, None)) => Ty::Unit,
@@ -244,6 +252,24 @@ impl Types {
             _ => Ty::Unknown,
         }
     }
+}
+
+/// The fields of the built-in `Output` struct, in declared order, so every
+/// backend types and emits `run`'s result identically.
+fn output_fields() -> Vec<FieldDef> {
+    let field = |name: &str, ty: &str| FieldDef {
+        name: name.to_string(),
+        ty: TypeAnn {
+            kind: TypeKind::Named(ty.to_string()),
+            span: Span::new(0, 0),
+        },
+        span: Span::new(0, 0),
+    };
+    vec![
+        field("status", "int"),
+        field("stdout", "string"),
+        field("stderr", "string"),
+    ]
 }
 
 // --- helpers shared across backends ----------------------------------------
