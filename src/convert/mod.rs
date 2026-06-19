@@ -129,7 +129,8 @@ impl Types {
                 Stmt::Func {
                     name, params, ret, ..
                 } => {
-                    env.funcs.insert(name.clone(), (params.clone(), ret.clone()));
+                    env.funcs
+                        .insert(name.clone(), (params.clone(), ret.clone()));
                 }
                 _ => {}
             }
@@ -187,7 +188,13 @@ impl Types {
                 UnOp::Not => Ty::Bool,
             },
             Expr::Binary { op, lhs, .. } => match op {
-                BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge | BinOp::And
+                BinOp::Eq
+                | BinOp::Ne
+                | BinOp::Lt
+                | BinOp::Gt
+                | BinOp::Le
+                | BinOp::Ge
+                | BinOp::And
                 | BinOp::Or => Ty::Bool,
                 _ => self.type_of(lhs),
             },

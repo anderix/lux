@@ -7,7 +7,7 @@
 
 use std::io::Write;
 use std::path::Path;
-use std::process::{exit, Command, Stdio};
+use std::process::{Command, Stdio, exit};
 
 use lux::{convert, diagnostic, interpreter, learn, lexer, parser};
 
@@ -82,6 +82,7 @@ fn learn_cmd(rest: &[String]) {
         None => print!("{}", learn::menu()),
         Some("tour") => print!("{}", learn::tour()),
         Some("basics") => print!("{}", learn::basics()),
+        Some("beyond") => print!("{}", learn::beyond()),
         Some(topic) => {
             let rendered = if more {
                 learn::topic_more(topic)
@@ -139,7 +140,11 @@ fn build_cmd(rest: &[String]) {
         .unwrap_or("a");
     let rs_path = std::env::temp_dir().join(format!("{}.rs", stem));
     if let Err(e) = std::fs::write(&rs_path, &rust) {
-        eprintln!("cannot write generated Rust to {}: {}", rs_path.display(), e);
+        eprintln!(
+            "cannot write generated Rust to {}: {}",
+            rs_path.display(),
+            e
+        );
         exit(1);
     }
     let status = Command::new("rustc")

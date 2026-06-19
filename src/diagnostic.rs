@@ -24,13 +24,14 @@ impl Span {
 }
 
 /// An error with a message, the span it happened at, an optional note, and an
-/// optional `lux learn` topic that explains the idea the learner tripped over.
+/// optional trail to a `lux learn` topic — a `(topic, lure)` pair, where the
+/// lure is a one-line hint at why the idea is worth following.
 #[derive(Debug, Clone)]
 pub struct LuxError {
     pub message: String,
     pub span: Span,
     pub note: Option<String>,
-    pub learn: Option<&'static str>,
+    pub learn: Option<(&'static str, &'static str)>,
 }
 
 impl LuxError {
@@ -49,10 +50,12 @@ impl LuxError {
         self
     }
 
-    /// Point at the `lux learn` topic that teaches this. Set it only where there
-    /// is a clean topic that genuinely covers the mistake.
-    pub fn with_learn(mut self, topic: &'static str) -> Self {
-        self.learn = Some(topic);
+    /// Open a trail to the `lux learn` topic that teaches this, with a one-line
+    /// lure hinting at why it is worth following. Set it only where there is a
+    /// clean topic that genuinely covers the mistake; a self-evident fix needs
+    /// only a note, not a trail.
+    pub fn with_learn(mut self, topic: &'static str, lure: &'static str) -> Self {
+        self.learn = Some((topic, lure));
         self
     }
 }
@@ -78,17 +81,12 @@ pub fn report(filename: &str, source: &str, err: &LuxError) {
     let gutter = format!(" {} | ", line_no);
     let blank: String = gutter.chars().map(|_| ' ').collect();
     eprintln!("{}{}", gutter, line_text);
-    eprintln!(
-        "{}{}{}",
-        blank,
-        " ".repeat(col - 1),
-        "^".repeat(caret_len)
-    );
+    eprintln!("{}{}{}", blank, " ".repeat(col - 1), "^".repeat(caret_len));
 
     if let Some(note) = &err.note {
         eprintln!("note: {}", note);
     }
-    if let Some(topic) = &err.learn {
-        eprintln!("help: run `lux learn {}` to read about this", topic);
+    if let Some((topic, lure)) = &err.learn {
+        eprintln!("help: `lux learn {}` — {}", topic, lure);
     }
 }

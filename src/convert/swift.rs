@@ -15,7 +15,7 @@
 
 use crate::ast::*;
 
-use super::{bin_prec, escape, format_float, indent, op_str, ty_from_ann, Ty, Types};
+use super::{Ty, Types, bin_prec, escape, format_float, indent, op_str, ty_from_ann};
 
 struct Gen {
     t: Types,
@@ -222,7 +222,11 @@ impl Gen {
     fn emit_struct(&mut self, name: &str, fields: &[FieldDef]) {
         self.line(format!("struct {}: Equatable {{", name));
         for f in fields {
-            self.line(format!("    let {}: {}", f.name, ty_text(&ty_from_ann(&f.ty))));
+            self.line(format!(
+                "    let {}: {}",
+                f.name,
+                ty_text(&ty_from_ann(&f.ty))
+            ));
         }
         self.line("}".into());
         self.blank();
@@ -355,7 +359,9 @@ impl Gen {
     }
 
     fn emit_binding(&mut self, name: &str, ann: Option<&TypeAnn>, value: &Expr, mutable: bool) {
-        let vty = ann.map(ty_from_ann).unwrap_or_else(|| self.t.type_of(value));
+        let vty = ann
+            .map(ty_from_ann)
+            .unwrap_or_else(|| self.t.type_of(value));
         // Only annotate when the value can't pin its own type (a bare `none`),
         // since Swift infers the rest.
         let value_open = self.t.type_of(value).has_unknown();
@@ -490,7 +496,13 @@ impl Gen {
                 // A `_` binding discards; `let _` would only draw a warning.
                 let binds: Vec<String> = bindings
                     .iter()
-                    .map(|b| if b == "_" { "_".to_string() } else { format!("let {}", b) })
+                    .map(|b| {
+                        if b == "_" {
+                            "_".to_string()
+                        } else {
+                            format!("let {}", b)
+                        }
+                    })
                     .collect();
                 let inner = if binds.is_empty() {
                     String::new()
@@ -722,7 +734,12 @@ impl Gen {
         }
     }
 
-    fn emit_enum_lit(&mut self, enum_name: &str, variant: &str, fields: &[(String, Expr)]) -> String {
+    fn emit_enum_lit(
+        &mut self,
+        enum_name: &str,
+        variant: &str,
+        fields: &[(String, Expr)],
+    ) -> String {
         // Keep the labels and the declared order, the way Swift writes them.
         let order: Option<Vec<String>> = self.t.env.enums.get(enum_name).and_then(|variants| {
             variants

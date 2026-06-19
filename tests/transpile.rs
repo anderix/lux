@@ -9,7 +9,15 @@ use std::process::Command;
 
 use lux::{convert, lexer, parser};
 
-const EXAMPLES: &[&str] = &["hello", "functions", "types", "option", "tour", "io", "shell"];
+const EXAMPLES: &[&str] = &[
+    "hello",
+    "functions",
+    "types",
+    "option",
+    "tour",
+    "io",
+    "shell",
+];
 
 fn parse(name: &str) -> Vec<lux::ast::Stmt> {
     let path = format!("{}/examples/{}.lux", env!("CARGO_MANIFEST_DIR"), name);
@@ -58,8 +66,14 @@ fn rust_examples_compile() {
 #[test]
 fn rust_naming_is_idiomatic() {
     let rust = convert::to_rust(&parse("tour"));
-    assert!(rust.contains("fn first_even("), "camelCase becomes snake_case");
-    assert!(rust.contains("Shape::Circle("), "lowercase cases become PascalCase");
+    assert!(
+        rust.contains("fn first_even("),
+        "camelCase becomes snake_case"
+    );
+    assert!(
+        rust.contains("Shape::Circle("),
+        "lowercase cases become PascalCase"
+    );
     assert!(rust.contains("fn main()"), "top level wraps in a main");
 }
 
@@ -103,9 +117,15 @@ fn swift_examples_compile() {
 fn swift_idioms() {
     let swift = convert::to_swift(&parse("tour"));
     // Underscore labels keep calls positional like lux's.
-    assert!(swift.contains("func factorial(_ n: Int)"), "positional labels");
+    assert!(
+        swift.contains("func factorial(_ n: Int)"),
+        "positional labels"
+    );
     // Swift keeps lux's labeled enum cases.
-    assert!(swift.contains("case circle(radius: Double)"), "labeled cases");
+    assert!(
+        swift.contains("case circle(radius: Double)"),
+        "labeled cases"
+    );
     // Optional is native.
     assert!(swift.contains("-> Int?"), "Option becomes Optional");
 
@@ -155,9 +175,15 @@ fn go_examples_compile() {
 fn go_idioms() {
     let go = convert::to_go(&parse("tour"));
     // An enum becomes a marker interface plus a struct per case.
-    assert!(go.contains("type Shape interface{ isShape() }"), "marker interface");
+    assert!(
+        go.contains("type Shape interface{ isShape() }"),
+        "marker interface"
+    );
     assert!(go.contains("type ShapeCircle struct {"), "per-case struct");
-    assert!(go.contains("switch v := s.(type)"), "type switch on the enum");
+    assert!(
+        go.contains("switch v := s.(type)"),
+        "type switch on the enum"
+    );
     // Option is a pointer; the func wrapping is a main.
     assert!(go.contains("*int"), "Option becomes a pointer");
     assert!(go.contains("func main()"), "top level wraps in a main");
@@ -179,7 +205,12 @@ fn every_backend_emits_nonempty() {
             ("swift", convert::to_swift(&program)),
             ("go", convert::to_go(&program)),
         ] {
-            assert!(!src.trim().is_empty(), "{} backend emitted nothing for {}", lang, name);
+            assert!(
+                !src.trim().is_empty(),
+                "{} backend emitted nothing for {}",
+                lang,
+                name
+            );
         }
     }
     let _ = Path::new("");

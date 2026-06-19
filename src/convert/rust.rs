@@ -10,7 +10,7 @@
 use crate::ast::*;
 
 use super::{
-    bin_prec, escape, format_float, indent, op_str, to_pascal, to_snake, ty_from_ann, Ty, Types,
+    Ty, Types, bin_prec, escape, format_float, indent, op_str, to_pascal, to_snake, ty_from_ann,
 };
 
 struct Gen {
@@ -188,8 +188,11 @@ impl Gen {
             if v.fields.is_empty() {
                 self.line(format!("    {},", to_pascal(&v.name)));
             } else {
-                let tys: Vec<String> =
-                    v.fields.iter().map(|f| ty_text(&ty_from_ann(&f.ty))).collect();
+                let tys: Vec<String> = v
+                    .fields
+                    .iter()
+                    .map(|f| ty_text(&ty_from_ann(&f.ty)))
+                    .collect();
                 self.line(format!("    {}({}),", to_pascal(&v.name), tys.join(", ")));
             }
         }
@@ -300,7 +303,9 @@ impl Gen {
 
     fn emit_binding(&mut self, name: &str, ann: Option<&TypeAnn>, value: &Expr, mutable: bool) {
         let snake = to_snake(name);
-        let vty = ann.map(ty_from_ann).unwrap_or_else(|| self.t.type_of(value));
+        let vty = ann
+            .map(ty_from_ann)
+            .unwrap_or_else(|| self.t.type_of(value));
         // A bare `none` (or anything that leaves its type open) carries no type
         // of its own, so when the source named one, write it down for Rust.
         let value_open = self.t.type_of(value).has_unknown();
@@ -525,11 +530,7 @@ impl Gen {
     fn emit_call_arg(&mut self, a: &Expr) -> String {
         let clone = !is_copy(&self.t.type_of(a)) && is_place(a);
         let s = self.emit_expr(a);
-        if clone {
-            format!("{}.clone()", s)
-        } else {
-            s
-        }
+        if clone { format!("{}.clone()", s) } else { s }
     }
 
     /// An argument in `print` or string concatenation, where a bare string
@@ -653,7 +654,12 @@ impl Gen {
         }
     }
 
-    fn emit_enum_lit(&mut self, enum_name: &str, variant: &str, fields: &[(String, Expr)]) -> String {
+    fn emit_enum_lit(
+        &mut self,
+        enum_name: &str,
+        variant: &str,
+        fields: &[(String, Expr)],
+    ) -> String {
         // Tuple variants are positional, so emit the values in the order the
         // enum declared its fields, not the order they were written.
         let order: Option<Vec<String>> = self.t.env.enums.get(enum_name).and_then(|variants| {

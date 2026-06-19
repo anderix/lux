@@ -32,6 +32,30 @@ just the line you care about. When you move on to Rust, Go, Java, or C, `main`
 comes back, and now you will know what it was always for: the one place the
 program is told where to begin.
 
+<!-- topic: errors -->
+## errors — reading what lux says back
+
+When lux can't do what a line asks, it stops and tells you why instead of
+guessing. The message names what went wrong, the `-->` line points at the spot,
+and the caret underlines it. Often a `note:` offers a fix, and a `help:` opens a
+trail to the idea behind it.
+
+```lux
+print("this line works")
+print("so does this one")
+```
+
+> try: break the second line on purpose — delete its closing `"`, or add a line `print(missing)` for a name you never made — and read what lux says back.
+
+<!-- more -->
+Every language has errors, and the good ones do what lux does: stop and say what
+went wrong instead of guessing and getting it subtly wrong. As you move on the
+timing shifts — Rust and Go catch many mistakes the moment they compile, before
+the program is ever run, so the message meets you even earlier. What you are
+doing now, reading it and trying the next thing, is the same move there.
+
+> see: result — the other side of errors: the ones your program expects and handles as values
+
 <!-- topic: variables -->
 ## variables — let and var
 
@@ -555,6 +579,24 @@ purpose: classes and protocols are the Swift lesson; ownership and lifetimes are
 the Rust lesson. Going **down** (Go) you keep the same shapes but rebuild a few
 conveniences by hand — that is the lesson in how they actually work.
 
+## Beyond lux
+
+The last two pages were about other languages. This one is about you.
+
+Underneath the syntax, everything here was the same handful of moves: break a
+big problem into smaller ones until each is small enough to solve, say exactly
+what you mean so the machine can't guess wrong, and when something breaks, read
+what it tells you and try the next thing. Those moves are not really about
+programming. They are how you take anything tangled — a plan, an argument, a
+broken bike — and make it give way. Programming is just where you practised,
+because the feedback is honest: the program runs or it does not, and it never
+pretends.
+
+The other half is quieter: you can build the tool you wish you had, instead of
+only using the ones handed to you. That is worth more than any single language,
+and it is why lux is built to be left behind. When it starts to feel small, that
+means it worked — go pick a bigger one, and bring the moves with you.
+
 <!-- learn:end -->
 
 ---
@@ -589,6 +631,17 @@ it in milestones, simplest first:
     (`status`, `stdout`, `stderr`). Teaches the two-layer failure split (did it
     launch vs. did it succeed) and the arg-vector security posture. The honest
     limit named for learners: it is batch capture, not a live pipe.
+11. **Errors as trails** — a diagnostic carries an optional `(topic, lure)` trail
+    to a `lux learn` topic, rendered as the `help:` line, plus a new `errors`
+    topic on how to read one. Wired where an error sits on a concept worth
+    following; self-evident fixes are left trail-less on purpose, so the `help:`
+    lines stay signal. The lure previews *why* the trail is worth taking, turning
+    a pointer into an invitation.
+12. **The closing bridge** — `lux learn beyond`, a furniture page beside the
+    `basics` skeleton and the graduation ladder, and the last note of the tour.
+    It names what transfers past lux *and* past code — decomposition, precise
+    specification, debugging-as-a-stance, and agency (building your own tools).
+    Stated once, in the same terse voice; never preached.
 
 That second level: every topic is a short *card* by default, with an optional
 `more` page carrying the deeper why, the universal name for the concept, and

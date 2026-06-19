@@ -4,6 +4,34 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-06-19
+
+### Added
+
+- **Errors that open trails.** A diagnostic can now end with a `help:` line that
+  points at the `lux learn` topic behind the mistake, each carrying a one-line
+  lure — a hint at why the idea is worth following — so an error becomes a
+  doorway into the reference instead of a dead end. The error sites that sit on a
+  concept now carry one; self-evident fixes deliberately do not, so the trails
+  stay signal rather than noise.
+- **`lux learn errors`** — a new topic, the first card in the `start` lesson, on
+  reading what lux says back: the message, the caret, the `note:`, and the
+  `help:` trail. It frames hitting an error as a normal part of writing a
+  program, something you read and answer, not a failure.
+- **`lux learn beyond`** — a closing page, and the last note of `lux learn tour`,
+  on what carries past lux once it is outgrown: the handful of thinking moves
+  underneath the syntax, and that you can build your own tools instead of only
+  using the ones handed to you. The human companion to the `basics` skeleton and
+  the graduation ladder.
+
+### Changed
+
+- The `help:` line now reads `` `lux learn <topic>` — <why> `` rather than the
+  older "run ... to read about this": an invitation to follow a trail instead of
+  an instruction to go read.
+- Reworded the "not a parameterized type" note to drop the jargon "type
+  parameters" for "a type in angle brackets, like `Option<int>`".
+
 ## [0.5.0] - 2026-06-18
 
 ### Added
@@ -108,6 +136,7 @@ All notable changes to lux are recorded here. The format follows
   `lux build` compiles the Rust translation to a native binary.
 - A `curl` installer and uninstaller.
 
+[0.6.0]: https://github.com/anderix/lux/releases/tag/v0.6.0
 [0.5.0]: https://github.com/anderix/lux/releases/tag/v0.5.0
 [0.4.0]: https://github.com/anderix/lux/releases/tag/v0.4.0
 [0.3.2]: https://github.com/anderix/lux/releases/tag/v0.3.2

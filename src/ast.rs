@@ -89,10 +89,7 @@ pub enum Stmt {
         span: Span,
     },
     /// `return` or `return value`.
-    Return {
-        value: Option<Expr>,
-        span: Span,
-    },
+    Return { value: Option<Expr>, span: Span },
     /// `struct Name { field: type ... }` — declares a record type.
     Struct {
         name: String,

@@ -18,7 +18,7 @@
 
 use crate::ast::*;
 
-use super::{bin_prec, escape, format_float, op_str, to_pascal, ty_from_ann, Ty, Types};
+use super::{Ty, Types, bin_prec, escape, format_float, op_str, to_pascal, ty_from_ann};
 
 struct Gen {
     t: Types,
@@ -438,7 +438,9 @@ impl Gen {
     }
 
     fn emit_binding(&mut self, name: &str, ann: Option<&TypeAnn>, value: &Expr) {
-        let vty = ann.map(ty_from_ann).unwrap_or_else(|| self.t.type_of(value));
+        let vty = ann
+            .map(ty_from_ann)
+            .unwrap_or_else(|| self.t.type_of(value));
         let expr = self.emit_expr(value);
         self.line(format!("{} := {}", name, expr));
         self.t.declare(name.to_string(), vty);
@@ -572,7 +574,9 @@ impl Gen {
 
     fn emit_match_value(&mut self, scrutinee: &Expr, arms: &[MatchArm], ret: bool) {
         let s = self.emit_expr(scrutinee);
-        let has_default = arms.iter().any(|a| matches!(a.pattern, Pattern::Wildcard(_)));
+        let has_default = arms
+            .iter()
+            .any(|a| matches!(a.pattern, Pattern::Wildcard(_)));
         self.line(format!("switch {} {{", s));
         for arm in arms {
             let label = match &arm.pattern {
@@ -953,7 +957,12 @@ impl Gen {
         }
     }
 
-    fn emit_enum_lit(&mut self, enum_name: &str, variant: &str, fields: &[(String, Expr)]) -> String {
+    fn emit_enum_lit(
+        &mut self,
+        enum_name: &str,
+        variant: &str,
+        fields: &[(String, Expr)],
+    ) -> String {
         let case = format!("{}{}", enum_name, to_pascal(variant));
         if fields.is_empty() {
             format!("{}{{}}", case)

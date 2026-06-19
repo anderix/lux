@@ -21,7 +21,10 @@ const DOC: &str = include_str!("../learn-lux.md");
 /// a few topics on one theme, walked in order. The names are disjoint from the
 /// topic ids, so one argument resolves unambiguously to a lesson or a topic.
 const PATHS: &[(&str, &[&str])] = &[
-    ("start", &["hello", "variables", "numbers", "strings"]),
+    (
+        "start",
+        &["hello", "errors", "variables", "numbers", "strings"],
+    ),
     ("logic", &["booleans", "if", "while"]),
     ("data", &["arrays", "for", "functions", "scope"]),
     ("types", &["structs", "enums", "match"]),
@@ -334,7 +337,11 @@ fn is_rule_row(line: &str) -> bool {
 
 /// Split a markdown table row into trimmed cells, dropping the outer pipes.
 fn split_cells(line: &str) -> Vec<String> {
-    line.trim().trim_matches('|').split('|').map(|c| c.trim().to_string()).collect()
+    line.trim()
+        .trim_matches('|')
+        .split('|')
+        .map(|c| c.trim().to_string())
+        .collect()
 }
 
 /// Greedy word-wrap to a column width, so a long concept stays one screen.
@@ -401,7 +408,9 @@ fn section(anchor: &str) -> String {
     };
     let after = &region[start + anchor.len()..];
     let end = after.find("\n## ").unwrap_or(after.len());
-    format!("{}{}", anchor, &after[..end]).trim_end().to_string()
+    format!("{}{}", anchor, &after[..end])
+        .trim_end()
+        .to_string()
 }
 
 /// The procedural-language skeleton: the pieces every language shares and where
@@ -416,9 +425,23 @@ fn ladder() -> String {
     section("## Where each feature takes you")
 }
 
+/// The closing note: what carries past lux, and past code, once the language
+/// itself is outgrown. The human companion to the basics skeleton and the
+/// graduation ladder.
+fn bridge_page() -> String {
+    section("## Beyond lux")
+}
+
 /// `lux learn basics`: the shape every procedural language shares.
 pub fn basics() -> String {
     let mut out = format_tables(&plain(&dehead(&basics_page())));
+    out.push('\n');
+    out
+}
+
+/// `lux learn beyond`: what you keep after you outgrow lux.
+pub fn beyond() -> String {
+    let mut out = format_tables(&plain(&dehead(&bridge_page())));
     out.push('\n');
     out
 }
@@ -452,6 +475,7 @@ pub fn menu() -> String {
     out.push_str("\nthe bigger picture:\n");
     out.push_str("  lux learn basics    the shape every language shares\n");
     out.push_str("  lux learn tour      the whole language, top to bottom\n");
+    out.push_str("  lux learn beyond    what you keep after you outgrow lux\n");
     out
 }
 
@@ -476,6 +500,13 @@ pub fn tour() -> String {
     let ladder = ladder();
     if !ladder.is_empty() {
         out.push_str(&format_tables(&plain(&dehead(&ladder))));
+        out.push('\n');
+    }
+    let bridge = bridge_page();
+    if !bridge.is_empty() {
+        out.push_str(&rule());
+        out.push('\n');
+        out.push_str(&format_tables(&plain(&dehead(&bridge))));
         out.push('\n');
     }
     out

@@ -567,6 +567,10 @@ impl Parser {
                                 return Err(LuxError::new(
                                     "only an enum name can be used like `Name.case(...)`",
                                     e.span(),
+                                )
+                                .with_learn(
+                                    "enums",
+                                    "`Shape.circle(...)` builds one case of an enum",
                                 ));
                             }
                         };
@@ -661,7 +665,10 @@ impl Parser {
                     self.advance();
                     Ok(Pattern::Int(-v, t.span.to(nt.span)))
                 } else {
-                    Err(LuxError::new("expected a number after '-' in a pattern", nt.span))
+                    Err(LuxError::new(
+                        "expected a number after '-' in a pattern",
+                        nt.span,
+                    ))
                 }
             }
             Tok::Str(s) => {
@@ -685,7 +692,10 @@ impl Parser {
                     let mut bindings = Vec::new();
                     if !matches!(self.peek_tok(), Tok::RParen) {
                         loop {
-                            self.expect(&Tok::Let, "'let' before each captured name, like circle(let r)")?;
+                            self.expect(
+                                &Tok::Let,
+                                "'let' before each captured name, like circle(let r)",
+                            )?;
                             let (b, _) = self.ident("a name to bind")?;
                             bindings.push(b);
                             if matches!(self.peek_tok(), Tok::Comma) {
@@ -713,7 +723,11 @@ impl Parser {
                 }
             }
             _ => Err(LuxError::new("expected a pattern", t.span)
-                .with_note("a pattern is a case name, a literal (int, string, true/false), or `_`")),
+                .with_note("a pattern is a case name, a literal (int, string, true/false), or `_`")
+                .with_learn(
+                    "match",
+                    "each arm starts with a pattern — what it's looking for",
+                )),
         }
     }
 

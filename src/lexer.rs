@@ -108,9 +108,9 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LuxError> {
                         i += 1;
                     }
                     let text = &source[start..i];
-                    let val: f64 = text.parse().map_err(|_| {
-                        LuxError::new("invalid float literal", Span::new(start, i))
-                    })?;
+                    let val: f64 = text
+                        .parse()
+                        .map_err(|_| LuxError::new("invalid float literal", Span::new(start, i)))?;
                     tokens.push(Token {
                         tok: Tok::Float(val),
                         span: Span::new(start, i),

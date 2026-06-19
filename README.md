@@ -84,8 +84,12 @@ messages — and into the outside world: `readFile`, `writeFile`, `args`,
 as the same `Option` and `Result` lux already teaches. The latest milestone runs
 other programs: `run(program, [args])` returns `Result<Output, string>`, where
 `Output` — `status`, `stdout`, `stderr` — is the first built-in struct, and the
-two-layer result keeps "did it launch" and "did it succeed" apart. See the scope
-notes at the bottom of [learn-lux.md](learn-lux.md), or
+two-layer result keeps "did it launch" and "did it succeed" apart. The latest
+milestone turns the error messages themselves into part of the reference: when a
+program trips on an idea, the diagnostic ends with a trail to the `lux learn`
+topic that teaches it, and a new `lux learn errors` covers how to read one, and a
+closing `lux learn beyond` names what carries past lux once it is outgrown. See
+the scope notes at the bottom of [learn-lux.md](learn-lux.md), or
 [CHANGELOG.md](CHANGELOG.md) for the version history.
 
 ## License

@@ -119,9 +119,21 @@ fn errors_point_at_real_topics() {
     let cases: &[(&str, &str, &str)] = &[
         ("reassign a let", "let pi = 3.14\npi = 3.0\n", "variables"),
         ("mix int and float", "print(7 / 2.0)\n", "numbers"),
-        ("glue a string to an int", "print(\"Score: \" + 42)\n", "strings"),
-        ("index past the end", "let xs = [1, 2, 3]\nprint(xs[10])\n", "arrays"),
-        ("loop over a non-array", "for x in 5 {\n print(x)\n}\n", "for"),
+        (
+            "glue a string to an int",
+            "print(\"Score: \" + 42)\n",
+            "strings",
+        ),
+        (
+            "index past the end",
+            "let xs = [1, 2, 3]\nprint(xs[10])\n",
+            "arrays",
+        ),
+        (
+            "loop over a non-array",
+            "for x in 5 {\n print(x)\n}\n",
+            "for",
+        ),
         (
             "non-exhaustive match",
             "enum Shape {\n circle(radius: float)\n square(side: float)\n}\n\
@@ -135,6 +147,9 @@ fn errors_point_at_real_topics() {
              print(loud(\"hi\"))\nprint(banged)\n",
             "scope",
         ),
+        ("assign to an undeclared name", "nope = 5\n", "variables"),
+        ("a non-bool condition", "if 5 {\n print(1)\n}\n", "booleans"),
+        ("call an unknown function", "foo()\n", "functions"),
     ];
 
     let topic_ids: Vec<String> = learn::topics().into_iter().map(|t| t.id).collect();
@@ -142,7 +157,7 @@ fn errors_point_at_real_topics() {
         let err = interpreter::run(&program(src), &[])
             .expect_err(&format!("`{}` should be an error", label));
         assert_eq!(
-            err.learn,
+            err.learn.map(|(topic, _)| topic),
             Some(*expected),
             "`{}` should point at `{}`, got {:?}",
             label,
@@ -166,21 +181,38 @@ fn navigation_only_points_at_real_topics() {
     // Every guided-lesson member is a real topic.
     for (lesson, members) in learn::paths() {
         for id in *members {
-            assert!(exists(id), "lesson `{}` lists missing topic `{}`", lesson, id);
+            assert!(
+                exists(id),
+                "lesson `{}` lists missing topic `{}`",
+                lesson,
+                id
+            );
         }
     }
 
     // Every topic belongs to exactly one lesson, so none is unreachable.
     for id in &ids {
-        let count = learn::paths().iter().filter(|(_, m)| m.contains(&id.as_str())).count();
-        assert_eq!(count, 1, "topic `{}` should be in exactly one lesson, found {}", id, count);
+        let count = learn::paths()
+            .iter()
+            .filter(|(_, m)| m.contains(&id.as_str()))
+            .count();
+        assert_eq!(
+            count, 1,
+            "topic `{}` should be in exactly one lesson, found {}",
+            id, count
+        );
     }
 
     // Any `see:` cross-reference on a more page resolves to a real topic.
     for t in learn::topics() {
         if let Some(more) = &t.more {
             for s in &more.see {
-                assert!(exists(&s.id), "topic `{}` cross-references missing `{}`", t.id, s.id);
+                assert!(
+                    exists(&s.id),
+                    "topic `{}` cross-references missing `{}`",
+                    t.id,
+                    s.id
+                );
             }
         }
     }
@@ -210,11 +242,28 @@ fn basics_names_real_topics() {
     assert!(!basics.trim().is_empty(), "basics page is empty");
     let ids: Vec<String> = learn::topics().into_iter().map(|t| t.id).collect();
     let shapes = [
-        "variables", "numbers", "booleans", "strings", "arrays", "structs", "if", "while", "for",
-        "functions", "scope",
+        "variables",
+        "numbers",
+        "booleans",
+        "strings",
+        "arrays",
+        "structs",
+        "if",
+        "while",
+        "for",
+        "functions",
+        "scope",
     ];
     for id in shapes {
-        assert!(ids.iter().any(|t| t == id), "skeleton names `{}`, not a real topic", id);
-        assert!(basics.contains(id), "skeleton should name the `{}` shape", id);
+        assert!(
+            ids.iter().any(|t| t == id),
+            "skeleton names `{}`, not a real topic",
+            id
+        );
+        assert!(
+            basics.contains(id),
+            "skeleton should name the `{}` shape",
+            id
+        );
     }
 }

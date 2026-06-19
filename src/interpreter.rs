@@ -340,6 +340,7 @@ impl Interp {
                         let ann = ty.as_ref().ok_or_else(|| {
                             LuxError::new(format!("`{}` needs a type or a value", name), *span)
                                 .with_note("write `var x: int` or `var x = 0`")
+                                .with_learn("variables", "a let holds still, a var can change")
                         })?;
                         self.zero_value(ann)?
                     }
@@ -365,6 +366,7 @@ impl Interp {
                 let binding = self.lookup(name).ok_or_else(|| {
                     LuxError::new(format!("`{}` is not defined", name), *name_span)
                         .with_note("declare it first with let or var")
+                        .with_learn("variables", "a name has to be made before it's used")
                 })?;
                 if !binding.mutable {
                     return Err(LuxError::new(
@@ -372,7 +374,10 @@ impl Interp {
                         *span,
                     )
                     .with_note("use `var` instead of `let` if it needs to change")
-                    .with_learn("variables"));
+                    .with_learn(
+                        "variables",
+                        "a let holds still on purpose — that's what keeps it safe",
+                    ));
                 }
                 let current = binding.value.clone();
                 let result = match op {
@@ -386,7 +391,8 @@ impl Interp {
                                     value_type(&new)
                                 ),
                                 *span,
-                            ));
+                            )
+                            .with_learn("variables", "a name keeps the type it started with"));
                         }
                         new
                     }
@@ -463,7 +469,7 @@ impl Interp {
                             iter.span(),
                         )
                         .with_note("for ... in needs an array or a range like 0..10")
-                        .with_learn("for"));
+                        .with_learn("for", "for walks an array or counts a range like 0..10"));
                     }
                 }
                 Ok(Flow::Normal)
@@ -486,12 +492,7 @@ impl Interp {
 
     /// One pass of a `for` loop: bind the loop variable in a fresh scope and
     /// run the body. The loop variable is immutable, like Rust's and Swift's.
-    fn run_loop_body(
-        &mut self,
-        var: &str,
-        item: Value,
-        body: &[Stmt],
-    ) -> Result<Flow, LuxError> {
+    fn run_loop_body(&mut self, var: &str, item: Value, body: &[Stmt]) -> Result<Flow, LuxError> {
         self.push();
         self.declare(var.to_string(), item, false);
         let r = self.exec_block(body);
@@ -512,7 +513,7 @@ impl Interp {
                 None if name == "none" => Ok(option_none()),
                 None => Err(LuxError::new(format!("`{}` is not defined", name), *span)
                     .with_note("declare it with let or var before using it")
-                    .with_learn("scope")),
+                    .with_learn("scope", "a name lives only inside the { } where it's made")),
             },
             Expr::Array(elems, _) => {
                 let mut items = Vec::with_capacity(elems.len());
@@ -530,7 +531,8 @@ impl Interp {
                                     value_type(v)
                                 ),
                                 e.span(),
-                            ));
+                            )
+                            .with_learn("arrays", "an array holds many values of one type"));
                         }
                     }
                 }
@@ -569,20 +571,29 @@ impl Interp {
                     Value::Array(items) => items,
                     other => {
                         return Err(LuxError::new(
-                            format!("cannot index into {}; only arrays can be indexed", value_type(&other)),
+                            format!(
+                                "cannot index into {}; only arrays can be indexed",
+                                value_type(&other)
+                            ),
                             base.span(),
                         )
-                        .with_learn("arrays"));
+                        .with_learn("arrays", "a numbered row of values, all one type, from 0"));
                     }
                 };
                 let i = match idx {
                     Value::Int(i) => i,
                     other => {
                         return Err(LuxError::new(
-                            format!("an array index must be an int, but this is {}", value_type(&other)),
+                            format!(
+                                "an array index must be an int, but this is {}",
+                                value_type(&other)
+                            ),
                             index.span(),
                         )
-                        .with_learn("arrays"));
+                        .with_learn(
+                            "arrays",
+                            "you reach an element by its position, counting from 0",
+                        ));
                     }
                 };
                 if i < 0 || i as usize >= items.len() {
@@ -600,7 +611,10 @@ impl Interp {
                         *span,
                     )
                     .with_note(note)
-                    .with_learn("arrays"));
+                    .with_learn(
+                        "arrays",
+                        "the first element is 0, so the last is length minus 1",
+                    ));
                 }
                 Ok(items[i as usize].clone())
             }
@@ -617,7 +631,8 @@ impl Interp {
                         ),
                         *span,
                     )
-                    .with_note("write something like 0..10")),
+                    .with_note("write something like 0..10")
+                    .with_learn("for", "a range like 0..10 counts, end not included")),
                 }
             }
             Expr::Call { name, args, span } => self.call(name, args, *span),
@@ -649,7 +664,8 @@ impl Interp {
             Some(d) => Rc::clone(d),
             None => {
                 return Err(LuxError::new(format!("unknown struct `{}`", name), span)
-                    .with_note("define it with `struct`, or check the spelling"));
+                    .with_note("define it with `struct`, or check the spelling")
+                    .with_learn("structs", "a struct gathers a few values under one name"));
             }
         };
         // Reject fields that aren't part of this struct, blaming the field.
@@ -658,7 +674,8 @@ impl Interp {
                 return Err(LuxError::new(
                     format!("struct `{}` has no field `{}`", name, k),
                     e.span(),
-                ));
+                )
+                .with_learn("structs", "a struct's fields are fixed when you define it"));
             }
         }
         let mut built = Vec::with_capacity(data.fields.len());
@@ -670,7 +687,16 @@ impl Interp {
                         format!("missing field `{}` for struct `{}`", f.name, name),
                         span,
                     )
-                    .with_note(format!("`{}` has a field `{}: {}`", name, f.name, describe_type(&f.ty))));
+                    .with_note(format!(
+                        "`{}` has a field `{}: {}`",
+                        name,
+                        f.name,
+                        describe_type(&f.ty)
+                    ))
+                    .with_learn(
+                        "structs",
+                        "every field gets a value when you build a struct",
+                    ));
                 }
             };
             let v = self.eval(value_expr)?;
@@ -684,6 +710,10 @@ impl Interp {
                         value_type(&v)
                     ),
                     value_expr.span(),
+                )
+                .with_learn(
+                    "structs",
+                    "each field has a type, set when you define the struct",
                 ));
             }
             built.push((f.name.clone(), v));
@@ -707,7 +737,8 @@ impl Interp {
             Some(d) => Rc::clone(d),
             None => {
                 return Err(LuxError::new(format!("unknown enum `{}`", enum_name), span)
-                    .with_note("define it with `enum`, or check the spelling"));
+                    .with_note("define it with `enum`, or check the spelling")
+                    .with_learn("enums", "an enum is one of a fixed set of shapes"));
             }
         };
         let vdef = match data.variants.iter().find(|v| v.name == variant) {
@@ -717,7 +748,11 @@ impl Interp {
                     format!("enum `{}` has no case `{}`", enum_name, variant),
                     span,
                 )
-                .with_note(format!("cases are: {}", variant_names(&data))));
+                .with_note(format!("cases are: {}", variant_names(&data)))
+                .with_learn(
+                    "enums",
+                    "an enum's cases are the fixed set of shapes it allows",
+                ));
             }
         };
         if provided.len() != vdef.fields.len() {
@@ -730,7 +765,8 @@ impl Interp {
                     provided.len()
                 ),
                 span,
-            ));
+            )
+            .with_learn("enums", "each case can carry its own values"));
         }
         let mut built = Vec::with_capacity(vdef.fields.len());
         for f in &vdef.fields {
@@ -740,6 +776,10 @@ impl Interp {
                     return Err(LuxError::new(
                         format!("missing value `{}` for `{}.{}`", f.name, enum_name, variant),
                         span,
+                    )
+                    .with_learn(
+                        "enums",
+                        "a case carries its values, named like a struct's fields",
                     ));
                 }
             };
@@ -755,7 +795,8 @@ impl Interp {
                         value_type(&v)
                     ),
                     value_expr.span(),
-                ));
+                )
+                .with_learn("enums", "each value a case carries has a type"));
             }
             built.push((f.name.clone(), v));
         }
@@ -778,7 +819,8 @@ impl Interp {
                 // `Name.field` where `Name` is neither a value nor an enum: most
                 // likely a misspelled type or variable. Point at both fixes.
                 return Err(LuxError::new(format!("`{}` is not defined", n), *nspan)
-                    .with_note("if it's an enum, declare it with `enum`; otherwise declare the value with let or var"));
+                    .with_note("if it's an enum, declare it with `enum`; otherwise declare the value with let or var")
+                    .with_learn("variables", "a name has to be made before it's used"));
             }
         }
         let v = self.eval(base)?;
@@ -788,7 +830,8 @@ impl Interp {
                 None => Err(LuxError::new(
                     format!("struct `{}` has no field `{}`", name, field),
                     span,
-                )),
+                )
+                .with_learn("structs", "a struct only has the fields you gave it")),
             },
             other => Err(LuxError::new(
                 format!(
@@ -797,6 +840,10 @@ impl Interp {
                     value_type(&other)
                 ),
                 base.span(),
+            )
+            .with_learn(
+                "structs",
+                "only a struct has named fields to read with a dot",
             )),
         }
     }
@@ -828,13 +875,19 @@ impl Interp {
                 // Every arm of an enum match must name a real case (or be `_`).
                 for a in arms {
                     match &a.pattern {
-                        Pattern::Variant { name, span: psp, .. } => {
+                        Pattern::Variant {
+                            name, span: psp, ..
+                        } => {
                             if !data.variants.iter().any(|vd| &vd.name == name) {
                                 return Err(LuxError::new(
                                     format!("enum `{}` has no case `{}`", enum_name, name),
                                     *psp,
                                 )
-                                .with_note(format!("cases are: {}", variant_names(&data))));
+                                .with_note(format!("cases are: {}", variant_names(&data)))
+                                .with_learn(
+                                    "match",
+                                    "every arm names one of the enum's real cases",
+                                ));
                             }
                         }
                         Pattern::Wildcard(_) => {}
@@ -845,7 +898,8 @@ impl Interp {
                                     enum_name
                                 ),
                                 other.span(),
-                            ));
+                            )
+                            .with_learn("match", "each arm is one case you handle"));
                         }
                     }
                 }
@@ -867,7 +921,7 @@ impl Interp {
                             format!("this match on `{}` doesn't handle every case", enum_name),
                             span,
                         )
-                        .with_learn("match")
+                        .with_learn("match", "covering every case is what makes match safe")
                         .with_note(format!(
                             "add an arm for: {} (or a `_` catch-all)",
                             missing.join(", ")
@@ -878,7 +932,11 @@ impl Interp {
                 // Run the first arm that fits, top to bottom.
                 for a in arms {
                     match &a.pattern {
-                        Pattern::Variant { name, bindings, span: psp } if name == variant => {
+                        Pattern::Variant {
+                            name,
+                            bindings,
+                            span: psp,
+                        } if name == variant => {
                             if bindings.len() != fields.len() {
                                 return Err(LuxError::new(
                                     format!(
@@ -888,6 +946,10 @@ impl Interp {
                                         bindings.len()
                                     ),
                                     *psp,
+                                )
+                                .with_learn(
+                                    "match",
+                                    "a pattern binds the values its case carries",
                                 ));
                             }
                             self.push();
@@ -924,21 +986,34 @@ impl Interp {
                     value_type(v)
                 ),
                 scrutinee_span,
+            )
+            .with_learn(
+                "match",
+                "match takes apart an enum or a plain int, string, or bool",
             ));
         }
         // A value match needs a `_`, since int and string have endless values.
         // bool is the exception: `true` and `false` together cover everything.
-        let has_wildcard = arms.iter().any(|a| matches!(a.pattern, Pattern::Wildcard(_)));
+        let has_wildcard = arms
+            .iter()
+            .any(|a| matches!(a.pattern, Pattern::Wildcard(_)));
         let bool_exhaustive = matches!(v, Value::Bool(_))
-            && arms.iter().any(|a| matches!(a.pattern, Pattern::Bool(true, _)))
-            && arms.iter().any(|a| matches!(a.pattern, Pattern::Bool(false, _)));
+            && arms
+                .iter()
+                .any(|a| matches!(a.pattern, Pattern::Bool(true, _)))
+            && arms
+                .iter()
+                .any(|a| matches!(a.pattern, Pattern::Bool(false, _)));
         if !has_wildcard && !bool_exhaustive {
             return Err(LuxError::new(
                 format!("this match on {} needs a `_` case", value_type(v)),
                 span,
             )
             .with_note("matching a value (not an enum) can't be exhaustive, so add `_ => ...`")
-            .with_learn("match"));
+            .with_learn(
+                "match",
+                "`_` is the catch-all that covers every other value",
+            ));
         }
         for a in arms {
             let fits = match (&a.pattern, v) {
@@ -950,7 +1025,8 @@ impl Interp {
                     return Err(LuxError::new(
                         format!("this is {}, not an enum, so it has no cases", value_type(v)),
                         *psp,
-                    ));
+                    )
+                    .with_learn("enums", "only an enum has named cases to match"));
                 }
                 _ => false,
             };
@@ -971,7 +1047,8 @@ impl Interp {
                 ),
                 e.span(),
             )
-            .with_note("conditions and &&/|| operands must be bool")),
+            .with_note("conditions and &&/|| operands must be bool")
+            .with_learn("booleans", "if, while, and and/or all run on true or false")),
         }
     }
 
@@ -1024,8 +1101,15 @@ impl Interp {
                     // Count characters, not bytes, so length("café") is 4.
                     Value::Str(s) => Ok(Value::Int(s.chars().count() as i64)),
                     other => Err(LuxError::new(
-                        format!("length expects an array or a string, but got {}", value_type(&other)),
+                        format!(
+                            "length expects an array or a string, but got {}",
+                            value_type(&other)
+                        ),
                         span,
+                    )
+                    .with_learn(
+                        "arrays",
+                        "length counts an array's items or a string's characters",
                     )),
                 }
             }
@@ -1037,7 +1121,10 @@ impl Interp {
                 let path = self.one_str(name, args, span)?;
                 match std::fs::read_to_string(&path) {
                     Ok(contents) => Ok(result_ok(Value::Str(contents))),
-                    Err(e) => Ok(result_err(Value::Str(format!("could not read {}: {}", path, e)))),
+                    Err(e) => Ok(result_err(Value::Str(format!(
+                        "could not read {}: {}",
+                        path, e
+                    )))),
                 }
             }
             // Success here carries nothing — there's no value to hand back, only
@@ -1047,7 +1134,10 @@ impl Interp {
                 let (path, contents) = self.two_str(name, args, span)?;
                 match std::fs::write(&path, &contents) {
                     Ok(()) => Ok(result_ok(Value::Unit)),
-                    Err(e) => Ok(result_err(Value::Str(format!("could not write {}: {}", path, e)))),
+                    Err(e) => Ok(result_err(Value::Str(format!(
+                        "could not write {}: {}",
+                        path, e
+                    )))),
                 }
             }
             // The command-line arguments, program name first — args()[0] is the
@@ -1157,7 +1247,11 @@ impl Interp {
             Value::Str(s) => s,
             other => {
                 return Err(LuxError::new(
-                    format!("{} expects the path as a string, but got {}", name, value_type(&other)),
+                    format!(
+                        "{} expects the path as a string, but got {}",
+                        name,
+                        value_type(&other)
+                    ),
                     span,
                 ));
             }
@@ -1166,7 +1260,11 @@ impl Interp {
             Value::Str(s) => s,
             other => {
                 return Err(LuxError::new(
-                    format!("{} expects the contents as a string, but got {}", name, value_type(&other)),
+                    format!(
+                        "{} expects the contents as a string, but got {}",
+                        name,
+                        value_type(&other)
+                    ),
                     span,
                 ));
             }
@@ -1207,7 +1305,11 @@ impl Interp {
             Value::Str(s) => s,
             other => {
                 return Err(LuxError::new(
-                    format!("{} expects the program name as a string, but got {}", name, value_type(&other)),
+                    format!(
+                        "{} expects the program name as a string, but got {}",
+                        name,
+                        value_type(&other)
+                    ),
                     span,
                 ));
             }
@@ -1220,7 +1322,11 @@ impl Interp {
                         Value::Str(s) => out.push(s),
                         other => {
                             return Err(LuxError::new(
-                                format!("{} expects the arguments as a list of strings, but one was {}", name, value_type(&other)),
+                                format!(
+                                    "{} expects the arguments as a list of strings, but one was {}",
+                                    name,
+                                    value_type(&other)
+                                ),
                                 span,
                             ));
                         }
@@ -1230,7 +1336,11 @@ impl Interp {
             }
             other => {
                 return Err(LuxError::new(
-                    format!("{} expects the arguments as a list of strings, but got {}", name, value_type(&other)),
+                    format!(
+                        "{} expects the arguments as a list of strings, but got {}",
+                        name,
+                        value_type(&other)
+                    ),
                     span,
                 ));
             }
@@ -1249,7 +1359,8 @@ impl Interp {
             None => {
                 return Err(LuxError::new(format!("unknown function `{}`", name), span).with_note(
                     "define it with `func`, or use a built-in: print, eprint, string, int, float, length, readFile, writeFile, readLine, args, run",
-                ));
+                )
+                .with_learn("functions", "a function takes values in and hands one result back"));
             }
         };
 
@@ -1262,6 +1373,10 @@ impl Interp {
                     args.len()
                 ),
                 span,
+            )
+            .with_learn(
+                "functions",
+                "a function takes exactly the parameters it declares",
             ));
         }
 
@@ -1280,7 +1395,8 @@ impl Interp {
                         value_type(&v)
                     ),
                     arg.span(),
-                ));
+                )
+                .with_learn("functions", "each parameter has a type the call must match"));
             }
             frame.insert(
                 param.name.clone(),
@@ -1312,7 +1428,8 @@ impl Interp {
                             describe_type(ann)
                         ),
                         span,
-                    ));
+                    )
+                    .with_learn("functions", "a `-> type` is a promise to hand that back"));
                 }
                 if !self.type_matches(ann, &returned) {
                     return Err(LuxError::new(
@@ -1323,7 +1440,8 @@ impl Interp {
                             value_type(&returned)
                         ),
                         span,
-                    ));
+                    )
+                    .with_learn("functions", "what comes back must match the `-> type`"));
                 }
                 Ok(returned)
             }
@@ -1333,7 +1451,11 @@ impl Interp {
                         format!("`{}` has no return type, so it can't return a value", name),
                         span,
                     )
-                    .with_note("add `-> type` to the signature if it should return something"));
+                    .with_note("add `-> type` to the signature if it should return something")
+                    .with_learn(
+                        "functions",
+                        "no `-> type` means the function returns nothing",
+                    ));
                 }
                 Ok(Value::Unit)
             }
@@ -1359,7 +1481,11 @@ impl Interp {
                         format!("`{}` needs a type in angle brackets", n),
                         ann.span,
                     )
-                    .with_note(hint));
+                    .with_note(hint)
+                    .with_learn(
+                        "option",
+                        "Option and Result say what they hold, like Option<int>",
+                    ));
                 }
                 // `Unit` is the type of "nothing" — the success of a `writeFile`
                 // that worked but has no value to return, as in `Result<Unit, string>`.
@@ -1381,7 +1507,11 @@ impl Interp {
                             format!("`Option` takes one type, but got {}", args.len()),
                             ann.span,
                         )
-                        .with_note("write `Option<int>`"));
+                        .with_note("write `Option<int>`")
+                        .with_learn(
+                            "option",
+                            "an Option holds one type — what's there when it's not none",
+                        ));
                     }
                     self.validate_type(&args[0])
                 }
@@ -1391,7 +1521,13 @@ impl Interp {
                             format!("`Result` takes two types, but got {}", args.len()),
                             ann.span,
                         )
-                        .with_note("write `Result<int, string>` — the value type and the error type"));
+                        .with_note(
+                            "write `Result<int, string>` — the value type and the error type",
+                        )
+                        .with_learn(
+                            "result",
+                            "a Result holds two types: the value and the error",
+                        ));
                     }
                     self.validate_type(&args[0])?;
                     self.validate_type(&args[1])
@@ -1400,7 +1536,8 @@ impl Interp {
                     format!("`{}` is not a parameterized type", name),
                     ann.span,
                 )
-                .with_note("only Option and Result take type parameters in lux")),
+                .with_note("only Option and Result take a type in angle brackets, like Option<int>")
+                .with_learn("option", "some(x) or none — a missing value with no null")),
             },
         }
     }
@@ -1422,17 +1559,20 @@ impl Interp {
             // case fits and the payload it carries matches the right parameter.
             // `none` carries nothing, so it satisfies any `Option<T>` — the same
             // way an empty array satisfies any array type.
-            (TypeKind::Generic(name, args), Value::Enum { enum_name, variant, fields })
-                if name == enum_name =>
-            {
-                match (name.as_str(), variant.as_str()) {
-                    ("Option", "none") => true,
-                    ("Option", "some") => self.payload_matches(&args[0], fields),
-                    ("Result", "ok") => self.payload_matches(&args[0], fields),
-                    ("Result", "err") => self.payload_matches(&args[1], fields),
-                    _ => false,
-                }
-            }
+            (
+                TypeKind::Generic(name, args),
+                Value::Enum {
+                    enum_name,
+                    variant,
+                    fields,
+                },
+            ) if name == enum_name => match (name.as_str(), variant.as_str()) {
+                ("Option", "none") => true,
+                ("Option", "some") => self.payload_matches(&args[0], fields),
+                ("Result", "ok") => self.payload_matches(&args[0], fields),
+                ("Result", "err") => self.payload_matches(&args[1], fields),
+                _ => false,
+            },
             _ => false,
         }
     }
@@ -1490,10 +1630,14 @@ impl Interp {
                     Ok(option_none())
                 } else {
                     Err(LuxError::new(
-                        format!("a `var` of type `{}` needs a starting value", describe_type(ann)),
+                        format!(
+                            "a `var` of type `{}` needs a starting value",
+                            describe_type(ann)
+                        ),
                         ann.span,
                     )
-                    .with_note("a Result is either ok(...) or err(...) — there's no empty one"))
+                    .with_note("a Result is either ok(...) or err(...) — there's no empty one")
+                    .with_learn("result", "ok(x) or err(why) — failure as plain data"))
                 }
             }
         }
@@ -1515,7 +1659,8 @@ fn unary(op: UnOp, v: Value, span: Span) -> Result<Value, LuxError> {
             format!("cannot apply ! to {}", named(other.type_name())),
             span,
         )
-        .with_note("! works on bool values")),
+        .with_note("! works on bool values")
+        .with_learn("booleans", "! flips true to false and back")),
     }
 }
 
@@ -1556,19 +1701,23 @@ fn value_type(v: &Value) -> String {
         // For the built-in generics, show what's known about the parameters and
         // leave the unknown ones as `?`: `none` is `Option<?>`, `ok(5)` is
         // `Result<int, ?>`.
-        Value::Enum { enum_name, variant, fields } if enum_name == "Option" => {
-            match (variant.as_str(), fields.first()) {
-                ("some", Some((_, v))) => format!("Option<{}>", value_type(v)),
-                _ => "Option<?>".to_string(),
-            }
-        }
-        Value::Enum { enum_name, variant, fields } if enum_name == "Result" => {
-            match (variant.as_str(), fields.first()) {
-                ("ok", Some((_, v))) => format!("Result<{}, ?>", value_type(v)),
-                ("err", Some((_, v))) => format!("Result<?, {}>", value_type(v)),
-                _ => "Result".to_string(),
-            }
-        }
+        Value::Enum {
+            enum_name,
+            variant,
+            fields,
+        } if enum_name == "Option" => match (variant.as_str(), fields.first()) {
+            ("some", Some((_, v))) => format!("Option<{}>", value_type(v)),
+            _ => "Option<?>".to_string(),
+        },
+        Value::Enum {
+            enum_name,
+            variant,
+            fields,
+        } if enum_name == "Result" => match (variant.as_str(), fields.first()) {
+            ("ok", Some((_, v))) => format!("Result<{}, ?>", value_type(v)),
+            ("err", Some((_, v))) => format!("Result<?, {}>", value_type(v)),
+            _ => "Result".to_string(),
+        },
         Value::Enum { enum_name, .. } => enum_name.clone(),
         other => other.type_name().to_string(),
     }
@@ -1587,7 +1736,8 @@ fn append_or_add(current: Value, new: Value, span: Span) -> Result<Value, LuxErr
                             value_type(first)
                         ),
                         span,
-                    ));
+                    )
+                    .with_learn("arrays", "an array holds one type, so += has to match it"));
                 }
             }
             items.push(new);
@@ -1668,7 +1818,11 @@ fn ordering(op: BinOp, a: &Value, b: &Value, span: Span) -> Result<Value, LuxErr
         (Value::Str(x), Value::Str(y)) => x.cmp(y),
         (Value::Bool(_), Value::Bool(_)) => {
             return Err(LuxError::new("cannot order bool values with < or >", span)
-                .with_note("use == or != to compare bools"));
+                .with_note("use == or != to compare bools")
+                .with_learn(
+                    "booleans",
+                    "true and false aren't ordered, only equal or not",
+                ));
         }
         _ => {
             return Err(LuxError::new(
@@ -1702,15 +1856,24 @@ fn mix_or_type_error(verb: &str, a: &Value, b: &Value, span: Span) -> LuxError {
     if mixed {
         LuxError::new("cannot mix int and float — convert one first", span)
             .with_note("wrap a value in float(...) or int(...)")
-            .with_learn("numbers")
+            .with_learn(
+                "numbers",
+                "there's a reason lux makes you say when a whole number becomes a fraction",
+            )
     } else {
         // A string on either side of `+` is the classic "glue text to a number"
         // mistake, which the strings topic answers with `string(...)`; other
         // type mismatches are arithmetic, so they point at numbers.
-        let topic = if matches!(a, Value::Str(_)) || matches!(b, Value::Str(_)) {
-            "strings"
+        let (topic, lure) = if matches!(a, Value::Str(_)) || matches!(b, Value::Str(_)) {
+            (
+                "strings",
+                "lux never turns a number into text for you — you ask",
+            )
         } else {
-            "numbers"
+            (
+                "numbers",
+                "arithmetic needs both sides to be the same number type",
+            )
         };
         LuxError::new(
             format!(
@@ -1721,7 +1884,7 @@ fn mix_or_type_error(verb: &str, a: &Value, b: &Value, span: Span) -> LuxError {
             ),
             span,
         )
-        .with_learn(topic)
+        .with_learn(topic, lure)
     }
 }
 
@@ -1746,8 +1909,16 @@ fn same_type(a: &Value, b: &Value) -> bool {
     match (a, b) {
         (Value::Struct { name: x, .. }, Value::Struct { name: y, .. }) => x == y,
         (
-            Value::Enum { enum_name: x, variant: vx, fields: fx },
-            Value::Enum { enum_name: y, variant: vy, fields: fy },
+            Value::Enum {
+                enum_name: x,
+                variant: vx,
+                fields: fx,
+            },
+            Value::Enum {
+                enum_name: y,
+                variant: vy,
+                fields: fy,
+            },
         ) => {
             if x != y {
                 return false;
@@ -1841,10 +2012,17 @@ fn ensure_determined(v: &Value, span: Span) -> Result<(), LuxError> {
         Ok(())
     } else {
         Err(LuxError::new(
-            format!("can't tell what type this is — {} leaves it open", value_type(v)),
+            format!(
+                "can't tell what type this is — {} leaves it open",
+                value_type(v)
+            ),
             span,
         )
-        .with_note("name the type, like `let x: Option<int> = none`"))
+        .with_note("name the type, like `let x: Option<int> = none`")
+        .with_learn(
+            "option",
+            "lux usually guesses the type, but an empty none needs you to say",
+        ))
     }
 }
 
@@ -1852,7 +2030,11 @@ fn ensure_determined(v: &Value, span: Span) -> Result<(), LuxError> {
 /// a built-in generic that hasn't pinned all its parameters.
 fn fully_determined(v: &Value) -> bool {
     match v {
-        Value::Enum { enum_name, variant, fields } if enum_name == "Option" => {
+        Value::Enum {
+            enum_name,
+            variant,
+            fields,
+        } if enum_name == "Option" => {
             variant == "some" && fields.first().is_some_and(|(_, x)| fully_determined(x))
         }
         // A Result value is always just one side, so the other parameter is
