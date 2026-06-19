@@ -1,0 +1,206 @@
+// THE LITTLE KEEP — a tiny text adventure.
+//
+// The whole world is this file. You play it by running it; you change it by
+// editing it. There is no hidden engine: every room, every exit, every door is
+// written below in plain lux. Play it once, then open it and read down — you
+// already know most of what you're looking at.
+//
+//     lux run examples/keep.lux
+//
+// When you're ready, try making the cellar lead somewhere new.
+
+// The rooms of the keep. An enum is "one of a fixed set" — these four are every
+// place you can stand.
+enum Room {
+    entrance
+    hall
+    cellar
+    chamber
+}
+
+// The whole state of the game in one value: where you are, what you carry,
+// whether the door is open, and whether you're still playing. We never change a
+// World in place. Each turn builds the *next* World from the one before — that's
+// why every helper below takes a World and returns a World.
+struct World {
+    room: Room
+    hasKey: bool
+    doorOpen: bool
+    playing: bool
+}
+
+// What each room looks like. Pure prose, one arm per room.
+func describe(room: Room) -> string {
+    return match room {
+        entrance => "You stand at the mouth of an old stone keep. Cold air drifts from a passage north."
+        hall     => "A wide hall, its banners long rotted. Ways lead south and east, and a heavy door faces north."
+        cellar   => "A damp cellar, smelling of earth and old wine. The only way out is west, back to the hall."
+        chamber  => "A round chamber open to the sky. Ivy climbs the walls and a window looks over green hills. You made it through. Wander back south, or type quit when you're ready."
+    }
+}
+
+// Print the room you're in, plus whatever is true here right now — the key on
+// the floor, the state of the door, what you're carrying. Returns the world
+// unchanged; looking never changes anything.
+func describeHere(w: World) -> World {
+    print(describe(w.room))
+    if w.room == Room.hall {
+        if w.hasKey {
+            print("You can see where the brass key lay in the dust.")
+        } else {
+            print("A brass key lies on the dusty floor.")
+        }
+        if w.doorOpen {
+            print("The iron door to the north stands open.")
+        } else {
+            print("A locked iron door blocks the way north.")
+        }
+    }
+    if w.hasKey {
+        print("(You are carrying the brass key.)")
+    }
+    return w
+}
+
+// The map. Given a room and a direction, where does that lead? `none` means
+// there's nothing that way. Locks aren't handled here — this is just geography.
+func exit(room: Room, dir: string) -> Option<Room> {
+    return match room {
+        entrance => match dir {
+            "north" => some(Room.hall)
+            _       => none
+        }
+        hall => match dir {
+            "south" => some(Room.entrance)
+            "east"  => some(Room.cellar)
+            "north" => some(Room.chamber)
+            _       => none
+        }
+        cellar => match dir {
+            "west" => some(Room.hall)
+            _      => none
+        }
+        chamber => match dir {
+            "south" => some(Room.hall)
+            _       => none
+        }
+    }
+}
+
+// Step into a room: build the next world there, then describe it.
+func enter(w: World, r: Room) -> World {
+    let moved = World(room: r, hasKey: w.hasKey, doorOpen: w.doorOpen, playing: w.playing)
+    return describeHere(moved)
+}
+
+// Try to enter a room. The chamber is the one place behind the locked door.
+func tryEnter(w: World, r: Room) -> World {
+    if r == Room.chamber {
+        if w.doorOpen {
+            return enter(w, r)
+        }
+        print("A heavy iron door blocks the way north. It's locked.")
+        return w
+    }
+    return enter(w, r)
+}
+
+// Move in a direction: look up where it leads, then try to go there.
+func go(w: World, dir: string) -> World {
+    return match exit(w.room, dir) {
+        some(let r) => tryEnter(w, r)
+        none        => cantGo(w)
+    }
+}
+
+func cantGo(w: World) -> World {
+    print("You can't go that way.")
+    return w
+}
+
+// Pick up the key — only where it lies.
+func takeKey(w: World) -> World {
+    if w.room == Room.hall {
+        if w.hasKey {
+            print("You already have the brass key.")
+            return w
+        }
+        print("You pick up the brass key. It's cool and heavier than it looks.")
+        return World(room: w.room, hasKey: true, doorOpen: w.doorOpen, playing: w.playing)
+    }
+    print("There's no key here.")
+    return w
+}
+
+// Open the iron door — only in the hall, and only with the key.
+func openDoor(w: World) -> World {
+    if w.room == Room.hall {
+        if w.doorOpen {
+            print("The iron door already stands open.")
+            return w
+        }
+        if w.hasKey {
+            print("The brass key turns with a heavy clunk. The iron door swings open to the north.")
+            return World(room: w.room, hasKey: w.hasKey, doorOpen: true, playing: w.playing)
+        }
+        print("The iron door won't budge. It needs a key.")
+        return w
+    }
+    print("There's no door to open here.")
+    return w
+}
+
+func showHelp(w: World) -> World {
+    print("Things you can type:")
+    print("  look                       look around again")
+    print("  north  south  east  west   go that way")
+    print("  take key                   pick something up")
+    print("  open door                  try a door")
+    print("  help                       show this list")
+    print("  quit                       stop playing")
+    return w
+}
+
+func leave(w: World) -> World {
+    print("You step back into the daylight. Farewell.")
+    return World(room: w.room, hasKey: w.hasKey, doorOpen: w.doorOpen, playing: false)
+}
+
+func huh(w: World, cmd: string) -> World {
+    print("You're not sure how to \"" + cmd + "\" here. Type help for what you can do.")
+    return w
+}
+
+// One turn: take the world and what you typed, hand back the next world.
+// This is the heart of the game, and it's just a list of what each command does.
+func step(w: World, cmd: string) -> World {
+    return match cmd {
+        "look"      => describeHere(w)
+        "help"      => showHelp(w)
+        "quit"      => leave(w)
+        "north"     => go(w, "north")
+        "south"     => go(w, "south")
+        "east"      => go(w, "east")
+        "west"      => go(w, "west")
+        "take key"  => takeKey(w)
+        "open door" => openDoor(w)
+        _           => huh(w, cmd)
+    }
+}
+
+// Start at the entrance, describe it, then read commands one line at a time
+// until you quit or the input runs out. Each line becomes the next world.
+print("THE LITTLE KEEP")
+print("")
+var world = World(room: Room.entrance, hasKey: false, doorOpen: false, playing: true)
+world = describeHere(world)
+print("")
+print("(type help for commands)")
+
+while world.playing {
+    print("")
+    world = match readLine() {
+        some(let line) => step(world, line)
+        none           => leave(world)
+    }
+}
