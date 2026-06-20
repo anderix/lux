@@ -4,6 +4,29 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-06-20
+
+### Added
+
+- **The secret is now earned, not handed over.** Reaching the chamber behind the
+  locked door — the reward for solving the keep — is where the world reveals that
+  it is a program you can read and change. The scaffolded scroll shrinks to just
+  how to play.
+- **A keepsake on disk.** Reaching the chamber writes the secret to
+  `the-secret.txt`, so it's there after you quit. To decide whether to write it,
+  the keep reads the file first, so it writes only once and never clobbers a copy
+  you've started editing — read-then-write, the honest shape of file I/O, so the
+  chamber teaches `readFile` and `writeFile` together.
+- **A hidden `take gold`** in the lit vault rewards the obvious impulse and nudges
+  that you can add a command of your own the same way — it was never in the help,
+  just a line in the file.
+
+### Changed
+
+- `lux crawl`'s summary now leads with `cd` into the new folder, so its paths and
+  the scroll agree on where you're standing; the help columns line up; and the
+  world's header points at `world.lux`, the name the scaffolded file actually has.
+
 ## [0.7.0] - 2026-06-19
 
 ### Added
@@ -167,6 +190,7 @@ All notable changes to lux are recorded here. The format follows
   `lux build` compiles the Rust translation to a native binary.
 - A `curl` installer and uninstaller.
 
+[0.7.1]: https://github.com/anderix/lux/releases/tag/v0.7.1
 [0.7.0]: https://github.com/anderix/lux/releases/tag/v0.7.0
 [0.6.0]: https://github.com/anderix/lux/releases/tag/v0.6.0
 [0.5.0]: https://github.com/anderix/lux/releases/tag/v0.5.0
