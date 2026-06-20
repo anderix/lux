@@ -29,6 +29,7 @@ const PATHS: &[(&str, &[&str])] = &[
     ("data", &["arrays", "for", "functions", "scope"]),
     ("types", &["structs", "enums", "match"]),
     ("safety", &["option", "result", "io", "shell"]),
+    ("build", &["crawl"]),
 ];
 
 /// A single learnable idea. The card is always present; `more` is earned.

@@ -35,6 +35,17 @@ lux run examples/tour.lux
 prints your program as real source in that language, and `lux build <file.lux>`
 runs the Rust translation through `rustc` to a native binary.
 
+## Playing a crawl
+
+```
+lux crawl
+```
+
+`lux crawl` writes a small, playable text adventure into a `crawl/` folder and
+tells you how to play it. The whole world is the `world.lux` it leaves you — open
+it, and the rooms, doors, and the torch in the cellar are all there in plain lux,
+yours to change. `lux learn crawl` walks through how one is built.
+
 ## Learning the language
 
 The reference travels inside the binary. `lux learn` opens a menu of short
@@ -88,9 +99,13 @@ two-layer result keeps "did it launch" and "did it succeed" apart. The latest
 milestone turns the error messages themselves into part of the reference: when a
 program trips on an idea, the diagnostic ends with a trail to the `lux learn`
 topic that teaches it, and a new `lux learn errors` covers how to read one, and a
-closing `lux learn beyond` names what carries past lux once it is outgrown. See
-the scope notes at the bottom of [learn-lux.md](learn-lux.md), or
-[CHANGELOG.md](CHANGELOG.md) for the version history.
+closing `lux learn beyond` names what carries past lux once it is outgrown. The
+latest milestone turns the language on itself: `lux crawl` drops a small text
+adventure in your folder whose whole world is one lux file — you play it by
+running it and change it by editing it, the first step from using a program to
+building one. See the scope notes at the bottom of
+[learn-lux.md](learn-lux.md), or [CHANGELOG.md](CHANGELOG.md) for the version
+history.
 
 ## License
 

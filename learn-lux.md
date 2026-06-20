@@ -533,6 +533,50 @@ the streaming. Down the ladder this is Rust's `std::process::Command`, Go's
 
 > see: result — the shape run hands back · structs — what an Output is, a value with named fields · match — how you read both arms
 
+<!-- topic: crawl -->
+## crawl — build a small world
+
+Run `lux crawl` and you get a tiny text adventure to play. Its secret is that the
+whole world is one lux file you can open and change: the rooms are an enum, where
+you stand and what you carry is a struct, and a function matches on the room to
+say what you see. Nothing is hidden away in an engine — once you can read this,
+you can build it.
+
+```lux
+enum Room {
+    cell
+    yard
+}
+
+struct Spot {
+    room: Room
+    locked: bool
+}
+
+func describe(room: Room) -> string {
+    return match room {
+        cell => "A cold stone cell, with a door to the east."
+        yard => "Open sky at last."
+    }
+}
+
+let here = Spot(room: Room.cell, locked: true)
+print(describe(here.room))
+```
+
+> try: add a third room to the enum, then give `describe` a line for it — match will refuse to run until you do, so you can't forget.
+
+<!-- more -->
+A whole game is that one idea, repeated. The player types a line, and a single
+function — call it `step` — takes the world and the command and hands back the
+*next* world: a new value, not a changed one, since lux never alters a struct in
+place. Run `lux crawl` and read its `world.lux` from top to bottom; every piece
+is something you already have a card for. And when you want it to do something
+lux can't quite manage — a room that remembers, a command typed in plain English
+— that wish is the next language calling.
+
+> see: enums — the set of rooms · structs — where you stand and what you hold · match — how a room becomes a description · option — a door that may lead nowhere · functions — every action is one
+
 ## The shape every language shares
 
 lux is a launch pad, and so is this page. Almost every language you will meet is
@@ -642,6 +686,13 @@ it in milestones, simplest first:
     It names what transfers past lux *and* past code — decomposition, precise
     specification, debugging-as-a-stance, and agency (building your own tools).
     Stated once, in the same terse voice; never preached.
+13. **`lux crawl`** — scaffolds a playable, editable text adventure into the
+    current directory. The world is `examples/keep.lux` itself, embedded with
+    `include_str!`, so the thing you play and the thing the tests run can't drift.
+    A `crawl` learn topic teaches building one. Built entirely on today's language
+    — no new features — on purpose: the stiffness (exact-match commands) and the
+    missing pieces (string parsing, maps, imports) are left as walls a learner
+    discovers and asks for, not gifts handed down ahead of the wish.
 
 That second level: every topic is a short *card* by default, with an optional
 `more` page carrying the deeper why, the universal name for the concept, and
@@ -649,6 +700,36 @@ where it goes in other languages. `lux learn basics` is the procedural-language
 skeleton; the cross-references that bind related topics live on the `more` pages,
 each with a reason. The `scope` topic was added here, once the interpreter's
 block scoping was confirmed to enforce it.
+
+### Transpiler edges
+
+`lux run` — the interpreter — is the complete language. The three transpilers
+cover the teaching examples and most real programs, but a richer one (the crawl
+world is the first to do it) meets a few honest boundaries. These are documented
+rather than papered over: each is a real seam between lux and a target language,
+the kind worth meeting head-on instead of hiding.
+
+- **Reserved-word collisions are handled.** A lux name that is a keyword in the
+  target (`go`, `where`, `map`, …) gets a trailing `_` in that backend only, and
+  only at value positions — function names, parameters, locals
+  (`src/convert/mod.rs`, the `*_ident` helpers). Type names, struct fields, and
+  enum cases are deliberately *not* mangled: a struct named `map` or a field
+  named `type` is an unsupported name, not a bug.
+- **Go, `Option<enum>`.** `Option<T>` lowers to `*T`, but a user enum is already
+  a Go interface (a nil interface is its empty), so `Option<Room>` wants the bare
+  interface, not a pointer to it. Until that special case exists, a program that
+  returns an `Option` of one of its own enums won't compile as Go — though it
+  runs under the interpreter and converts to Rust and Swift cleanly.
+- **Go, the empty array literal.** `[]` with no elements has no element type to
+  infer, so it emits `[]any{}`; assigned to a typed field, the types disagree. A
+  non-empty literal, or a future infer-from-context pass, sidesteps it.
+- **Rust, a value used after a move.** The Rust backend doesn't track ownership,
+  so a value pushed into an array and then read again emits a use-after-move. The
+  interpreter and the value-copy backends (Go, Swift) don't mind.
+
+`examples/keep.lux`, the crawl world, hits the last three by virtue of being a
+real program, so it is exercised by the interpreter, not the transpile suite; the
+`crawl` learn topic's example stays inside the lines and converts to all three.
 
 ### Settled syntax decisions
 

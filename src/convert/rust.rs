@@ -10,7 +10,8 @@
 use crate::ast::*;
 
 use super::{
-    Ty, Types, bin_prec, escape, format_float, indent, op_str, to_pascal, to_snake, ty_from_ann,
+    Ty, Types, bin_prec, escape, format_float, indent, op_str, rust_ident, to_pascal, to_snake,
+    ty_from_ann,
 };
 
 struct Gen {
@@ -203,12 +204,23 @@ impl Gen {
     fn emit_func(&mut self, name: &str, params: &[Param], ret: Option<&TypeAnn>, body: &[Stmt]) {
         let ps: Vec<String> = params
             .iter()
-            .map(|p| format!("{}: {}", to_snake(&p.name), ty_text(&ty_from_ann(&p.ty))))
+            .map(|p| {
+                format!(
+                    "{}: {}",
+                    rust_ident(&to_snake(&p.name)),
+                    ty_text(&ty_from_ann(&p.ty))
+                )
+            })
             .collect();
         let r = ret
             .map(|t| format!(" -> {}", ty_text(&ty_from_ann(t))))
             .unwrap_or_default();
-        self.line(format!("fn {}({}){} {{", to_snake(name), ps.join(", "), r));
+        self.line(format!(
+            "fn {}({}){} {{",
+            rust_ident(&to_snake(name)),
+            ps.join(", "),
+            r
+        ));
         self.indent += 1;
         self.t.push_scope();
         for p in params {
@@ -244,7 +256,7 @@ impl Gen {
             } => {
                 let vty = ty_from_ann(ann);
                 let z = zero(&vty);
-                let snake = to_snake(name);
+                let snake = rust_ident(&to_snake(name));
                 self.t.declare(name.clone(), vty.clone());
                 self.line(format!("let mut {}: {} = {};", snake, ty_text(&vty), z));
             }
@@ -302,7 +314,7 @@ impl Gen {
     }
 
     fn emit_binding(&mut self, name: &str, ann: Option<&TypeAnn>, value: &Expr, mutable: bool) {
-        let snake = to_snake(name);
+        let snake = rust_ident(&to_snake(name));
         let vty = ann
             .map(ty_from_ann)
             .unwrap_or_else(|| self.t.type_of(value));
@@ -321,7 +333,7 @@ impl Gen {
     }
 
     fn emit_assign(&mut self, name: &str, op: AssignOp, value: &Expr) {
-        let snake = to_snake(name);
+        let snake = rust_ident(&to_snake(name));
         let lty = self.t.lookup(name);
         match op {
             AssignOp::Set => {
@@ -426,7 +438,7 @@ impl Gen {
                 if name == "none" {
                     "None".to_string()
                 } else {
-                    to_snake(name)
+                    rust_ident(&to_snake(name))
                 }
             }
             Expr::Array(els, _) => {
@@ -649,7 +661,7 @@ impl Gen {
             }
             _ => {
                 let parts: Vec<String> = args.iter().map(|a| self.emit_call_arg(a)).collect();
-                format!("{}({})", to_snake(name), parts.join(", "))
+                format!("{}({})", rust_ident(&to_snake(name)), parts.join(", "))
             }
         }
     }

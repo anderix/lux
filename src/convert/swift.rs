@@ -15,7 +15,7 @@
 
 use crate::ast::*;
 
-use super::{Ty, Types, bin_prec, escape, format_float, indent, op_str, ty_from_ann};
+use super::{Ty, Types, bin_prec, escape, format_float, indent, op_str, swift_ident, ty_from_ann};
 
 struct Gen {
     t: Types,
@@ -256,12 +256,23 @@ impl Gen {
         // The `_` label keeps calls positional, the way lux writes them.
         let ps: Vec<String> = params
             .iter()
-            .map(|p| format!("_ {}: {}", p.name, ty_text(&ty_from_ann(&p.ty))))
+            .map(|p| {
+                format!(
+                    "_ {}: {}",
+                    swift_ident(&p.name),
+                    ty_text(&ty_from_ann(&p.ty))
+                )
+            })
             .collect();
         let r = ret
             .map(|t| format!(" -> {}", ty_text(&ty_from_ann(t))))
             .unwrap_or_default();
-        self.line(format!("func {}({}){} {{", name, ps.join(", "), r));
+        self.line(format!(
+            "func {}({}){} {{",
+            swift_ident(name),
+            ps.join(", "),
+            r
+        ));
         self.indent += 1;
         self.t.push_scope();
         for p in params {
@@ -366,37 +377,39 @@ impl Gen {
         // since Swift infers the rest.
         let value_open = self.t.type_of(value).has_unknown();
         let kw = if mutable { "var" } else { "let" };
+        let ident = swift_ident(name);
         let expr = self.emit_expr(value);
         if ann.is_some() && value_open && !vty.has_unknown() {
-            self.line(format!("{} {}: {} = {}", kw, name, ty_text(&vty), expr));
+            self.line(format!("{} {}: {} = {}", kw, ident, ty_text(&vty), expr));
         } else {
-            self.line(format!("{} {} = {}", kw, name, expr));
+            self.line(format!("{} {} = {}", kw, ident, expr));
         }
         self.t.declare(name.to_string(), vty);
     }
 
     fn emit_assign(&mut self, name: &str, op: AssignOp, value: &Expr) {
         let lty = self.t.lookup(name);
+        let ident = swift_ident(name);
         match op {
             AssignOp::Set => {
                 let e = self.emit_expr(value);
-                self.line(format!("{} = {}", name, e));
+                self.line(format!("{} = {}", ident, e));
             }
             AssignOp::Add => match lty {
                 // lux `+=` on an array appends one element.
                 Ty::Array(_) => {
                     let e = self.emit_expr(value);
-                    self.line(format!("{}.append({})", name, e));
+                    self.line(format!("{}.append({})", ident, e));
                 }
                 // Strings and numbers both take Swift's `+=` directly.
                 _ => {
                     let e = self.emit_expr(value);
-                    self.line(format!("{} += {}", name, e));
+                    self.line(format!("{} += {}", ident, e));
                 }
             },
             AssignOp::Sub => {
                 let e = self.emit_expr(value);
-                self.line(format!("{} -= {}", name, e));
+                self.line(format!("{} -= {}", ident, e));
             }
         }
     }
@@ -556,7 +569,7 @@ impl Gen {
                 if name == "none" {
                     "nil".to_string()
                 } else {
-                    name.clone()
+                    swift_ident(name)
                 }
             }
             Expr::Array(els, _) => {
@@ -729,7 +742,7 @@ impl Gen {
             _ => {
                 // Value semantics match lux's, so arguments pass straight through.
                 let parts: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
-                format!("{}({})", name, parts.join(", "))
+                format!("{}({})", swift_ident(name), parts.join(", "))
             }
         }
     }

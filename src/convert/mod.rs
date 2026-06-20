@@ -379,3 +379,147 @@ fn format_float(f: f64) -> String {
         format!("{}.0", s)
     }
 }
+
+/// A lux identifier that collides with a reserved word in the target language
+/// gets a trailing `_` so the generated program still compiles — `where`
+/// becomes `where_`, `go` becomes `go_`. lux's own keywords never reach here
+/// (they aren't legal lux identifiers either), so each list below holds only the
+/// target words lux does *not* itself reserve.
+///
+/// This guards *value* names: functions, parameters, and locals. Type names,
+/// struct fields, and enum cases are left as written — a type called `map` is a
+/// documented rough edge (see learn-lux.md's scope notes), not a supported name.
+fn reserve(name: &str, words: &[&str]) -> String {
+    if words.contains(&name) {
+        format!("{name}_")
+    } else {
+        name.to_string()
+    }
+}
+
+/// Go keywords, plus the predeclared names the generated code itself relies on
+/// (`append`, `len`, `ptr`, …) where a user function of the same name would
+/// silently shadow the one the emitter emits.
+const GO_RESERVED: &[&str] = &[
+    "break",
+    "case",
+    "chan",
+    "const",
+    "continue",
+    "default",
+    "defer",
+    "else",
+    "fallthrough",
+    "for",
+    "func",
+    "go",
+    "goto",
+    "if",
+    "import",
+    "interface",
+    "map",
+    "package",
+    "range",
+    "return",
+    "select",
+    "struct",
+    "switch",
+    "type",
+    "var",
+    "append",
+    "cap",
+    "copy",
+    "delete",
+    "len",
+    "make",
+    "new",
+    "panic",
+    "recover",
+    "ptr",
+    "any",
+    "nil",
+    "iota",
+];
+
+fn go_ident(name: &str) -> String {
+    reserve(name, GO_RESERVED)
+}
+
+/// Rust's strict and reserved keywords (2021 edition).
+const RUST_RESERVED: &[&str] = &[
+    "as", "async", "await", "break", "const", "continue", "crate", "dyn", "else", "enum", "extern",
+    "false", "fn", "for", "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub",
+    "ref", "return", "self", "Self", "static", "struct", "super", "trait", "true", "type", "union",
+    "unsafe", "use", "where", "while", "abstract", "become", "box", "do", "final", "gen", "macro",
+    "override", "priv", "try", "typeof", "unsized", "virtual", "yield",
+];
+
+fn rust_ident(name: &str) -> String {
+    reserve(name, RUST_RESERVED)
+}
+
+/// Swift's keywords (declaration, statement, and expression).
+const SWIFT_RESERVED: &[&str] = &[
+    "associatedtype",
+    "class",
+    "deinit",
+    "enum",
+    "extension",
+    "fileprivate",
+    "func",
+    "import",
+    "init",
+    "inout",
+    "internal",
+    "let",
+    "open",
+    "operator",
+    "private",
+    "protocol",
+    "public",
+    "rethrows",
+    "static",
+    "struct",
+    "subscript",
+    "typealias",
+    "var",
+    "actor",
+    "break",
+    "case",
+    "continue",
+    "default",
+    "defer",
+    "do",
+    "else",
+    "fallthrough",
+    "for",
+    "guard",
+    "if",
+    "in",
+    "repeat",
+    "return",
+    "switch",
+    "where",
+    "while",
+    "as",
+    "Any",
+    "catch",
+    "false",
+    "is",
+    "nil",
+    "super",
+    "self",
+    "Self",
+    "throw",
+    "throws",
+    "true",
+    "try",
+    "await",
+    "async",
+    "some",
+    "any",
+];
+
+fn swift_ident(name: &str) -> String {
+    reserve(name, SWIFT_RESERVED)
+}

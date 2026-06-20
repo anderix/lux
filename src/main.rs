@@ -13,6 +13,11 @@ use lux::{convert, diagnostic, interpreter, learn, lexer, parser};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+// The starter crawl, scaffolded by `lux crawl`. The world is the example file
+// itself, so the thing you play and the thing the tests run can never drift.
+const STARTER_WORLD: &str = include_str!("../examples/keep.lux");
+const STARTER_SCROLL: &str = include_str!("../examples/crawl-readme.txt");
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
 
@@ -20,6 +25,7 @@ fn main() {
         Some("--version") | Some("-V") => println!("lux {}", VERSION),
         Some("--help") | Some("-h") => print_usage(),
         Some("run") => run_cmd(&args[2..]),
+        Some("crawl") => crawl_cmd(&args[2..]),
         Some("build") => build_cmd(&args[2..]),
         Some("convert") => convert_cmd(&args[2..]),
         Some("learn") => learn_cmd(&args[2..]),
@@ -125,6 +131,64 @@ fn gofmt(src: String) -> String {
     }
 }
 
+/// Scaffold a playable, editable text adventure into the current directory.
+/// The whole world is plain lux the player can open and change — `lux crawl` is
+/// just the thing that drops a fresh copy in front of them.
+fn crawl_cmd(rest: &[String]) {
+    let dir = rest.first().map(String::as_str).unwrap_or("crawl");
+    let path = Path::new(dir);
+    let world = path.join("world.lux");
+
+    // Running `lux crawl` over a crawl you already started reports where it is
+    // rather than overwriting it — the world may be full of your own changes.
+    if path.exists() {
+        if world.exists() {
+            println!("There's already a crawl in ./{}/.", dir);
+            println!();
+            println!("  play it:     lux run {}/world.lux", dir);
+            println!("  edit it:     open {}/world.lux in your editor", dir);
+            println!(
+                "  start over:  delete the ./{}/ folder, then run `lux crawl` again",
+                dir
+            );
+        } else {
+            eprintln!(
+                "./{}/ already exists but isn't a crawl (no world.lux). \
+                 Try a different name: `lux crawl <name>`.",
+                dir
+            );
+            exit(1);
+        }
+        return;
+    }
+
+    if let Err(e) = std::fs::create_dir_all(path) {
+        eprintln!("cannot create ./{}/: {}", dir, e);
+        exit(1);
+    }
+    for (name, contents) in [
+        ("world.lux", STARTER_WORLD),
+        ("read-me-first.txt", STARTER_SCROLL),
+    ] {
+        let file = path.join(name);
+        if let Err(e) = std::fs::write(&file, contents) {
+            eprintln!("cannot write {}: {}", file.display(), e);
+            exit(1);
+        }
+    }
+
+    println!("A new crawl is waiting in ./{}/.", dir);
+    println!();
+    println!("  play it:     lux run {}/world.lux", dir);
+    println!("  read first:  {}/read-me-first.txt", dir);
+    println!(
+        "  the world:   {}/world.lux  — open it; every room is yours to change",
+        dir
+    );
+    println!();
+    println!("New to building one? `lux learn crawl` walks through how a world is made.");
+}
+
 fn build_cmd(rest: &[String]) {
     let Some(path) = rest.first() else {
         eprintln!("usage: lux build <file.lux>");
@@ -185,6 +249,7 @@ fn print_usage() {
     println!();
     println!("usage:");
     println!("  lux run <file.lux>            run a program");
+    println!("  lux crawl [name]              start a text adventure you can open and change");
     println!("  lux build <file.lux>          compile to a native binary via Rust");
     println!("  lux convert <lang> <file.lux> translate to rust, swift, or go source");
     println!("  lux learn [topic] [more]      read the language, built in");

@@ -4,6 +4,37 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-06-19
+
+### Added
+
+- **`lux crawl`** — scaffolds a small, playable text adventure into the current
+  directory and tells you how to play and edit it. The whole world is one lux
+  file (`world.lux`): the rooms are an enum, where you stand and what you carry
+  is a struct, and a turn is a function that takes the world and your command and
+  returns the next one. You play it by running it and change it by editing it —
+  the first step toward building your own. Running `lux crawl` over a crawl you
+  already started reports where it is instead of overwriting it.
+- **`lux learn crawl`** — a new topic (and a `build` lesson) on how a world is
+  put together, with the `step(world, command) -> world` idea on its `more` page.
+- **`examples/keep.lux`** — "The Little Keep," the world `lux crawl` scaffolds: a
+  brass key behind a locked door, a torch that lights a dark vault, an inventory
+  that grows. Built on today's language on purpose — exact-match commands and all.
+
+### Changed
+
+- **Reserved-word collisions in the transpilers are now handled.** A lux name
+  that is a keyword in a target language (`go`, `where`, `map`, …) gets a trailing
+  `_` in that backend only, at value positions — function names, parameters, and
+  locals — so a program that uses such a name still compiles. Type names, struct
+  fields, and enum cases are left as written (a documented edge).
+- A payload-less enum case used in a comparison now parenthesises in Go
+  (`(RoomHall{})`), so `room == Room.hall` no longer trips Go's block-vs-literal
+  parse inside an `if`.
+- Documented the remaining transpiler edges (Go's `Option<enum>` and empty-array
+  literal, Rust's value-after-move) in learn-lux.md's scope notes, as honest
+  boundaries rather than worked around.
+
 ## [0.6.0] - 2026-06-19
 
 ### Added
@@ -136,6 +167,7 @@ All notable changes to lux are recorded here. The format follows
   `lux build` compiles the Rust translation to a native binary.
 - A `curl` installer and uninstaller.
 
+[0.7.0]: https://github.com/anderix/lux/releases/tag/v0.7.0
 [0.6.0]: https://github.com/anderix/lux/releases/tag/v0.6.0
 [0.5.0]: https://github.com/anderix/lux/releases/tag/v0.5.0
 [0.4.0]: https://github.com/anderix/lux/releases/tag/v0.4.0

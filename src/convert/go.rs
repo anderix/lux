@@ -18,7 +18,7 @@
 
 use crate::ast::*;
 
-use super::{Ty, Types, bin_prec, escape, format_float, op_str, to_pascal, ty_from_ann};
+use super::{Ty, Types, bin_prec, escape, format_float, go_ident, op_str, to_pascal, ty_from_ann};
 
 struct Gen {
     t: Types,
@@ -305,14 +305,19 @@ impl Gen {
     fn emit_func(&mut self, name: &str, params: &[Param], ret: Option<&TypeAnn>, body: &[Stmt]) {
         let ps: Vec<String> = params
             .iter()
-            .map(|p| format!("{} {}", p.name, ty_text(&ty_from_ann(&p.ty))))
+            .map(|p| format!("{} {}", go_ident(&p.name), ty_text(&ty_from_ann(&p.ty))))
             .collect();
         let rty = ret.map(ty_from_ann);
         let rtext = match &rty {
             None | Some(Ty::Unit) => String::new(),
             Some(t) => format!(" {}", ty_text(t)),
         };
-        self.line(format!("func {}({}){} {{", name, ps.join(", "), rtext));
+        self.line(format!(
+            "func {}({}){} {{",
+            go_ident(name),
+            ps.join(", "),
+            rtext
+        ));
         self.indent += 1;
         self.t.push_scope();
         let saved = self.ret.take();
@@ -442,32 +447,33 @@ impl Gen {
             .map(ty_from_ann)
             .unwrap_or_else(|| self.t.type_of(value));
         let expr = self.emit_expr(value);
-        self.line(format!("{} := {}", name, expr));
+        self.line(format!("{} := {}", go_ident(name), expr));
         self.t.declare(name.to_string(), vty);
     }
 
     fn emit_assign(&mut self, name: &str, op: AssignOp, value: &Expr) {
         let lty = self.t.lookup(name);
+        let ident = go_ident(name);
         match op {
             AssignOp::Set => {
                 let e = self.emit_expr(value);
-                self.line(format!("{} = {}", name, e));
+                self.line(format!("{} = {}", ident, e));
             }
             AssignOp::Add => match lty {
                 // lux `+=` on an array appends one element.
                 Ty::Array(_) => {
                     let e = self.emit_expr(value);
-                    self.line(format!("{} = append({}, {})", name, name, e));
+                    self.line(format!("{} = append({}, {})", ident, ident, e));
                 }
                 // Strings and numbers both take Go's `+=` directly.
                 _ => {
                     let e = self.emit_expr(value);
-                    self.line(format!("{} += {}", name, e));
+                    self.line(format!("{} += {}", ident, e));
                 }
             },
             AssignOp::Sub => {
                 let e = self.emit_expr(value);
-                self.line(format!("{} -= {}", name, e));
+                self.line(format!("{} -= {}", ident, e));
             }
         }
     }
@@ -757,7 +763,7 @@ impl Gen {
                 if name == "none" {
                     "nil".to_string()
                 } else {
-                    name.clone()
+                    go_ident(name)
                 }
             }
             Expr::Array(els, _) => {
@@ -822,7 +828,10 @@ impl Gen {
                     && let Some(variants) = self.t.env.enums.get(n)
                     && variants.iter().any(|v| v.name == *field)
                 {
-                    return format!("{}{}{{}}", n, to_pascal(field));
+                    // Parenthesised so a payload-less case stays a valid
+                    // operand inside an `if`/`switch` condition, where Go would
+                    // otherwise read the `{` as the start of the block.
+                    return format!("({}{}{{}})", n, to_pascal(field));
                 }
                 let b = self.emit_expr(base);
                 format!("{}.{}", b, field)
@@ -952,7 +961,7 @@ impl Gen {
             "ok" | "err" => self.emit_expr(&args[0]),
             _ => {
                 let parts: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
-                format!("{}({})", name, parts.join(", "))
+                format!("{}({})", go_ident(name), parts.join(", "))
             }
         }
     }
@@ -965,7 +974,9 @@ impl Gen {
     ) -> String {
         let case = format!("{}{}", enum_name, to_pascal(variant));
         if fields.is_empty() {
-            format!("{}{{}}", case)
+            // Parenthesised: see the note in the `Expr::Field` arm above — a bare
+            // `Case{}` is misread as a block when it sits in a condition.
+            format!("({}{{}})", case)
         } else {
             let parts: Vec<String> = fields
                 .iter()
