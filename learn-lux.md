@@ -467,7 +467,9 @@ of your code, is what keeps the failure path in plain sight.
 The world beyond your program is where things go wrong: a file might not be
 there. So reading one hands back a `Result` — `ok` with the text, or `err` with
 the reason — and `match` makes you face both. It is the `result` you just
-learned, now earning its keep.
+learned, now earning its keep. Reading a line of input is the same idea for
+absence rather than failure: `readLine()` returns an `Option<string>` — a line,
+or `none` when the input runs out — the call a command loop reads each turn.
 
 ```lux
 match readFile("poem.txt") {
