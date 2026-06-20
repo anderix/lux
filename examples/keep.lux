@@ -249,13 +249,15 @@ func takeGold(w: World) -> World {
 }
 
 func showHelp(w: World) -> World {
-    print("Things you can type:")
-    print("  look                            look around again")
-    print("  north  south  east  west        go that way")
-    print("  up  down                        take stairs")
+    print("Type a command — the left column is what you type:")
+    print("")
+    print("  command                         what the command does")
+    print("  look                            see the room again")
+    print("  north  south  east  west        move that way")
+    print("  up  down                        go up or down")
     print("  take key   take torch           pick something up")
     print("  open door                       try a door")
-    print("  help                            show this list")
+    print("  help                            see this list")
     print("  quit                            stop playing")
     return w
 }
