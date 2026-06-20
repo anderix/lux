@@ -4,6 +4,17 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2] - 2026-06-20
+
+### Changed
+
+- First playtest fixes for The Little Keep. The help now heads its two columns
+  ("command" and "what the command does") so the right-hand descriptions can't be
+  read as commands. The cellar's west passage and downward steps are split into
+  two clear sentences instead of one blurred breath, so they read as two separate
+  exits. And the vault now names the steps that lead back up, so a player below
+  knows `up` returns.
+
 ## [0.7.1] - 2026-06-20
 
 ### Added
@@ -190,6 +201,7 @@ All notable changes to lux are recorded here. The format follows
   `lux build` compiles the Rust translation to a native binary.
 - A `curl` installer and uninstaller.
 
+[0.7.2]: https://github.com/anderix/lux/releases/tag/v0.7.2
 [0.7.1]: https://github.com/anderix/lux/releases/tag/v0.7.1
 [0.7.0]: https://github.com/anderix/lux/releases/tag/v0.7.0
 [0.6.0]: https://github.com/anderix/lux/releases/tag/v0.6.0
