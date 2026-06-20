@@ -5,7 +5,7 @@
 // written below in plain lux. Play it once, then open it and read down — you
 // already know more of what you're looking at than you'd guess.
 //
-//     lux run examples/keep.lux
+//     lux run world.lux
 //
 // When you're ready, try giving the cellar a new exit, or hiding a third thing
 // to find.
@@ -50,7 +50,7 @@ func describe(room: Room) -> string {
         hall     => "A wide hall, its banners long rotted. Ways lead south and east, and a heavy door faces north."
         cellar   => "A damp cellar smelling of earth and old wine. A way out leads west, and worn steps go down into the dark."
         vault    => "A low vault under the keep."
-        chamber  => "A round chamber open to the sky. Ivy climbs the walls and a window looks over green hills. You made it through. Wander back south, or type quit when you're ready."
+        chamber  => "A round chamber, open at last to the sky. Ivy climbs the walls and a window looks out over green hills."
     }
 }
 
@@ -87,6 +87,44 @@ func describeHere(w: World) -> World {
     }
     if length(w.items) > 0 {
         print("You are carrying:", w.items)
+    }
+    // The chamber behind the locked door is where the keep tells you what it
+    // really is — the reward for getting through, not a thing you read up front.
+    if w.room == Room.chamber {
+        print("")
+        print("You made it through the locked door — and in the light here, the")
+        print("keep gives up its secret.")
+        print("")
+        print("This keep is the very file you are running, and that file is a")
+        print("program you can read. Open it in your editor: every room, the")
+        print("locked door, the torch in the cellar, all of it written there in")
+        print("plain lux, with nothing hidden from you.")
+        print("")
+        print("Which means you can change it. Rewrite a room's description and run")
+        print("it again — the keep changes because you changed it. Then make the")
+        print("cellar lead somewhere new, or hide a third thing to find. You are")
+        print("not playing the keep anymore. You are building it.")
+        print("")
+        // A program can read and write files, too. We read first to see if the
+        // secret is already saved — readFile fails when the file isn't there,
+        // which is exactly when to write it — so we only write it once, and never
+        // clobber a copy you've started changing. Each call hands back a Result
+        // you have to read. (lux learn io)
+        let note = "You found the secret of the keep.\n\nThis keep is the very file you ran to play it — a program you can open and read. Change a room's description, give the cellar a new exit, or hide another thing to find, then run it again.\n\nWhen you're ready:\n  lux learn crawl   how a world is put together\n  lux learn         everything else lux can do\n\nIt's your keep.\n"
+        match readFile("the-secret.txt") {
+            ok(let _)  => print("(Your copy is already saved in the-secret.txt.)")
+            err(let _) => match writeFile("the-secret.txt", note) {
+                ok(let _)  => print("(There's a copy in the-secret.txt now, so it's not lost when you leave.)")
+                err(let _) => print("(I couldn't leave a copy on disk, but it's all here on the screen.)")
+            }
+        }
+        print("")
+        print("When you're ready, type quit to step out of the keep, then:")
+        print("")
+        print("  lux learn crawl     how a world is put together")
+        print("  lux learn           everything else lux can do")
+        print("")
+        print("Have fun. Break things. It's your keep.")
     }
     return w
 }
@@ -188,11 +226,33 @@ func openDoor(w: World) -> World {
     return w
 }
 
+// Taking the gold is never listed in help — a small reward for trying the
+// obvious thing, and a nudge that you can add commands of your own.
+func takeGold(w: World) -> World {
+    if w.room == Room.vault {
+        if has(w.items, "torch") {
+            if has(w.items, "gold") {
+                print("Your pockets are already heavy with coins.")
+                return w
+            }
+            print("You fill your pockets with coins — it barely dents the hoard.")
+            print("(That one was never in the help. It's just a line in world.lux — add a command of your own the same way.)")
+            var pack = w.items
+            pack += "gold"
+            return World(room: w.room, items: pack, doorOpen: w.doorOpen, playing: w.playing)
+        }
+        print("It's too dark to see any gold. You would need a light.")
+        return w
+    }
+    print("There's no gold here to take.")
+    return w
+}
+
 func showHelp(w: World) -> World {
     print("Things you can type:")
     print("  look                            look around again")
     print("  north  south  east  west        go that way")
-    print("  up  down                         take stairs")
+    print("  up  down                        take stairs")
     print("  take key   take torch           pick something up")
     print("  open door                       try a door")
     print("  help                            show this list")
@@ -225,6 +285,7 @@ func step(w: World, cmd: string) -> World {
         "down"       => walk(w, "down")
         "take key"   => takeThing(w, "key", Room.hall)
         "take torch" => takeThing(w, "torch", Room.cellar)
+        "take gold"  => takeGold(w)
         "open door"  => openDoor(w)
         _            => huh(w, cmd)
     }

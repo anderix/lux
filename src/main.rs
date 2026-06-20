@@ -177,14 +177,13 @@ fn crawl_cmd(rest: &[String]) {
         }
     }
 
-    println!("A new crawl is waiting in ./{}/.", dir);
+    println!("A new crawl is waiting in ./{}/. Step inside it first:", dir);
     println!();
-    println!("  read first:  {}/read-me-first.txt", dir);
-    println!("  play it:     lux run {}/world.lux", dir);
-    println!(
-        "  the world:   {}/world.lux  — open it; every room is yours to change",
-        dir
-    );
+    println!("  cd {}", dir);
+    println!();
+    println!("  read first:  read-me-first.txt");
+    println!("  play it:     lux run world.lux");
+    println!("  the world:   world.lux  — open it; every room is yours to change");
     println!();
     println!("New to building one? `lux learn crawl` walks through how a world is made.");
 }
