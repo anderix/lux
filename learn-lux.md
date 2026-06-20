@@ -107,7 +107,7 @@ languages that care make you say when you mean it. The `%` remainder and
 integer division that drops the fraction are everywhere too — they are how you
 ask "is this even?" or "what is left over?" in almost any language.
 
-> see: strings — the scalar that holds text, and why turning a number into one is on you
+> see: strings — the scalar that holds text, and why turning a number into one is on you · conversions — `int`/`float` between numbers, and `parseInt` to read one out of text
 
 <!-- topic: strings -->
 ## strings — text
@@ -132,7 +132,7 @@ but the constant across all of them is that text is data you measure, join, and
 take apart — never something the language quietly turns into a number for you,
 which is why lux makes you ask for `string(...)`.
 
-> see: arrays — a string is a sequence of characters, measured the way an array is
+> see: arrays — a string is a sequence of characters, measured the way an array is · conversions — going the other way, reading a number out of text with `parseInt`
 
 <!-- topic: booleans -->
 ## booleans — true and false
@@ -432,6 +432,43 @@ can reach what is inside: Rust's `Option`, Swift's `Optional`. That forced
 check, paid once up front, is the whole point.
 
 > see: result — its sibling, for failing with a reason instead of just being absent · match — how you open one safely
+
+<!-- topic: conversions -->
+## conversions — between numbers and text
+
+`int`, `float`, and `string` turn one kind of value into another. Converting
+between numbers, or rendering a number as text, always works — there is no way
+for it to fail. Reading a number *out of* text is the different one: the text
+might not be a number, so `parseInt` and `parseFloat` hand back an `Option` you
+match, never a crash.
+
+```lux
+var price = 3.99            // a float
+let whole = int(price)      // 3 — a conversion can't fail
+let label = string(whole)   // "3"
+print(label, "dollars, rounded down")
+
+match parseInt("17") {
+    some(let n) => print("the number is", n)
+    none        => print("that wasn't a number")
+}
+```
+
+> try: change `"17"` to `"seven"` and run — the `none` arm answers instead of the program falling over.
+
+<!-- more -->
+The split is the honest one every careful language draws. A *conversion* is total
+— `int(3.9)` is always `3`, `string(42)` is always `"42"` — so it just hands the
+value back. *Parsing* is reading structure out of text that may not have it, and
+that can fail, so its answer is an `Option`: `some(n)` when the text was a
+number, `none` when it was not. Folding the two together is where the crash
+hides — a language that lets `int("oops")` blow up has smuggled a failure into
+something that looked safe. lux keeps them apart: `parseInt` wears its
+fallibility in its type, the same `Option` you already match on. Down the ladder
+this is Rust's total `as` against its fallible `.parse()`, and Swift's
+`Int(3.9)` against its failable `Int("17")`.
+
+> see: option — the shape a parse hands back · strings — the text you parse from · numbers — what you parse into
 
 <!-- topic: result -->
 ## result — a value that might fail

@@ -33,11 +33,16 @@ struct Gen {
     uses_os: bool,
     uses_bufio: bool,
     uses_strings: bool,
+    uses_strconv: bool,
     /// The outside-world helpers: each adapts Go's standard-library shape to the
     /// `(value, error)` pair lux's `Result` lowers to, emitted only when used.
     uses_read_file: bool,
     uses_write_file: bool,
     uses_read_line: bool,
+    /// Text-to-number parsing, each emitted as a `*T` so a failed parse is the
+    /// nil that lux reads as `none`.
+    uses_parse_int: bool,
+    uses_parse_float: bool,
     /// `run` pulls in `bytes` and `os/exec`, the built-in `Output` struct, and a
     /// helper that adapts `exec`'s error into lux's launch-or-status split.
     uses_run: bool,
@@ -56,9 +61,12 @@ pub fn to_go(program: &[Stmt]) -> String {
         uses_os: false,
         uses_bufio: false,
         uses_strings: false,
+        uses_strconv: false,
         uses_read_file: false,
         uses_write_file: false,
         uses_read_line: false,
+        uses_parse_int: false,
+        uses_parse_float: false,
         uses_run: false,
     };
 
@@ -174,6 +182,9 @@ impl Gen {
         if self.uses_os {
             imports.push("os");
         }
+        if self.uses_strconv {
+            imports.push("strconv");
+        }
         if self.uses_strings {
             imports.push("strings");
         }
@@ -222,6 +233,29 @@ impl Gen {
                  \t}\n\
                  \tline = strings.TrimRight(line, \"\\r\\n\")\n\
                  \treturn &line\n\
+                 }\n\n",
+            );
+        }
+        if self.uses_parse_int {
+            // A failed parse is nil, the pointer lux reads as `none`.
+            head.push_str(
+                "func parseInt(s string) *int {\n\
+                 \tn, err := strconv.Atoi(strings.TrimSpace(s))\n\
+                 \tif err != nil {\n\
+                 \t\treturn nil\n\
+                 \t}\n\
+                 \treturn &n\n\
+                 }\n\n",
+            );
+        }
+        if self.uses_parse_float {
+            head.push_str(
+                "func parseFloat(s string) *float64 {\n\
+                 \tf, err := strconv.ParseFloat(strings.TrimSpace(s), 64)\n\
+                 \tif err != nil {\n\
+                 \t\treturn nil\n\
+                 \t}\n\
+                 \treturn &f\n\
                  }\n\n",
             );
         }
@@ -941,6 +975,20 @@ impl Gen {
             "float" => {
                 let e = self.emit_expr(&args[0]);
                 format!("float64({})", e)
+            }
+            "parseInt" => {
+                self.uses_parse_int = true;
+                self.uses_strconv = true;
+                self.uses_strings = true;
+                let e = self.emit_expr(&args[0]);
+                format!("parseInt({})", e)
+            }
+            "parseFloat" => {
+                self.uses_parse_float = true;
+                self.uses_strconv = true;
+                self.uses_strings = true;
+                let e = self.emit_expr(&args[0]);
+                format!("parseFloat({})", e)
             }
             "length" => {
                 let inner = self.t.type_of(&args[0]);

@@ -622,8 +622,6 @@ impl Gen {
                 let inner = self.t.type_of(&args[0]);
                 let e = self.emit_expr(&args[0]);
                 match inner {
-                    Ty::Str => format!("({}).parse::<i64>().unwrap()", e),
-                    Ty::Float => format!("({}) as i64", e),
                     Ty::Int => e,
                     _ => format!("({}) as i64", e),
                 }
@@ -632,11 +630,18 @@ impl Gen {
                 let inner = self.t.type_of(&args[0]);
                 let e = self.emit_expr(&args[0]);
                 match inner {
-                    Ty::Int => format!("({}) as f64", e),
-                    Ty::Str => format!("({}).parse::<f64>().unwrap()", e),
                     Ty::Float => e,
                     _ => format!("({}) as f64", e),
                 }
+            }
+            // `.ok()` turns parse's Result into the Option lux returns.
+            "parseInt" => {
+                let e = self.emit_call_arg(&args[0]);
+                format!("{}.trim().parse::<i64>().ok()", e)
+            }
+            "parseFloat" => {
+                let e = self.emit_call_arg(&args[0]);
+                format!("{}.trim().parse::<f64>().ok()", e)
             }
             "length" => {
                 let inner = self.t.type_of(&args[0]);

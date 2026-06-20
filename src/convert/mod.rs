@@ -229,6 +229,9 @@ impl Types {
             "writeFile" => Ty::Result(Box::new(Ty::Unit), Box::new(Ty::Str)),
             "args" => Ty::Array(Box::new(Ty::Str)),
             "readLine" => Ty::Option(Box::new(Ty::Str)),
+            // Parsing text into a number can fail, so it answers with an Option.
+            "parseInt" => Ty::Option(Box::new(Ty::Int)),
+            "parseFloat" => Ty::Option(Box::new(Ty::Float)),
             "eprint" => Ty::Unit,
             // `run` is the one built-in that succeeds with a struct: the captured
             // status and streams, or a string reason it could not launch.

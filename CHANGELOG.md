@@ -4,6 +4,36 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-06-20
+
+### Added
+
+- **`parseInt` and `parseFloat`** — read a number out of text. Because the text
+  might not be a number, each hands back an `Option` — `some(n)` when it parsed,
+  `none` when it did not — the same shape you already `match` on, so bad input is
+  a value you handle rather than a crash.
+- **`lux learn conversions`** — a new topic (in the `safety` lesson, next to
+  `option`) on the line between converting and parsing: a conversion is total, a
+  parse can fail, and folding the two together is where the crash hides.
+- **`lux magic`** — spells for things you want to do now. Where `lux learn` is a
+  concept ladder, magic is task-indexed ("how do I read input?"): a small program
+  that already works, ending with a trail to the `lux learn` topics that explain
+  it. A spell is allowed to run ahead of where you've climbed the ladder — that's
+  the point — and the same spell reads as plain lux once its trail is walked. The
+  first three answer the question a player hits the moment they want their world
+  to listen: reading a line, reading a number (on the new `parseInt`), and a
+  read-a-command loop. Every spell is real lux the suite runs and translates.
+
+### Changed
+
+- **`int` and `float` are now total conversions.** They convert between numbers
+  and pass their own type through; they no longer parse strings. `int("5")` was
+  the one operation in lux that could fail by aborting the program — a quiet
+  contradiction of the no-hidden-failures rule the language teaches everywhere
+  else. That string case now errors with a trail pointing at `parseInt` /
+  `parseFloat`. (This also removes a latent bug in the Go backend, where
+  `int(aString)` had emitted invalid Go.)
+
 ## [0.7.2] - 2026-06-20
 
 ### Changed
@@ -201,6 +231,7 @@ All notable changes to lux are recorded here. The format follows
   `lux build` compiles the Rust translation to a native binary.
 - A `curl` installer and uninstaller.
 
+[0.8.0]: https://github.com/anderix/lux/releases/tag/v0.8.0
 [0.7.2]: https://github.com/anderix/lux/releases/tag/v0.7.2
 [0.7.1]: https://github.com/anderix/lux/releases/tag/v0.7.1
 [0.7.0]: https://github.com/anderix/lux/releases/tag/v0.7.0

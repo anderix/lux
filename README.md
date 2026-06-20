@@ -103,7 +103,15 @@ closing `lux learn beyond` names what carries past lux once it is outgrown. The
 latest milestone turns the language on itself: `lux crawl` drops a small text
 adventure in your folder whose whole world is one lux file — you play it by
 running it and change it by editing it, the first step from using a program to
-building one. See the scope notes at the bottom of
+building one. The latest milestone draws the line between converting and parsing:
+`int`, `float`, and `string` are total conversions that cannot fail, while
+reading a number out of text — which can — moves to `parseInt` and `parseFloat`,
+each handing back the same `Option` lux already teaches instead of crashing on
+bad input. The same milestone adds `lux magic`: task-indexed spells (read a line,
+read a number, loop until done) that already work and carry a trail to the
+`lux learn` topics behind them — a working shape now for a reader still climbing
+the ladder, honest about where the trick is explained. See the scope notes at the
+bottom of
 [learn-lux.md](learn-lux.md), or [CHANGELOG.md](CHANGELOG.md) for the version
 history.
 

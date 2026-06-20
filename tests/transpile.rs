@@ -14,6 +14,7 @@ const EXAMPLES: &[&str] = &[
     "functions",
     "types",
     "option",
+    "conversions",
     "tour",
     "io",
     "shell",

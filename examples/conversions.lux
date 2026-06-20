@@ -1,0 +1,27 @@
+// Converting and parsing between numbers and text. A conversion can't fail; a
+// parse can, so it hands its failure back as an Option you match — never a crash.
+
+// Conversions between numbers, and rendering a number as text, always work.
+var price = 3.99
+let whole = int(price)        // 3 — drops the fraction
+let asFloat = float(whole)    // 3.0 — widens back
+let label = string(price)     // "3.99"
+print("whole:", whole, "asFloat:", asFloat, "label:", label)
+
+// Reading a number out of text is the fallible one. parseInt answers with an
+// Option: some(n) when the text was a number, none when it was not.
+match parseInt("42") {
+    some(let n) => print("parsed an int:", n)
+    none        => print("not an int")
+}
+
+match parseInt("oops") {
+    some(let n) => print("unexpected:", n)
+    none        => print("\"oops\" is not a number — no crash, just none")
+}
+
+// parseFloat is the same shape for fractions.
+match parseFloat("3.14") {
+    some(let f) => print("parsed a float:", f)
+    none        => print("not a float")
+}

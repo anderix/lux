@@ -1071,9 +1071,12 @@ impl Interp {
                 match v {
                     Value::Int(_) => Ok(v),
                     Value::Float(f) => Ok(Value::Int(f as i64)),
-                    Value::Str(s) => s.trim().parse::<i64>().map(Value::Int).map_err(|_| {
-                        LuxError::new(format!("cannot read \"{}\" as an int", s), span)
-                    }),
+                    Value::Str(_) => Err(LuxError::new(
+                        "int converts between numbers, not from text".to_string(),
+                        span,
+                    )
+                    .with_note("to read a number from text use parseInt, which hands back an Option you match on")
+                    .with_learn("conversions", "parseInt reads a number from text and gives back an Option")),
                     other => Err(LuxError::new(
                         format!("cannot convert {} to an int", named(other.type_name())),
                         span,
@@ -1085,9 +1088,12 @@ impl Interp {
                 match v {
                     Value::Float(_) => Ok(v),
                     Value::Int(n) => Ok(Value::Float(n as f64)),
-                    Value::Str(s) => s.trim().parse::<f64>().map(Value::Float).map_err(|_| {
-                        LuxError::new(format!("cannot read \"{}\" as a float", s), span)
-                    }),
+                    Value::Str(_) => Err(LuxError::new(
+                        "float converts between numbers, not from text".to_string(),
+                        span,
+                    )
+                    .with_note("to read a number from text use parseFloat, which hands back an Option you match on")
+                    .with_learn("conversions", "parseFloat reads a number from text and gives back an Option")),
                     other => Err(LuxError::new(
                         format!("cannot convert {} to a float", named(other.type_name())),
                         span,
@@ -1198,6 +1204,29 @@ impl Interp {
                     )))),
                 }
             }
+            // Reading a number from text can fail — the text might not be a
+            // number — so unlike int/float these hand back an Option, never a
+            // crash. `none` is the "that wasn't a number" answer.
+            "parseInt" => match self.one_arg(name, args, span)? {
+                Value::Str(s) => Ok(match s.trim().parse::<i64>() {
+                    Ok(n) => option_some(Value::Int(n)),
+                    Err(_) => option_none(),
+                }),
+                other => Err(LuxError::new(
+                    format!("parseInt reads text, but got {}", named(other.type_name())),
+                    span,
+                )),
+            },
+            "parseFloat" => match self.one_arg(name, args, span)? {
+                Value::Str(s) => Ok(match s.trim().parse::<f64>() {
+                    Ok(f) => option_some(Value::Float(f)),
+                    Err(_) => option_none(),
+                }),
+                other => Err(LuxError::new(
+                    format!("parseFloat reads text, but got {}", named(other.type_name())),
+                    span,
+                )),
+            },
             // The built-in enum constructors. `none` has no value, so it's a
             // bare name handled in `eval`, not a call.
             "some" => Ok(option_some(self.one_arg(name, args, span)?)),

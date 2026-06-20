@@ -707,21 +707,22 @@ impl Gen {
                 format!("String({})", e)
             }
             "int" => {
-                let inner = self.t.type_of(&args[0]);
                 let e = self.emit_expr(&args[0]);
-                match inner {
-                    // Int(String) is failing, so force-unwrap to match lux.
-                    Ty::Str => format!("Int({})!", e),
-                    _ => format!("Int({})", e),
-                }
+                format!("Int({})", e)
             }
             "float" => {
-                let inner = self.t.type_of(&args[0]);
                 let e = self.emit_expr(&args[0]);
-                match inner {
-                    Ty::Str => format!("Double({})!", e),
-                    _ => format!("Double({})", e),
-                }
+                format!("Double({})", e)
+            }
+            // Int(String) / Double(String) are failable, yielding the Optional
+            // that is lux's Option here.
+            "parseInt" => {
+                let e = self.emit_expr(&args[0]);
+                format!("Int({})", e)
+            }
+            "parseFloat" => {
+                let e = self.emit_expr(&args[0]);
+                format!("Double({})", e)
             }
             "length" => {
                 let e = self.emit_expr(&args[0]);

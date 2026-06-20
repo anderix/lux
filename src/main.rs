@@ -9,7 +9,7 @@ use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio, exit};
 
-use lux::{convert, diagnostic, interpreter, learn, lexer, parser};
+use lux::{convert, diagnostic, interpreter, learn, lexer, magic, parser};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -29,6 +29,7 @@ fn main() {
         Some("build") => build_cmd(&args[2..]),
         Some("convert") => convert_cmd(&args[2..]),
         Some("learn") => learn_cmd(&args[2..]),
+        Some("magic") => magic_cmd(&args[2..]),
         Some(other) => {
             eprintln!("unknown command `{}`\n", other);
             print_usage();
@@ -104,6 +105,22 @@ fn learn_cmd(rest: &[String]) {
                 }
             }
         }
+    }
+}
+
+/// `lux magic`: with no argument, the spells on offer; with one, that spell —
+/// a working shape and its trail into `lux learn`.
+fn magic_cmd(rest: &[String]) {
+    match rest.first().map(String::as_str) {
+        None => print!("{}", magic::menu()),
+        Some(name) => match magic::lookup(name) {
+            Some(text) => print!("{}", text),
+            None => {
+                eprintln!("there's no spell called `{}`.\n", name);
+                print!("{}", magic::menu());
+                exit(1);
+            }
+        },
     }
 }
 
@@ -252,6 +269,7 @@ fn print_usage() {
     println!("  lux build <file.lux>          compile to a native binary via Rust");
     println!("  lux convert <lang> <file.lux> translate to rust, swift, or go source");
     println!("  lux learn [topic] [more]      read the language, built in");
+    println!("  lux magic [spell]             working shapes for what you want to do now");
     println!();
     println!("  -V, --version                 print version");
     println!("  -h, --help                    print this help");

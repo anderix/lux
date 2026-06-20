@@ -122,6 +122,7 @@ func describeHere(w: World) -> World {
         print("When you're ready, type quit to step out of the keep, then:")
         print("")
         print("  lux learn crawl     how a world is put together")
+        print("  lux magic input     make your keep ask questions and listen")
         print("  lux learn           everything else lux can do")
         print("")
         print("Have fun. Break things. It's your keep.")

@@ -28,7 +28,7 @@ const PATHS: &[(&str, &[&str])] = &[
     ("logic", &["booleans", "if", "while"]),
     ("data", &["arrays", "for", "functions", "scope"]),
     ("types", &["structs", "enums", "match"]),
-    ("safety", &["option", "result", "io", "shell"]),
+    ("safety", &["option", "conversions", "result", "io", "shell"]),
     ("build", &["crawl"]),
 ];
 

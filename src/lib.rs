@@ -11,4 +11,5 @@ pub mod diagnostic;
 pub mod interpreter;
 pub mod learn;
 pub mod lexer;
+pub mod magic;
 pub mod parser;
