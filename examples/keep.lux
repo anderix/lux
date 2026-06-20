@@ -48,8 +48,8 @@ func describe(room: Room) -> string {
     return match room {
         entrance => "You stand at the mouth of an old stone keep. Cold air drifts from a passage north."
         hall     => "A wide hall, its banners long rotted. Ways lead south and east, and a heavy door faces north."
-        cellar   => "A damp cellar smelling of earth and old wine. A way out leads west, and worn steps go down into the dark."
-        vault    => "A low vault under the keep."
+        cellar   => "A damp cellar smelling of earth and old wine. The way west leads back toward the hall. Worn steps go down into the dark."
+        vault    => "A low vault under the keep, the steps you came down rising back into the cellar."
         chamber  => "A round chamber, open at last to the sky. Ivy climbs the walls and a window looks out over green hills."
     }
 }
