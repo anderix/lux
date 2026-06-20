@@ -368,7 +368,10 @@ what the feature actually buys you.
 ## match — take a value apart
 
 `match` picks the arm for the case in hand and binds the values inside it, and
-you must cover every case or lux refuses to run.
+you must cover every case or lux refuses to run. It works on plain values too —
+strings and numbers, not only enum cases — where a final `_` arm catches
+everything you did not name. That wildcard is how you cover an open set like
+text, which has no fixed list of cases to spell out.
 
 ```lux
 enum Shape {
