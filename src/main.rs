@@ -179,8 +179,8 @@ fn crawl_cmd(rest: &[String]) {
 
     println!("A new crawl is waiting in ./{}/.", dir);
     println!();
-    println!("  play it:     lux run {}/world.lux", dir);
     println!("  read first:  {}/read-me-first.txt", dir);
+    println!("  play it:     lux run {}/world.lux", dir);
     println!(
         "  the world:   {}/world.lux  — open it; every room is yours to change",
         dir
