@@ -703,8 +703,12 @@ impl Gen {
         self.indent += 1;
         self.t.push_scope();
         if let Some(b) = &bind {
-            self.t.declare(b.clone(), inner);
-            self.line(format!("{} := *{}", b, ptr));
+            // A `_` binding is skipped — `_ := *ptr` is invalid Go, and the
+            // pointer is already used by the `!= nil` test above.
+            if b != "_" {
+                self.t.declare(b.clone(), inner);
+                self.line(format!("{} := *{}", b, ptr));
+            }
         }
         if let Some(a) = some_arm {
             self.emit_arm_body(&a.body, ret);
@@ -759,9 +763,13 @@ impl Gen {
         self.indent += 1;
         self.t.push_scope();
         if let Some(b) = &err_bind {
-            // lux carries the reason as a string; Go's error gives it back.
-            self.t.declare(b.clone(), err_ty);
-            self.line(format!("{} := err.Error()", b));
+            // lux carries the reason as a string; Go's error gives it back. A `_`
+            // binding is skipped — `_ := err.Error()` is invalid Go, and `err` is
+            // already used by the `err == nil` test above.
+            if b != "_" {
+                self.t.declare(b.clone(), err_ty);
+                self.line(format!("{} := err.Error()", b));
+            }
         }
         if let Some(a) = err_arm {
             self.emit_arm_body(&a.body, ret);

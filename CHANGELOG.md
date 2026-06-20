@@ -4,6 +4,28 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-06-20
+
+### Added
+
+- **Three more spells for `lux magic`.** Where the first three answer the
+  listening question, these answer the next ones a player hits while building a
+  world. `lux magic list` carries more than one thing — an array grown with `+=`,
+  walked with a `for` loop. `lux magic save` keeps something so it's there next
+  time, writing and reading a file as the same `Result` you match. `lux magic
+  args` reads what's typed after the file name, the second way a program is told
+  things alongside `readLine`. Each carries its trail back into `lux learn`, and
+  every one is real lux the suite runs and translates.
+
+### Fixed
+
+- **Invalid Go from a `_`-bound `Result` or `Option` arm.** An `err(let _)` or
+  `some(let _)` match arm emitted `_ := err.Error()` / `_ := *ptr`, which Go
+  rejects (`no new variables on left side of :=`). The Go backend now skips the
+  binding when it is `_` — the error or pointer is already consumed by the
+  `== nil` test — so a match that ignores its payload translates cleanly. This
+  also clears the same two errors from `examples/keep.lux`'s Go output.
+
 ## [0.8.0] - 2026-06-20
 
 ### Added
@@ -231,6 +253,7 @@ All notable changes to lux are recorded here. The format follows
   `lux build` compiles the Rust translation to a native binary.
 - A `curl` installer and uninstaller.
 
+[0.8.1]: https://github.com/anderix/lux/releases/tag/v0.8.1
 [0.8.0]: https://github.com/anderix/lux/releases/tag/v0.8.0
 [0.7.2]: https://github.com/anderix/lux/releases/tag/v0.7.2
 [0.7.1]: https://github.com/anderix/lux/releases/tag/v0.7.1

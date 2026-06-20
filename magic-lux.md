@@ -76,3 +76,61 @@ while playing {
 ```
 
 > trail: while · functions · option · match
+
+<!-- spell: list -->
+## list — carry more than one thing
+
+How do I keep a list of things and add to it?
+
+```lux
+// A pack is an array — a list that grows. += puts a new thing on the end, a for
+// loop walks what's there, and length tells you how much you're carrying.
+var pack = ["torch"]
+pack += "key"
+print("You are carrying:")
+for thing in pack {
+    print("  " + thing)
+}
+print("That's", length(pack), "things.")
+```
+
+> trail: arrays · for
+
+<!-- spell: save -->
+## save — keep something so it's there next time
+
+How do I save so it's not lost when the program ends?
+
+```lux
+// Save by writing to a file, load by reading it back. The disk is the outside
+// world, so each call can fail and hands you a Result you match — never a crash.
+match writeFile("save.txt", "room: hall\nkey: yes\n") {
+    ok(let _)  => print("Saved.")
+    err(let why) => print("Couldn't save:", why)
+}
+match readFile("save.txt") {
+    ok(let text) => print("Loaded:\n" + text)
+    err(let _)   => print("No save yet — start a new game.")
+}
+```
+
+> trail: io · result · match
+
+<!-- spell: args -->
+## args — read what's typed after the file name
+
+How do I let someone tell my program something when they start it?
+
+```lux
+// Two ways a program gets told things: asked while it runs (readLine), or handed
+// to it at launch. args() is the second — the words after the file name. args()[0]
+// is the program itself, so what the user passed starts at index 1.
+let words = args()
+if length(words) > 1 {
+    print("You chose:", words[1])
+} else {
+    print("Tip: run it as  lux run game.lux hard  to pick a mode.")
+}
+```
+
+> trail: io · arrays

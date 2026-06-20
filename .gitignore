@@ -3,3 +3,7 @@
 # Written by examples/keep.lux when you reach the chamber; a stray copy lands
 # here if you play the world straight from the repo.
 /the-secret.txt
+
+# Written by the `save` spell (magic-lux.md); the test suite runs every spell, so
+# a copy lands here on `cargo test`.
+/save.txt
