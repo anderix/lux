@@ -4,6 +4,17 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.2] - 2026-06-20
+
+### Added
+
+- **`lux magic run`** — the capstone spell: run another program and read back
+  what it said. It runs further ahead of the learn ladder than the other spells —
+  its trail is four topics (`result`, `match`, `structs`, `shell`) — and that's
+  the point: the moment a player realizes their own lux program can drive a real
+  command is a payoff worth reaching for before the ideas underneath are all in
+  place. Like every spell it already works and carries its trail home.
+
 ## [0.8.1] - 2026-06-20
 
 ### Added
@@ -253,6 +264,7 @@ All notable changes to lux are recorded here. The format follows
   `lux build` compiles the Rust translation to a native binary.
 - A `curl` installer and uninstaller.
 
+[0.8.2]: https://github.com/anderix/lux/releases/tag/v0.8.2
 [0.8.1]: https://github.com/anderix/lux/releases/tag/v0.8.1
 [0.8.0]: https://github.com/anderix/lux/releases/tag/v0.8.0
 [0.7.2]: https://github.com/anderix/lux/releases/tag/v0.7.2

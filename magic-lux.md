@@ -134,3 +134,20 @@ if length(words) > 1 {
 ```
 
 > trail: io · arrays
+
+<!-- spell: run -->
+## run — use another program from yours
+
+How do I run a real command and use what it says?
+
+```lux
+// Your program can run another program and read back what it said. run hands you
+// a Result: err if it couldn't even launch, ok if it did. Inside the output,
+// status is whether it worked and stdout is the text it printed.
+match run("echo", ["hello from lux"]) {
+    ok(let out)  => print("echo said:", out.stdout)
+    err(let why) => print("couldn't run it:", why)
+}
+```
+
+> trail: result · match · structs · shell

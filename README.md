@@ -109,9 +109,10 @@ reading a number out of text — which can — moves to `parseInt` and `parseFlo
 each handing back the same `Option` lux already teaches instead of crashing on
 bad input. The same milestone adds `lux magic`: task-indexed spells (read a line,
 read a number, loop until done, carry a list, save to a file, read launch
-arguments) that already work and carry a trail to the `lux learn` topics behind
-them — a working shape now for a reader still climbing the ladder, honest about
-where the trick is explained. See the scope notes at the bottom of
+arguments, run another program) that already work and carry a trail to the
+`lux learn` topics behind them — a working shape now for a reader still climbing
+the ladder, honest about where the trick is explained. See the scope notes at the
+bottom of
 [learn-lux.md](learn-lux.md), or [CHANGELOG.md](CHANGELOG.md) for the version
 history.
 
