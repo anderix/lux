@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "lux"
+name = "luxc"
 version = "0.8.2"
