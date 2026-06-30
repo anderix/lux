@@ -16,16 +16,22 @@ turns into something you simply understand. It was never really magic; it was lu
 How do I ask a question and use the answer?
 
 ```lux
-// readLine gives back the line someone typed — or "nothing" if the input has
-// ended. You match the two cases so the empty one can never surprise you.
-print("What is your name?")
-match readLine() {
-    some(let name) => print("Hello, " + name + "!")
-    none           => print("(no answer)")
+// readLine hands back the line someone typed — or "nothing" if the input ended.
+// This little helper turns that into a plain string (empty if there's nothing),
+// so you get an answer you can keep and use anywhere, not just inside the match.
+func ask(question: string) -> string {
+    print(question)
+    return match readLine() {
+        some(let line) => line
+        none           => ""
+    }
 }
+
+let name = ask("What is your name?")
+print("Hello, " + name + "!")
 ```
 
-> trail: option · match
+> trail: option · match · functions
 
 <!-- spell: number -->
 ## number — read a number someone types
@@ -33,20 +39,25 @@ match readLine() {
 How do I read a number, not just text?
 
 ```lux
-// readLine always hands you text, and text is not a number until you parse it.
-// parseInt answers some(n) when it worked and none when the text wasn't a
-// number — so a typo is a case you handle, not a crash.
-print("Pick a number:")
-match readLine() {
-    some(let line) => match parseInt(line) {
-        some(let n) => print("twice that is", n + n)
-        none        => print("that wasn't a number")
+// Text is not a number until you parse it. This helper reads a line, tries to
+// turn it into a number with parseInt, and hands back a plain int — 0 if there
+// was nothing to read or it wasn't a number — so you get a number you can keep.
+func askNumber(question: string) -> int {
+    print(question)
+    return match readLine() {
+        some(let line) => match parseInt(line) {
+            some(let n) => n
+            none        => 0
+        }
+        none => 0
     }
-    none => print("(no answer)")
 }
+
+let age = askNumber("How old are you?")
+print("Next year you will be", age + 1)
 ```
 
-> trail: option · match · conversions
+> trail: option · match · conversions · functions
 
 <!-- spell: loop -->
 ## loop — keep going until they quit

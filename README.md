@@ -1,7 +1,7 @@
 # lux
 
 lux is a small language built to be a great first language and then to be
-outgrown. Every feature is the simplest honest version of something shared by
+outgrown. Every feature is the simplest version of something shared by
 Rust, Swift, and Go, so what you learn here carries straight over when you move
 on to one of those. The few hard ideas lux leaves out — ownership, classes,
 goroutines — are the lessons those bigger languages exist to teach.

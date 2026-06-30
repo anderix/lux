@@ -1,14 +1,14 @@
 # Learn lux
 
 lux is a small language built to be a great *first* language and then to be
-outgrown. Every feature is the simplest honest version of something shared by
+outgrown. Every feature is the simplest version of something shared by
 Rust, Swift, and Go, so what you learn here carries straight over when you move
 on to one of those.
 
-This file is the whole language, one short topic at a time. Every example is
+These topics explore the whole language, one short section at a time. Every example is
 real lux that runs — the test suite runs them all. Each topic is a short card
 you can read in under a minute; add `more` to any of them — `lux learn match
-more` — for the deeper why and where the idea goes next. Read it in your
+more` — for the deeper explanation and where the idea goes next. Read it in your
 terminal: `lux learn` for the menu, `lux learn <topic>` for one card, `lux learn
 basics` for the handful of shapes every language shares, `lux learn tour` for
 the whole thing.
@@ -17,7 +17,7 @@ the whole thing.
 ## hello — your first program
 
 lux runs your statements from top to bottom, and `print` shows text on the
-screen. There is no setup to write first: the file is the program.
+screen.
 
 ```lux
 // Two slashes start a comment. There is no block comment — one way to do it.
@@ -25,11 +25,13 @@ print("Hello, world!")
 print("two", "words")   // print separates its arguments with spaces
 ```
 
+There is no setup to write first: the file is the program.
+
 <!-- more -->
 Most languages make you write a `main` function and a little setup before
 anything runs — that is the boilerplate lux leaves out, so your first program is
 just the line you care about. When you move on to Rust, Go, Java, or C, `main`
-comes back, and now you will know what it was always for: the one place the
+comes back, and now you will know what it is for: the one place the
 program is told where to begin.
 
 <!-- topic: errors -->
@@ -48,8 +50,8 @@ print("so does this one")
 > try: break the second line on purpose — delete its closing `"`, or add a line `print(missing)` for a name you never made — and read what lux says back.
 
 <!-- more -->
-Every language has errors, and the good ones do what lux does: stop and say what
-went wrong instead of guessing and getting it subtly wrong. As you move on the
+Every language has errors, and most do exactly what lux does: stop and say what
+went wrong. As you learn other languages the
 timing shifts — Rust and Go catch many mistakes the moment they compile, before
 the program is ever run, so the message meets you even earlier. What you are
 doing now, reading it and trying the next thing, is the same move there.
@@ -59,7 +61,9 @@ doing now, reading it and trying the next thing, is the same move there.
 <!-- topic: variables -->
 ## variables — let and var
 
-`let` names a value that never changes and `var` names one you can reassign;
+Variables allow you to give a name to values you want to use in your program.
+`let` names a value that stays the same throughout your code (it stays constant). `var` names a value 
+that can change while your program is running (it is variable). Every variable has a type;
 lux has four basic types — int, float, string, and bool.
 
 ```lux
@@ -85,8 +89,10 @@ cannot change is one less thing that can surprise you.
 <!-- topic: numbers -->
 ## numbers — arithmetic
 
-The usual arithmetic, but int division throws away the remainder, and lux never
-mixes int and float for you.
+Your program can do arithmetic, but lux has two different types of numbers: int and float. 
+An int represents a whole number. A float represents a number with a decimal point in it.
+Other programming languages have more numeric types. The language does not convert between
+int and float automatically. That's why division with int throws away the remainder.
 
 ```lux
 print("2 + 3   =", 2 + 3)
@@ -112,6 +118,7 @@ ask "is this even?" or "what is left over?" in almost any language.
 <!-- topic: strings -->
 ## strings — text
 
+Strings are values that contain text.
 Join strings with `+` (both sides must already be strings), turn a number into
 text with `string(...)`, and count characters with `length`.
 
@@ -177,7 +184,7 @@ if score >= 90 {
 
 <!-- more -->
 `if` is *selection*, one of the two control structures every procedural language
-is built from. The shape is universal — test a bool, run a block, optionally
+is built from. It is also called *conditionals*. The shape is universal — test a bool, run a block, optionally
 run another instead — and what changes between languages is only paint, like
 whether the condition needs parentheses around it. Read one if/else ladder and
 you can read the branching in all of them on sight.
@@ -198,7 +205,7 @@ while n < 5 {
 ```
 
 <!-- more -->
-`while` is *iteration*, the other control structure, and it is the honest one:
+`while` is *iteration*, another foundational control structure. It is also called *loops*:
 keep going as long as a bool stays true. The `for` loop you will meet next is
 usually just a tidier `while` for a known range or a collection. Go drops the
 word `while` entirely and writes every loop with `for` — seeing that the two are
@@ -232,7 +239,10 @@ have here, "a numbered row of values," carries straight into all of them.
 > see: for — the loop built for walking an array · structs — the other compound type, a few different things instead of many of the same
 
 <!-- topic: for -->
-## for — over things
+## for — looping over things
+
+`for` is another kind of loop that works together with collections (compound types like arrays).
+Its purpose is to perform the same action for each element within the collection.
 
 `for x in xs` walks every element of an array; `for i in 0..5` counts over a
 range whose end is not included.
@@ -261,8 +271,13 @@ changes, and underneath it is still the `while` loop you already know.
 <!-- topic: functions -->
 ## functions — name a piece of work
 
-Write `func name(p: type) -> type { ... }`, call it positionally, and a function
-may call itself.
+*Functions* allow you to organize and re-use your code. Functions are *defined* in
+one place, and then *called* from other parts of the code as needed. Functions receive
+values as *parameters*, and hand back a *return value*. You must specify the
+type of each parameter and return value.
+
+To define a function, write `func name(p: type) -> type { ... }`. Call it by name when you need to use it. A function
+may call itself, a process known as recursion.
 
 ```lux
 func factorial(n: int) -> int {
@@ -457,7 +472,7 @@ match parseInt("17") {
 > try: change `"17"` to `"seven"` and run — the `none` arm answers instead of the program falling over.
 
 <!-- more -->
-The split is the honest one every careful language draws. A *conversion* is total
+The split is one every careful language draws. A *conversion* is total
 — `int(3.9)` is always `3`, `string(42)` is always `"42"` — so it just hands the
 value back. *Parsing* is reading structure out of text that may not have it, and
 that can fail, so its answer is an `Option`: `some(n)` when the text was a
@@ -566,7 +581,7 @@ does, so you read the status even when the launch went fine. The arguments are a
 list, never one shell string, which is deliberate: there is no shell in the
 middle to misread a space or a quote, so a filename with a space in it is just an
 argument, and there is nothing to inject. `stdout` and `stderr` come back
-separate, the same two streams `print` and `eprint` write to. One honest limit:
+separate, the same two streams `print` and `eprint` write to. One real limit:
 `run` collects all of a command's output and hands it back when the command
 finishes — it is not a live pipe feeding another program character by character.
 It gives you the Unix mindset, one program's output becoming your input, without
@@ -715,8 +730,8 @@ it in milestones, simplest first:
 10. **Running other programs** — `run(program, [args])` returning
     `Result<Output, string>`, where `Output` is the one built-in struct
     (`status`, `stdout`, `stderr`). Teaches the two-layer failure split (did it
-    launch vs. did it succeed) and the arg-vector security posture. The honest
-    limit named for learners: it is batch capture, not a live pipe.
+    launch vs. did it succeed) and the arg-vector security posture. The limit
+    named for learners: it is batch capture, not a live pipe.
 11. **Errors as trails** — a diagnostic carries an optional `(topic, lure)` trail
     to a `lux learn` topic, rendered as the `help:` line, plus a new `errors`
     topic on how to read one. Wired where an error sits on a concept worth
@@ -747,7 +762,7 @@ block scoping was confirmed to enforce it.
 
 `lux run` — the interpreter — is the complete language. The three transpilers
 cover the teaching examples and most real programs, but a richer one (the crawl
-world is the first to do it) meets a few honest boundaries. These are documented
+world is the first to do it) meets a few genuine boundaries. These are documented
 rather than papered over: each is a real seam between lux and a target language,
 the kind worth meeting head-on instead of hiding.
 

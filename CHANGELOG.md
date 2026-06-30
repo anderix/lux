@@ -4,6 +4,31 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.3] - 2026-06-30
+
+### Changed
+
+- **`lux magic input` and `lux magic number` now hand back a value you can
+  keep.** Both spells used to read inside a `match` and use the answer only
+  within the arm, so the bound name died at the closing brace — copy the spell,
+  try to use the answer one line later, and lux says it isn't defined. That is
+  the first wall a beginner hits after reading input. Each spell now wraps the
+  read in a small helper — `ask` returns a plain `string`, `askNumber` a plain
+  `int`, each with a sensible default when the input ends or doesn't parse — so
+  `let name = ask("...")` puts the answer in a variable you use anywhere. The
+  `match` and both arms stay in plain sight, and the empty-or-zero default
+  mirrors Swift's `readLine() ?? ""`. Trails grew to suit: `input` is now
+  `option · match · functions`, and `number` adds `conversions`.
+
+### Fixed
+
+- **Tutorial prose in `lux learn`.** Repaired a duplicated sentence and a
+  missing blank line in the `strings` card, three typos (`exaclty`, `containt`,
+  and `progress` where `process` was meant), and a comma splice in the
+  `functions` card, and tightened a few `variable`/`value` slips. Also pared an
+  over-used "honest" back to the two places it earns — the opening thesis and
+  the closing `beyond` note — so it reads as a motif, not a tic.
+
 ## [0.8.2] - 2026-06-20
 
 ### Added
@@ -264,6 +289,7 @@ All notable changes to lux are recorded here. The format follows
   `lux build` compiles the Rust translation to a native binary.
 - A `curl` installer and uninstaller.
 
+[0.8.3]: https://github.com/anderix/lux/releases/tag/v0.8.3
 [0.8.2]: https://github.com/anderix/lux/releases/tag/v0.8.2
 [0.8.1]: https://github.com/anderix/lux/releases/tag/v0.8.1
 [0.8.0]: https://github.com/anderix/lux/releases/tag/v0.8.0
