@@ -13,7 +13,8 @@ installed you can read it in your terminal with `lux learn`.
 
 ## Installing
 
-On macOS or Linux, install a prebuilt `lux` with one command:
+On macOS or Linux, install a prebuilt `lux` with one command — no Rust toolchain
+needed:
 
 ```
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/anderix/lux/releases/latest/download/lux-installer.sh | sh
@@ -24,6 +25,15 @@ To remove it again:
 ```
 curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/anderix/lux/main/uninstall.sh | sh
 ```
+
+If you already have Rust, you can install from crates.io instead. The crate is
+named `luxc`; the command it installs is `lux`:
+
+```
+cargo install luxc
+```
+
+Remove that build with `cargo uninstall luxc`.
 
 ## Running a program
 
