@@ -17,7 +17,7 @@ On macOS or Linux, install a prebuilt `lux` with one command — no Rust toolcha
 needed:
 
 ```
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/anderix/lux/releases/latest/download/lux-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/anderix/lux/main/install.sh | sh
 ```
 
 To remove it again:
