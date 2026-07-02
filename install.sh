@@ -3,11 +3,10 @@
 # latest GitHub release.
 #
 # This is a stable front door. The release asset is named for the crate
-# (luxc-installer.sh), and that name can change; this wrapper keeps the install
-# command constant, mirroring uninstall.sh.
+# (luxc-installer.sh), and that name can change; this wrapper keeps a constant
+# target, and the public command is shorter still via a redirect on anderix.com:
 #
-#   curl --proto '=https' --tlsv1.2 -LsSf \
-#     https://raw.githubusercontent.com/anderix/lux/main/install.sh | sh
+#   curl -LsSf https://anderix.com/lux/install | sh
 set -eu
 
 installer="https://github.com/anderix/lux/releases/latest/download/luxc-installer.sh"

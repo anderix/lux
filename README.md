@@ -17,13 +17,15 @@ On macOS or Linux, install a prebuilt `lux` with one command — no Rust toolcha
 needed:
 
 ```
-curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/anderix/lux/main/install.sh | sh
+curl -LsSf https://anderix.com/lux/install | sh
 ```
 
-To remove it again:
+That URL is a stable front door to the latest release: running it again updates
+in place, and once lux is installed `lux update` does the same from the binary
+itself. To remove it again:
 
 ```
-curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/anderix/lux/main/uninstall.sh | sh
+curl -LsSf https://anderix.com/lux/uninstall | sh
 ```
 
 If you already have Rust, you can install from crates.io instead. The crate is
@@ -89,42 +91,31 @@ cargo build --release
 
 ## Status
 
-Early, and growing in milestones. `lux run` now covers the core (`print`,
-`let`/`var`, the four basic types, arithmetic, strings, `if`/`else`, `while`),
-functions with recursion, `for ... in`, ranges, and arrays, your own types
-(structs, enums with associated values, and exhaustive `match`), and no null —
-`Option<T>` and `Result<T, E>` instead. All three transpiler backends are live:
-`lux convert` turns any of these into idiomatic Rust, Swift, or Go, each leaning
-on what that language already has — Swift's enums and `Optional`, Go's interfaces
-and `(value, error)` returns — and `lux build` compiles the Rust to a binary.
-That completes the teaching surface: every feature is runnable and translatable
-to all three. The milestones since have gone into `lux learn` — the built-in
-reference, now a two-level card-and-`more` system cross-referenced from error
-messages — and into the outside world: `readFile`, `writeFile`, `args`,
-`readLine`, and `print`/`eprint` across stdout and stderr, fallible I/O modeled
-as the same `Option` and `Result` lux already teaches. The latest milestone runs
-other programs: `run(program, [args])` returns `Result<Output, string>`, where
-`Output` — `status`, `stdout`, `stderr` — is the first built-in struct, and the
-two-layer result keeps "did it launch" and "did it succeed" apart. The latest
-milestone turns the error messages themselves into part of the reference: when a
-program trips on an idea, the diagnostic ends with a trail to the `lux learn`
-topic that teaches it, and a new `lux learn errors` covers how to read one, and a
-closing `lux learn beyond` names what carries past lux once it is outgrown. The
-latest milestone turns the language on itself: `lux crawl` drops a small text
-adventure in your folder whose whole world is one lux file — you play it by
-running it and change it by editing it, the first step from using a program to
-building one. The latest milestone draws the line between converting and parsing:
-`int`, `float`, and `string` are total conversions that cannot fail, while
-reading a number out of text — which can — moves to `parseInt` and `parseFloat`,
-each handing back the same `Option` lux already teaches instead of crashing on
-bad input. The same milestone adds `lux magic`: task-indexed spells (read a line,
-read a number, loop until done, carry a list, save to a file, read launch
-arguments, run another program) that already work and carry a trail to the
-`lux learn` topics behind them — a working shape now for a reader still climbing
-the ladder, honest about where the trick is explained. See the scope notes at the
-bottom of
-[learn-lux.md](learn-lux.md), or [CHANGELOG.md](CHANGELOG.md) for the version
-history.
+Early, but the teaching surface is complete. `lux run` covers the core — `print`,
+`let`/`var`, the four basic types with honest conversions, arithmetic, strings,
+`if`/`else`, `while`, `for ... in`, ranges, arrays, functions with recursion, and
+scope — then your own types (structs, enums with associated values, and
+exhaustive `match`), and no null: `Option<T>` and `Result<T, E>` instead. The
+outside world is modeled as those same two shapes — `readFile`, `writeFile`,
+`args`, `readLine`, `input`, `print`/`eprint`, and `run(program, [args])`
+returning `Result<Output, string>` — so fallible I/O is something you handle
+rather than a crash. All three transpiler backends are live: `lux convert` turns
+any of this into idiomatic Rust, Swift, or Go, each leaning on what that language
+already has, and `lux build` compiles the Rust to a native binary. Every feature
+is runnable and translatable to all three.
+
+Around that core sits how you learn it. `lux learn` is the built-in reference — a
+two-level card-and-`more` system, cross-referenced from error messages, that also
+reads as guided lessons and a full tour. `lux magic` answers "how do I…?" with
+small working spells, each carrying a trail back to the topic that explains it.
+`lux crawl` drops a small text adventure whose whole world is one lux file you
+play by running and change by editing — with a tutorial-free fast track
+(`lux magic room`, `exit`, `thing`, `command`) for the tinkerer who would rather
+skip straight to changing it. And `lux update` fetches the latest release in
+place.
+
+For the fuller history, see [CHANGELOG.md](CHANGELOG.md) and the scope notes at
+the bottom of [learn-lux.md](learn-lux.md).
 
 ## License
 

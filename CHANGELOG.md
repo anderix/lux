@@ -4,6 +4,28 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-07-02
+
+### Added
+
+- **`lux update` updates lux in place.** It re-runs the same stable installer the
+  docs print, fetching the latest release into the user-owned `~/.cargo/bin` — so
+  no sudo — and shows a graceful fallback with the manual command if `curl` isn't
+  found. One discoverable command (it's in `--help`) to stay current, and it
+  works whether lux was installed by the shell installer or `cargo install`,
+  since both land in the same directory.
+
+### Changed
+
+- **Short, stable install / update / uninstall URLs.** The install and uninstall
+  commands now go through `https://anderix.com/lux/install` and `.../uninstall`,
+  which redirect to the repo's `install.sh` / `uninstall.sh`. The beginner-facing
+  command is far less gnarly, the URL never changes across releases, and
+  re-running install (or `lux update`) always lands the latest.
+- **Releases publish to crates.io.** A token-gated publish workflow keeps the
+  `luxc` crate in lockstep with each GitHub release, so `cargo install luxc` no
+  longer lags behind the prebuilt installer.
+
 ## [0.9.0] - 2026-07-02
 
 ### Added
@@ -319,6 +341,7 @@ All notable changes to lux are recorded here. The format follows
   `lux build` compiles the Rust translation to a native binary.
 - A `curl` installer and uninstaller.
 
+[0.10.0]: https://github.com/anderix/lux/releases/tag/v0.10.0
 [0.9.0]: https://github.com/anderix/lux/releases/tag/v0.9.0
 [0.8.3]: https://github.com/anderix/lux/releases/tag/v0.8.3
 [0.8.2]: https://github.com/anderix/lux/releases/tag/v0.8.2

@@ -6,8 +6,7 @@
 # installed, then deletes the receipt. If the receipt is gone it falls back to
 # the usual install locations. Safe to run more than once.
 #
-#   curl --proto '=https' --tlsv1.2 -LsSf \
-#     https://raw.githubusercontent.com/anderix/lux/main/uninstall.sh | sh
+#   curl -LsSf https://anderix.com/lux/uninstall | sh
 set -eu
 
 app="lux"

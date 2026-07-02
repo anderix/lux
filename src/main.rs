@@ -13,6 +13,11 @@ use lux::{convert, diagnostic, interpreter, learn, lexer, magic, parser};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+// The stable front door for install and update: a short redirect on anderix.com
+// to the release installer. `lux update` and the docs both point here, so there
+// is one canonical way to get the latest lux.
+const INSTALL_URL: &str = "https://anderix.com/lux/install";
+
 // The starter crawl, scaffolded by `lux crawl`. The world is the example file
 // itself, so the thing you play and the thing the tests run can never drift.
 const STARTER_WORLD: &str = include_str!("../examples/keep.lux");
@@ -30,6 +35,7 @@ fn main() {
         Some("convert") => convert_cmd(&args[2..]),
         Some("learn") => learn_cmd(&args[2..]),
         Some("magic") => magic_cmd(&args[2..]),
+        Some("update") => update_cmd(&args[2..]),
         Some(other) => {
             eprintln!("unknown command `{}`\n", other);
             print_usage();
@@ -242,6 +248,54 @@ fn build_cmd(rest: &[String]) {
     }
 }
 
+/// `lux update`: fetch and install the latest release by re-running the same
+/// stable installer the docs print. cargo-dist installs into a user-owned
+/// directory (~/.cargo/bin), so this needs no sudo — and must not use it, or it
+/// would prompt for a password it does not need and could leave root-owned files
+/// where the user's should be. On Unix a running binary can be replaced in place,
+/// so lux can update itself while it runs.
+fn update_cmd(rest: &[String]) {
+    if !rest.is_empty() {
+        eprintln!("usage: lux update");
+        exit(1);
+    }
+    // curl is the one tool the installer leans on. If it is missing, hand back
+    // the manual command rather than a cryptic pipe failure.
+    let has_curl = Command::new("curl")
+        .arg("--version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if !has_curl {
+        eprintln!("lux update needs curl, which isn't on your PATH.");
+        eprintln!("Update by hand with:");
+        eprintln!("  curl -LsSf {} | sh", INSTALL_URL);
+        exit(1);
+    }
+
+    println!("Updating lux to the latest release...");
+    let status = Command::new("sh")
+        .arg("-c")
+        .arg(format!("curl -LsSf {} | sh", INSTALL_URL))
+        .status();
+    match status {
+        Ok(s) if s.success() => {
+            println!("Done. Run `lux --version` to see what you're on.");
+        }
+        Ok(_) => {
+            eprintln!("the update didn't finish. You can run it by hand:");
+            eprintln!("  curl -LsSf {} | sh", INSTALL_URL);
+            exit(1);
+        }
+        Err(e) => {
+            eprintln!("could not start the update: {}", e);
+            exit(1);
+        }
+    }
+}
+
 /// Read, lex, and parse a source file, reporting and exiting on any error.
 fn load(path: &str) -> (String, Vec<lux::ast::Stmt>) {
     let source = match std::fs::read_to_string(path) {
@@ -270,6 +324,7 @@ fn print_usage() {
     println!("  lux convert <lang> <file.lux> translate to rust, swift, or go source");
     println!("  lux learn [topic] [more]      read the language, built in");
     println!("  lux magic [spell]             working shapes for what you want to do now");
+    println!("  lux update                    update lux to the latest release");
     println!();
     println!("  -V, --version                 print version");
     println!("  -h, --help                    print this help");
