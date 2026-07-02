@@ -119,10 +119,18 @@ func describeHere(w: World) -> World {
             }
         }
         print("")
-        print("When you're ready, type quit to step out of the keep, then:")
+        print("When you're ready, type quit to step out of the keep, then")
+        print("open world.lux and change it. Each edit has a spell — a tiny")
+        print("working example you copy and adapt, no tutorial required:")
+        print("")
+        print("  lux magic room      add a new room")
+        print("  lux magic exit      make the cellar lead somewhere new")
+        print("  lux magic thing     hide a third thing to find")
+        print("  lux magic command   teach the keep a new word to type")
+        print("")
+        print("And when you want the why behind the recipe:")
         print("")
         print("  lux learn crawl     how a world is put together")
-        print("  lux magic input     make your keep ask questions and listen")
         print("  lux learn           everything else lux can do")
         print("")
         print("Have fun. Break things. It's your keep.")
@@ -304,6 +312,12 @@ world = describeHere(world)
 print("")
 print("(type help for commands)")
 
+// The heart of play: read a command, build the next world, repeat. You met
+// input() for asking a question and keeping the answer — this uses its honest
+// cousin readLine() instead, because the loop must tell two empty cases apart:
+// a blank line you pressed Enter on (some("") — the keep waits) from the input
+// ending when you walk away (none — the keep lets you go). input() folds both
+// into "", so only readLine() can end the game cleanly. (lux learn io)
 while world.playing {
     print("")
     world = match readLine() {

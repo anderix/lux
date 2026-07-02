@@ -229,6 +229,9 @@ impl Types {
             "writeFile" => Ty::Result(Box::new(Ty::Unit), Box::new(Ty::Str)),
             "args" => Ty::Array(Box::new(Ty::Str)),
             "readLine" => Ty::Option(Box::new(Ty::Str)),
+            // `input` collapses the end-of-input case into an empty string, so it
+            // hands back a plain string rather than the Option `readLine` gives.
+            "input" => Ty::Str,
             // Parsing text into a number can fail, so it answers with an Option.
             "parseInt" => Ty::Option(Box::new(Ty::Int)),
             "parseFloat" => Ty::Option(Box::new(Ty::Float)),

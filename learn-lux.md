@@ -141,6 +141,34 @@ which is why lux makes you ask for `string(...)`.
 
 > see: arrays — a string is a sequence of characters, measured the way an array is · conversions — going the other way, reading a number out of text with `parseInt`
 
+<!-- topic: input -->
+## input — ask a question
+
+`input(...)` shows a prompt and hands back the line the person types, as a plain
+string. It is the friendly front door to input: no `Option`, no `match`, so a
+program can talk back to whoever runs it long before you meet those ideas. Give
+it a prompt, or leave the parentheses empty to just read a line.
+
+```lux
+let name = input("What is your name? ")
+print("Hello, " + name + "!")
+```
+
+> try: ask a second question — `input("Where do you live? ")` — and print both answers together.
+
+<!-- more -->
+`input` is a convenience built on the honest primitive `readLine`, which returns
+an `Option<string>` — a line, or `none` when the input runs out. `input` folds
+that `none` into an empty string, because when a person is answering a question
+the end of input is not a case worth stopping for. When it *is* — reading a
+piped file line by line until it ends — reach for `readLine` instead and let
+`match` tell "a line" from "no more input" apart. Reading a *number* is
+different again: typed text might not be a number at all, so `parseInt` keeps
+its `Option` rather than guess. Down the ladder `input` is Python's `input`,
+while `readLine` is how Rust, Swift, and Go each read a line.
+
+> see: option — the honest shape readLine returns, the one input hides for you · io — readLine, files, and the rest of the outside world · conversions — turning what someone types into a number with parseInt
+
 <!-- topic: booleans -->
 ## booleans — true and false
 

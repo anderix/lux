@@ -21,6 +21,9 @@ struct Gen {
     /// `readLine()` reads from the shared stdin handle the same way each call,
     /// which is a few lines; emit it once as a helper when the program asks.
     uses_read_line: bool,
+    /// `input()` prompts and reads a plain line; it lowers to a helper built on
+    /// `read_line`, so asking for it also pulls that one in.
+    uses_input: bool,
     /// `run` needs the built-in `Output` struct and a helper that spawns a
     /// command, emitted once when the program reaches for it.
     uses_run: bool,
@@ -35,6 +38,17 @@ fn read_line() -> Option<String> {
         Ok(0) | Err(_) => None,
         Ok(_) => Some(line.trim_end_matches(['\\n', '\\r']).to_string()),
     }
+}
+";
+
+/// The helper `input()` lowers to: show the prompt on the same line, then read
+/// one line, treating end of input as an empty string. Built on `read_line`.
+const INPUT_HELPER: &str = "\
+fn input(prompt: String) -> String {
+    use std::io::Write;
+    print!(\"{}\", prompt);
+    let _ = std::io::stdout().flush();
+    read_line().unwrap_or_default()
 }
 ";
 
@@ -72,6 +86,7 @@ pub fn to_rust(program: &[Stmt]) -> String {
         out: String::new(),
         indent: 0,
         uses_read_line: false,
+        uses_input: false,
         uses_run: false,
     };
 
@@ -120,6 +135,10 @@ pub fn to_rust(program: &[Stmt]) -> String {
     }
     if g.uses_read_line {
         preamble.push_str(READ_LINE_HELPER);
+        preamble.push('\n');
+    }
+    if g.uses_input {
+        preamble.push_str(INPUT_HELPER);
         preamble.push('\n');
     }
     format!("{}{}", preamble, g.out)
@@ -600,6 +619,15 @@ impl Gen {
             "readLine" => {
                 self.uses_read_line = true;
                 "read_line()".to_string()
+            }
+            "input" => {
+                self.uses_input = true;
+                self.uses_read_line = true;
+                let p = match args.first() {
+                    Some(a) => self.emit_call_arg(a),
+                    None => "String::new()".to_string(),
+                };
+                format!("input({})", p)
             }
             "run" => {
                 self.uses_run = true;

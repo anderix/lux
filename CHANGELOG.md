@@ -4,6 +4,36 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-07-02
+
+### Added
+
+- **`input(...)` — a plain-string front door to reading input.** It shows an
+  optional prompt on the same line and hands back the line someone types as an
+  ordinary `string`, with no `Option` and no `match` to open. That lets an
+  interactive program — the single strongest hook for a beginner — happen right
+  after strings, instead of being gated behind `Option`, `match`, and functions
+  the way `readLine` is. The honesty is not lost, only relocated: `input` is a
+  convenience over the primitive `readLine`, which still returns
+  `Option<string>` for the cases where "they typed nothing" and "the input ran
+  out" must be told apart (reading a piped file line by line). End of input
+  folds into an empty string, a graceful degrade rather than a hidden absence.
+  Reading a *number* deliberately keeps its `Option` via `parseInt` — a
+  stand-in `0` would be exactly the lie lux's no-null design exists to prevent.
+  Runs in the interpreter and lowers to a helper in all three backends (Rust,
+  Swift, Go); `lux learn input` is the new card, and the guided `start` lesson
+  now ends on an interactive program.
+- **A tutorial-free fast track for tinkering with `lux crawl`.** The keep's
+  `read-me-first.txt` now has a "want to change it?" half that sends a motivated
+  player straight into `world.lux` with a recipe for each edit, and the win
+  screen points at the same recipes. Those recipes are four new spells —
+  `lux magic room`, `exit`, `thing`, and `command` — each a tiny working world
+  that mirrors the shape you change in `world.lux`. The `exit` recipe returns a
+  plain `Room` (a direction with no arm leaves you put) rather than the
+  `Option<Room>` `world.lux` uses, so it stays transpilable, and its comment
+  bridges to the Option version. The command loop's comment now explains why the
+  keep reads with `readLine` rather than `input`.
+
 ## [0.8.3] - 2026-06-30
 
 ### Changed
@@ -289,6 +319,7 @@ All notable changes to lux are recorded here. The format follows
   `lux build` compiles the Rust translation to a native binary.
 - A `curl` installer and uninstaller.
 
+[0.9.0]: https://github.com/anderix/lux/releases/tag/v0.9.0
 [0.8.3]: https://github.com/anderix/lux/releases/tag/v0.8.3
 [0.8.2]: https://github.com/anderix/lux/releases/tag/v0.8.2
 [0.8.1]: https://github.com/anderix/lux/releases/tag/v0.8.1

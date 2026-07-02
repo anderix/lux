@@ -16,22 +16,14 @@ turns into something you simply understand. It was never really magic; it was lu
 How do I ask a question and use the answer?
 
 ```lux
-// readLine hands back the line someone typed — or "nothing" if the input ended.
-// This little helper turns that into a plain string (empty if there's nothing),
-// so you get an answer you can keep and use anywhere, not just inside the match.
-func ask(question: string) -> string {
-    print(question)
-    return match readLine() {
-        some(let line) => line
-        none           => ""
-    }
-}
-
-let name = ask("What is your name?")
+// input shows your question and hands back the line someone types, as a plain
+// string you can keep and use anywhere. Leave the parentheses empty to just
+// read a line without asking anything first.
+let name = input("What is your name? ")
 print("Hello, " + name + "!")
 ```
 
-> trail: option · match · functions
+> trail: input · strings
 
 <!-- spell: number -->
 ## number — read a number someone types
@@ -39,25 +31,21 @@ print("Hello, " + name + "!")
 How do I read a number, not just text?
 
 ```lux
-// Text is not a number until you parse it. This helper reads a line, tries to
-// turn it into a number with parseInt, and hands back a plain int — 0 if there
-// was nothing to read or it wasn't a number — so you get a number you can keep.
+// input reads the line as text; text is not a number until you parse it. This
+// helper hands what was typed to parseInt and unwraps the answer to a plain int
+// — 0 if it wasn't a number — so you get a number you can keep and calculate with.
 func askNumber(question: string) -> int {
-    print(question)
-    return match readLine() {
-        some(let line) => match parseInt(line) {
-            some(let n) => n
-            none        => 0
-        }
-        none => 0
+    return match parseInt(input(question)) {
+        some(let n) => n
+        none        => 0
     }
 }
 
-let age = askNumber("How old are you?")
+let age = askNumber("How old are you? ")
 print("Next year you will be", age + 1)
 ```
 
-> trail: option · match · conversions · functions
+> trail: input · conversions · match · functions
 
 <!-- spell: loop -->
 ## loop — keep going until they quit
@@ -106,6 +94,132 @@ print("That's", length(pack), "things.")
 ```
 
 > trail: arrays · for
+
+<!-- spell: room -->
+## room — add a new place to your keep
+
+How do I add a new room to the world?
+
+```lux
+// Every place in the keep is a case of the Room enum, and describe() has one arm
+// that says what you see there. To add a room, add both: the case, and its line.
+// match won't run until every room has a description, so it catches one you
+// started and forgot to finish — a safety net, not a scolding.
+enum Room {
+    hall
+    tower       // the new room
+}
+
+func describe(room: Room) -> string {
+    return match room {
+        hall  => "A wide hall, its banners long rotted."
+        tower => "A high tower, the whole valley laid out below."   // its new line
+    }
+}
+
+print(describe(Room.tower))
+```
+
+> trail: enums · match · crawl
+
+<!-- spell: exit -->
+## exit — connect two rooms so you can walk between them
+
+How do I open a path from one room to another?
+
+```lux
+enum Room {
+    hall
+    tower
+}
+
+func describe(room: Room) -> string {
+    return match room {
+        hall  => "A wide hall."
+        tower => "A high tower, the valley laid out below."
+    }
+}
+
+// go() is the keep's map: given a room and a direction, it says which room you
+// end up in. To open a path, add a direction to a room's arm. Put it in both
+// rooms and the way runs both directions, like a real door. A direction with no
+// arm falls to the _ line, where you simply stay where you are.
+func go(here: Room, dir: string) -> Room {
+    return match here {
+        hall  => match dir {
+            "up" => Room.tower     // the hall now has a way up
+            _    => here
+        }
+        tower => match dir {
+            "down" => Room.hall    // and the tower a way back down
+            _      => here
+        }
+    }
+}
+
+// Walk "up" out of the hall and describe where you land.
+let there = go(Room.hall, "up")
+print(describe(there))
+// world.lux goes one step further: its map hands back an Option<Room>, so a
+// direction that leads nowhere is `none` and the keep can say "you can't go that
+// way" instead of quietly keeping you put. Same edit, one idea fancier — see
+// `lux learn option`.
+```
+
+> trail: enums · match · option · crawl
+
+<!-- spell: thing -->
+## thing — hide something to pick up and carry
+
+How do I add a thing the player can take?
+
+```lux
+// What you carry is an array — a pack that grows. To give the player a new thing,
+// put it on the pack with +=. has() checks whether it's already there by walking
+// the pack one item at a time, so you never pick the same thing up twice.
+func has(items: [string], thing: string) -> bool {
+    for it in items {
+        if it == thing {
+            return true
+        }
+    }
+    return false
+}
+
+var pack = ["torch"]
+if has(pack, "lantern") {
+    print("You already have the lantern.")
+} else {
+    pack += "lantern"
+    print("You take the lantern.")
+}
+print("Carrying:", pack)
+```
+
+> trail: arrays · for · crawl
+
+<!-- spell: command -->
+## command — teach the keep a new word to type
+
+How do I add a new command the player can type?
+
+```lux
+// step() is the heart of the keep: it matches on what the player typed and runs
+// the matching line. To teach a new word, add an arm for it. The _ arm at the
+// bottom catches everything you didn't name, so an odd word gets a gentle reply.
+func step(command: string) -> string {
+    return match command {
+        "look" => "You see an old stone hall."
+        "sing" => "Your voice rings off the walls — something shifts in the dark."
+        "quit" => "Farewell."
+        _      => "You can't do that here."
+    }
+}
+
+print(step("sing"))
+```
+
+> trail: match · functions · crawl
 
 <!-- spell: save -->
 ## save — keep something so it's there next time

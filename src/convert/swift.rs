@@ -26,6 +26,9 @@ struct Gen {
     uses_read_file: bool,
     uses_write_file: bool,
     uses_eprint: bool,
+    /// `input()` prompts and reads a plain line, lowering to a small helper over
+    /// Swift's own `readLine()`.
+    uses_input: bool,
     /// `run` needs Foundation's `Process`, the built-in `Output` struct, and the
     /// `String: Error` conformance its `Result` shares with the file helpers.
     uses_run: bool,
@@ -40,6 +43,7 @@ pub fn to_swift(program: &[Stmt]) -> String {
         uses_read_file: false,
         uses_write_file: false,
         uses_eprint: false,
+        uses_input: false,
         uses_run: false,
     };
 
@@ -173,6 +177,16 @@ impl Gen {
                 "func eprint(_ items: Any...) {\n\
                  \tlet line = items.map { \"\\($0)\" }.joined(separator: \" \")\n\
                  \tFileHandle.standardError.write(Data((line + \"\\n\").utf8))\n\
+                 }\n\n",
+            );
+        }
+        if self.uses_input {
+            // Swift's own readLine() returns an optional; input() shows the
+            // prompt inline and folds the end-of-input case into "".
+            head.push_str(
+                "func input(_ prompt: String) -> String {\n\
+                 \tif !prompt.isEmpty { print(prompt, terminator: \"\") }\n\
+                 \treturn readLine() ?? \"\"\n\
                  }\n\n",
             );
         }
@@ -694,6 +708,14 @@ impl Gen {
             }
             "args" => "CommandLine.arguments".to_string(),
             "readLine" => "readLine()".to_string(),
+            "input" => {
+                self.uses_input = true;
+                let p = match args.first() {
+                    Some(a) => self.emit_expr(a),
+                    None => "\"\"".to_string(),
+                };
+                format!("input({})", p)
+            }
             "run" => {
                 self.uses_run = true;
                 let p = self.emit_expr(&args[0]);

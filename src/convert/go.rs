@@ -39,6 +39,9 @@ struct Gen {
     uses_read_file: bool,
     uses_write_file: bool,
     uses_read_line: bool,
+    /// `input()` prompts and reads a plain line; it lowers to a helper over
+    /// `readLine`, so it pulls that reader in too.
+    uses_input: bool,
     /// Text-to-number parsing, each emitted as a `*T` so a failed parse is the
     /// nil that lux reads as `none`.
     uses_parse_int: bool,
@@ -65,6 +68,7 @@ pub fn to_go(program: &[Stmt]) -> String {
         uses_read_file: false,
         uses_write_file: false,
         uses_read_line: false,
+        uses_input: false,
         uses_parse_int: false,
         uses_parse_float: false,
         uses_run: false,
@@ -233,6 +237,19 @@ impl Gen {
                  \t}\n\
                  \tline = strings.TrimRight(line, \"\\r\\n\")\n\
                  \treturn &line\n\
+                 }\n\n",
+            );
+        }
+        if self.uses_input {
+            // Prompt inline, then read one line through the shared reader,
+            // folding end of input into the empty string.
+            head.push_str(
+                "func input(prompt string) string {\n\
+                 \tfmt.Print(prompt)\n\
+                 \tif line := readLine(); line != nil {\n\
+                 \t\treturn *line\n\
+                 \t}\n\
+                 \treturn \"\"\n\
                  }\n\n",
             );
         }
@@ -967,6 +984,19 @@ impl Gen {
                 self.uses_bufio = true;
                 self.uses_strings = true;
                 "readLine()".to_string()
+            }
+            "input" => {
+                self.uses_input = true;
+                self.uses_read_line = true;
+                self.uses_os = true;
+                self.uses_bufio = true;
+                self.uses_strings = true;
+                self.uses_fmt = true;
+                let p = match args.first() {
+                    Some(a) => self.emit_expr(a),
+                    None => "\"\"".to_string(),
+                };
+                format!("input({})", p)
             }
             "string" => {
                 // `%v` is Go's general rendering; it keeps int and bool exact and

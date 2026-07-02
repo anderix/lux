@@ -9,6 +9,7 @@
 //! runs is a later milestone.
 
 use std::collections::HashMap;
+use std::io::Write;
 use std::rc::Rc;
 
 use crate::ast::*;
@@ -1165,6 +1166,37 @@ impl Interp {
                         let text = line.strip_suffix('\n').unwrap_or(&line);
                         let text = text.strip_suffix('\r').unwrap_or(text);
                         Ok(option_some(Value::Str(text.to_string())))
+                    }
+                }
+            }
+            // The friendly front door to input, meant to be usable long before
+            // Option and match. An optional prompt is shown first, on the same
+            // line (no trailing newline), so the cursor waits right after the
+            // question. Unlike `readLine`, the end of input is not a case you
+            // have to handle here: it simply reads as an empty string. That is
+            // the trade — reach for `readLine` when "they typed nothing" and
+            // "the input ran out" must be told apart.
+            "input" => {
+                if args.len() > 1 {
+                    return Err(LuxError::new(
+                        format!(
+                            "input takes an optional prompt, but got {} arguments",
+                            args.len()
+                        ),
+                        span,
+                    ));
+                }
+                if let Some(prompt) = args.first() {
+                    print!("{}", display(&self.eval(prompt)?));
+                    let _ = std::io::stdout().flush();
+                }
+                let mut line = String::new();
+                match std::io::stdin().read_line(&mut line) {
+                    Ok(0) | Err(_) => Ok(Value::Str(String::new())),
+                    Ok(_) => {
+                        let text = line.strip_suffix('\n').unwrap_or(&line);
+                        let text = text.strip_suffix('\r').unwrap_or(text);
+                        Ok(Value::Str(text.to_string()))
                     }
                 }
             }
