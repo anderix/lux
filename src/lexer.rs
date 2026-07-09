@@ -200,6 +200,14 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LuxError> {
                     i += 2;
                     continue;
                 }
+                // a newline before the closing quote almost always means a
+                // missing " — stop at the opening quote, where the fix belongs,
+                // instead of swallowing the rest of the file until some far-off
+                // quote and blaming a line the reader never touched.
+                if ch == b'\n' {
+                    return Err(LuxError::new("unterminated string", Span::new(start, i))
+                        .with_note("a string has to close with \" on the line it opens; add the missing \""));
+                }
                 // ordinary character (handle multi-byte UTF-8 safely)
                 let rest = &source[i..];
                 let ch_char = rest.chars().next().unwrap();
@@ -277,4 +285,30 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LuxError> {
         span: Span::new(n, n),
     });
     Ok(tokens)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The line and column a diagnostic prints come from the byte at span.start,
+    // so a string missing its " must anchor there — on the line it opened —
+    // not run on to a later quote and blame a line the reader never touched.
+    #[test]
+    fn unterminated_string_points_at_the_opening_line() {
+        // The second line has a real quote; the old lexer would consume it as
+        // the "close" and trip somewhere downstream. The error must stay on line 1.
+        let src = "print(\"welcome to the keep)\nlet mood = \"dark\"\n";
+        let err = lex(src).expect_err("missing quote should not lex");
+        assert_eq!(err.message, "unterminated string");
+        assert!(err.note.is_some());
+        // span.start sits before any newline -> reported on the first line.
+        assert!(!src[..err.span.start].contains('\n'));
+    }
+
+    // Apostrophes inside a well-formed string are ordinary text — never escaped.
+    #[test]
+    fn apostrophes_inside_a_string_are_fine() {
+        lex("print(\"you can't see; it's dark\")\n").expect("apostrophes should lex");
+    }
 }

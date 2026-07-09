@@ -4,6 +4,19 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1] - 2026-07-09
+
+### Fixed
+
+- **An unterminated string now points at the line it opened on.** A string
+  missing its closing `"` used to swallow the newline and every line after it
+  until it found the next `"` somewhere below, fold everything between into one
+  giant string, and then blame a far-off line for the leftover — so the reported
+  error sat nowhere near the real mistake. The lexer now stops at the end of the
+  line and reports the missing `"` at the opening quote, where the fix belongs,
+  with a note that a string closes on the line it opens. An apostrophe inside a
+  string was never the cause and never needs escaping.
+
 ## [0.10.0] - 2026-07-02
 
 ### Added
@@ -341,6 +354,7 @@ All notable changes to lux are recorded here. The format follows
   `lux build` compiles the Rust translation to a native binary.
 - A `curl` installer and uninstaller.
 
+[0.10.1]: https://github.com/anderix/lux/releases/tag/v0.10.1
 [0.10.0]: https://github.com/anderix/lux/releases/tag/v0.10.0
 [0.9.0]: https://github.com/anderix/lux/releases/tag/v0.9.0
 [0.8.3]: https://github.com/anderix/lux/releases/tag/v0.8.3
