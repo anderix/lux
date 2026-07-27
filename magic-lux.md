@@ -31,8 +31,9 @@ print("Hello, " + name + "!")
 How do I read a number, not just text?
 
 ```lux
-// input reads the line as text; text is not a number until you parse it. This
-// helper hands what was typed to parseInt and unwraps the answer to a plain int
+// input reads the line as text, and text is not a number until you parse it —
+// parse meaning read a real int out of the characters someone typed. This helper
+// hands what was typed to parseInt and unwraps the answer to a plain int
 // — 0 if it wasn't a number — so you get a number you can keep and calculate with.
 func askNumber(question: string) -> int {
     return match parseInt(input(question)) {

@@ -63,8 +63,9 @@ doing now, reading it and trying the next thing, is the same move there.
 
 Variables allow you to give a name to values you want to use in your program.
 `let` names a value that stays the same throughout your code (it stays constant). `var` names a value 
-that can change while your program is running (it is variable). Every variable has a type;
-lux has four basic types — int, float, string, and bool.
+that can change while your program is running (it is variable). Every variable has a
+*type* — the kind of value it is, which decides what you can do with it; lux has four
+basic types — int, float, string, and bool.
 
 ```lux
 let pi = 3.14159       // float — a let never changes
@@ -157,17 +158,18 @@ print("Hello, " + name + "!")
 > try: ask a second question — `input("Where do you live? ")` — and print both answers together.
 
 <!-- more -->
-`input` is a convenience built on the honest primitive `readLine`, which returns
+`input` is a convenience built on the underlying primitive `readLine`, which returns
 an `Option<string>` — a line, or `none` when the input runs out. `input` folds
 that `none` into an empty string, because when a person is answering a question
 the end of input is not a case worth stopping for. When it *is* — reading a
 piped file line by line until it ends — reach for `readLine` instead and let
 `match` tell "a line" from "no more input" apart. Reading a *number* is
-different again: typed text might not be a number at all, so `parseInt` keeps
-its `Option` rather than guess. Down the ladder `input` is Python's `input`,
+different again: typed text might not be a number at all, so to *parse* one out —
+read a real int from the characters — `parseInt` keeps its `Option` rather than
+guess. Down the ladder `input` is Python's `input`,
 while `readLine` is how Rust, Swift, and Go each read a line.
 
-> see: option — the honest shape readLine returns, the one input hides for you · io — readLine, files, and the rest of the outside world · conversions — turning what someone types into a number with parseInt
+> see: option — the underlying shape readLine returns, the one input hides for you · io — readLine, files, and the rest of the outside world · conversions — turning what someone types into a number with parseInt
 
 <!-- topic: booleans -->
 ## booleans — true and false
@@ -481,9 +483,10 @@ check, paid once up front, is the whole point.
 
 `int`, `float`, and `string` turn one kind of value into another. Converting
 between numbers, or rendering a number as text, always works — there is no way
-for it to fail. Reading a number *out of* text is the different one: the text
-might not be a number, so `parseInt` and `parseFloat` hand back an `Option` you
-match, never a crash.
+for it to fail. Reading a number *out of* text is the different one, and it has a
+name: to *parse* the text. It can fail, because the text might not be a number at
+all, so `parseInt` and `parseFloat` (an int or a float, parsed out of a string)
+hand back an `Option` you match, never a crash.
 
 ```lux
 var price = 3.99            // a float

@@ -92,7 +92,7 @@ cargo build --release
 ## Status
 
 Early, but the teaching surface is complete. `lux run` covers the core — `print`,
-`let`/`var`, the four basic types with honest conversions, arithmetic, strings,
+`let`/`var`, the four basic types with conversions, arithmetic, strings,
 `if`/`else`, `while`, `for ... in`, ranges, arrays, functions with recursion, and
 scope — then your own types (structs, enums with associated values, and
 exhaustive `match`), and no null: `Option<T>` and `Result<T, E>` instead. The
