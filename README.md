@@ -99,10 +99,10 @@ exhaustive `match`), and no null: `Option<T>` and `Result<T, E>` instead. The
 outside world is modeled as those same two shapes — `readFile`, `writeFile`,
 `args`, `readLine`, `input`, `print`/`eprint`, and `run(program, [args])`
 returning `Result<Output, string>` — so fallible I/O is something you handle
-rather than a crash. All three transpiler backends are live: `lux convert` turns
+rather than a crash. The transpiler backends are all live: `lux convert` turns
 any of this into idiomatic Rust, Swift, or Go, each leaning on what that language
 already has, and `lux build` compiles the Rust to a native binary. Every feature
-is runnable and translatable to all three.
+is runnable and translatable to every one of them.
 
 Around that core sits how you learn it. `lux learn` is the built-in reference — a
 two-level card-and-`more` system, cross-referenced from error messages, that also
