@@ -4,6 +4,48 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2026-07-31
+
+### Added
+
+- **A conformance suite that tests "same source, three targets."** A new
+  `conformance/` directory holds five non-trivial programs and a harness that runs
+  each through the interpreter and through its compiled Go, Rust, and Swift
+  translations, then diffs the output — so the promise that a program behaves the
+  same everywhere is checked, not assumed. It surfaced the fixes below, and it
+  declares the few honest seams (Go's whole-float rendering, a Rust ownership
+  case, a Swift subprocess case) rather than papering over them.
+
+### Changed
+
+- **A `Result` is handled where it's produced, not stored.** A value that might
+  fail can be matched right where it's made, or returned for the caller to face,
+  but it can no longer be stashed in a `let` or `var`. That mirrors how Go handles
+  errors — at the call site, not three lines later — and is what keeps the same
+  source crossing all three targets, since Go models a `Result` as its
+  `(value, error)` return rather than a value you hold onto. An `Option` is still
+  storable; a missing value is a real value everywhere. Keeping a `Result` around
+  is something you graduate into when you move up to Rust or Swift.
+- **Calls that return an `Option` bind without an annotation.** `let n =
+  parseInt(x)` and the like — including your own functions that return
+  `Option<T>` — no longer need a type annotation on the binding, even on the
+  `none` path. A bare `none` literal still does, since its type really is open.
+
+### Fixed
+
+- **The Go translation compiles for match arms that ignore their binding.** A
+  `some(let x) => …` that never reads `x` used to emit an unused local, which Go
+  rejects where Rust and Swift only warn. A binding a branch doesn't read is now
+  dropped — and the `switch` guard along with it when no arm needs one.
+- **The Go translation types an empty array from its annotation.** `var xs: [int]
+  = []` now emits `[]int{}`, not Go's untyped `[]any{}`, which wouldn't assign to
+  a typed slice.
+- **The Rust translation handles a keyword-named loop variable.** A loop over a
+  variable named `gen` (a Rust keyword) is now spelled the same way where it's
+  declared and where it's read.
+- **The Rust translation parenthesizes a cast before `<`.** `length(x) < n` no
+  longer emits code Rust reads as the start of generic arguments.
+
 ## [0.13.0] - 2026-07-31
 
 ### Added
@@ -439,6 +481,7 @@ All notable changes to lux are recorded here. The format follows
   `lux build` compiles the Rust translation to a native binary.
 - A `curl` installer and uninstaller.
 
+[0.14.0]: https://github.com/anderix/lux/releases/tag/v0.14.0
 [0.13.0]: https://github.com/anderix/lux/releases/tag/v0.13.0
 [0.12.2]: https://github.com/anderix/lux/releases/tag/v0.12.2
 [0.12.1]: https://github.com/anderix/lux/releases/tag/v0.12.1
