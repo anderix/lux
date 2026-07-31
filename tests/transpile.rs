@@ -78,6 +78,48 @@ fn rust_naming_is_idiomatic() {
     assert!(rust.contains("fn main()"), "top level wraps in a main");
 }
 
+/// Two Rust codegen footguns: a loop variable that collides with a Rust keyword
+/// (`gen`) must be mangled identically where it's declared and where it's read,
+/// and `length(x) < n` must parenthesize the cast so Rust doesn't read `i64 < n`
+/// as generic arguments. Both must compile — and warning-clean, since the parens
+/// are needed exactly here and nowhere else.
+#[test]
+fn rust_keyword_loop_var_and_cast_before_less_than_compile_clean() {
+    if !tool_available("rustc", "--version") {
+        eprintln!("skipping: rustc not on PATH");
+        return;
+    }
+    let src = r#"
+var count = 0
+for gen in 0..3 {
+    if length([1, 2, 3]) < gen {
+        count += 1
+    }
+}
+print(count)
+"#;
+    let rust = convert::to_rust(&parser::parse(lexer::lex(src).expect("lex")).expect("parse"));
+    let tmp = std::env::temp_dir();
+    let rs = tmp.join("lux_rs_keyword_cast.rs");
+    std::fs::write(&rs, &rust).expect("write rust");
+    let out = Command::new("rustc")
+        .arg(&rs)
+        .arg("-o")
+        .arg(tmp.join("lux_rs_keyword_cast.bin"))
+        .output()
+        .expect("run rustc");
+    assert!(
+        out.status.success(),
+        "keyword loop var / cast-before-< did not compile as Rust:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        out.stderr.is_empty(),
+        "should compile warning-clean, got:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 // --- Swift -----------------------------------------------------------------
 
 #[test]

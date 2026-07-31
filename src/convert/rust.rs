@@ -422,7 +422,10 @@ impl Gen {
     }
 
     fn emit_for(&mut self, var: &str, iter: &Expr, body: &[Stmt]) {
-        let svar = to_snake(var);
+        // Through the same keyword mangler a use of the variable goes through, or
+        // a name like `gen` (a Rust 2024 keyword) is written raw here but `gen_`
+        // where it's read, and the two don't match.
+        let svar = rust_ident(&to_snake(var));
         let (iter_str, elem_ty) = match self.t.type_of(iter) {
             Ty::Range => (self.emit_expr(iter), Ty::Int),
             Ty::Array(t) => {
@@ -485,7 +488,14 @@ impl Gen {
                     format!("format!(\"{{}}{{}}\", {}, {})", l, r)
                 } else {
                     let p = bin_prec(*op);
-                    let l = self.emit_child(lhs, p, false);
+                    let mut l = self.emit_child(lhs, p, false);
+                    // A trailing `as` cast to the left of `<` reads as the start of
+                    // generic arguments in Rust (`x as i64 < 2` → `i64<…>`), so it
+                    // has to be parenthesized there — and only there, or the parens
+                    // are redundant and Rust warns.
+                    if *op == BinOp::Lt && self.emits_trailing_cast(lhs) {
+                        l = format!("({})", l);
+                    }
                     let r = self.emit_child(rhs, p, true);
                     format!("{} {} {}", l, op_str(*op), r)
                 }
@@ -553,6 +563,21 @@ impl Gen {
             }
         }
         s
+    }
+
+    /// True when this expression emits with a trailing `as` cast — `length`
+    /// always, `int`/`float` unless the value is already that type. Such a cast
+    /// needs parentheses before a `<`; see the `Binary` case.
+    fn emits_trailing_cast(&self, e: &Expr) -> bool {
+        match e {
+            Expr::Call { name, args, .. } => match name.as_str() {
+                "length" => true,
+                "int" => args.first().is_some_and(|a| self.t.type_of(a) != Ty::Int),
+                "float" => args.first().is_some_and(|a| self.t.type_of(a) != Ty::Float),
+                _ => false,
+            },
+            _ => false,
+        }
     }
 
     /// A user-function argument. lux passes values by copy and the caller keeps
