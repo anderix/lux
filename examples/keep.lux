@@ -313,8 +313,9 @@ print("")
 print("(type help for commands)")
 
 // The heart of play: read a command, build the next world, repeat. You met
-// input() for asking a question and keeping the answer — this uses its honest
-// cousin readLine() instead, because the loop must tell two empty cases apart:
+// input() for asking a question and keeping the answer — this uses its
+// lower-level cousin readLine() instead, because the loop must tell two empty
+// cases apart:
 // a blank line you pressed Enter on (some("") — the keep waits) from the input
 // ending when you walk away (none — the keep lets you go). input() folds both
 // into "", so only readLine() can end the game cleanly. (lux learn io)

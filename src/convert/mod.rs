@@ -28,7 +28,7 @@ use crate::ast::*;
 use crate::diagnostic::Span;
 
 /// A lux type, inferred during translation. `User` covers both structs and
-/// enums (each backend emits them by name); `Unknown` is the honest answer when
+/// enums (each backend emits them by name); `Unknown` is the right answer when
 /// a value doesn't pin its own type, like a bare `none`, and lets the target's
 /// own inference take over.
 #[derive(Clone, PartialEq)]

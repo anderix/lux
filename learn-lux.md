@@ -721,7 +721,7 @@ what you mean so the machine can't guess wrong, and when something breaks, read
 what it tells you and try the next thing. Those moves are not really about
 programming. They are how you take anything tangled — a plan, an argument, a
 broken bike — and make it give way. Programming is just where you practised,
-because the feedback is honest: the program runs or it does not, and it never
+because the feedback is plain: the program runs or it does not, and it never
 pretends.
 
 The other half is quieter: you can build the tool you wish you had, instead of

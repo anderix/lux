@@ -4,7 +4,7 @@
 //! ("how do I X?"). A spell is a small, runnable program that already works,
 //! plus a trail to the `lux learn` topics that explain the ideas it uses. Spells
 //! are allowed to run ahead of where a reader has climbed the learn ladder —
-//! that is the point: a working shape now, with an honest signpost to where the
+//! that is the point: a working shape now, with a signpost to where the
 //! trick is explained. The same spell reads as plain lux once its trail is
 //! climbed; the magic was never magic.
 //!
