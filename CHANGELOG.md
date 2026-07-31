@@ -4,6 +4,16 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.1] - 2026-07-31
+
+### Fixed
+
+- **Storing a `Result` in a struct field is caught too.** The rule that a
+  `Result` is handled where it's produced, not stored, was enforced on `let`/`var`
+  bindings but slipped through a struct field — `Box(r: half(4))` ran interpreted
+  yet emitted invalid Go. Building a struct with a `Result` field now gives the
+  same error, pointed at the field.
+
 ## [0.14.0] - 2026-07-31
 
 ### Added
@@ -481,6 +491,7 @@ All notable changes to lux are recorded here. The format follows
   `lux build` compiles the Rust translation to a native binary.
 - A `curl` installer and uninstaller.
 
+[0.14.1]: https://github.com/anderix/lux/releases/tag/v0.14.1
 [0.14.0]: https://github.com/anderix/lux/releases/tag/v0.14.0
 [0.13.0]: https://github.com/anderix/lux/releases/tag/v0.13.0
 [0.12.2]: https://github.com/anderix/lux/releases/tag/v0.12.2
