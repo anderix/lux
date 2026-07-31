@@ -435,7 +435,7 @@ impl Interp {
                     // to a fallible built-in pins its own type — `let line =
                     // readLine()` is fine even on the `none` it returns at EOF.
                     None => {
-                        if !call_pins_type(value) {
+                        if !call_pins_type(value, &self.funcs) {
                             ensure_determined(&v, value.span())?;
                         }
                     }
@@ -462,7 +462,7 @@ impl Interp {
                         match ty {
                             Some(ann) => self.check_type(ann, &v)?,
                             None => {
-                                if !call_pins_type(e) {
+                                if !call_pins_type(e, &self.funcs) {
                                     ensure_determined(&v, e.span())?;
                                 }
                             }
@@ -2276,12 +2276,15 @@ const TYPE_PINNING_BUILTINS: [&str; 6] = [
     "parseFloat",
 ];
 
-/// Does this expression's type come from a built-in's signature rather than from
-/// the value it produced? True only for a direct call to one of the fallible
-/// built-ins above. `some(none)` and a bare `none` are still left to the
+/// Does this expression's type come from a callee's signature rather than from
+/// the value it produced? True for a direct call to one of the fallible built-ins
+/// above, or to any user function — a declared return type pins the binding even
+/// when the returned value can't, so `let r = half(4)` is as fine as `let n =
+/// parseInt(x)`. `some(none)` and a bare `none` are still left to the
 /// value-directed check, because their type really is open.
-fn call_pins_type(expr: &Expr) -> bool {
-    matches!(expr, Expr::Call { name, .. } if TYPE_PINNING_BUILTINS.contains(&name.as_str()))
+fn call_pins_type(expr: &Expr, funcs: &HashMap<String, Rc<FuncData>>) -> bool {
+    matches!(expr, Expr::Call { name, .. }
+        if TYPE_PINNING_BUILTINS.contains(&name.as_str()) || funcs.contains_key(name))
 }
 
 /// The comma-separated case names of an enum, for "did you mean" notes.

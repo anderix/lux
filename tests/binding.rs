@@ -116,6 +116,23 @@ fn var_form_also_binds_a_fallible_builtin() {
 }
 
 #[test]
+fn user_functions_pin_the_type_the_same_way_builtins_do() {
+    // A declared return type pins the binding whether the callee is a built-in or
+    // a function the program wrote — so a bare `let` needs no annotation even on
+    // the none/err path, just as for `parseInt`.
+    binds(
+        "userfn-option",
+        "func find() -> Option<int> {\n    return none\n}\nlet o = find()",
+        "",
+    );
+    binds(
+        "userfn-result",
+        "func attempt() -> Result<int, string> {\n    return err(\"no\")\n}\nlet r = attempt()",
+        "",
+    );
+}
+
+#[test]
 fn a_bare_none_still_needs_an_annotation() {
     let (ok, _stdout, stderr) = run("bare-none", "let x = none\nprint(\"bound\")\n", "");
     assert!(!ok, "a bare `let x = none` must still be rejected");
