@@ -4,6 +4,17 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.1] - 2026-07-30
+
+### Fixed
+
+- **`lux trace` announces a printing line before its output.** A line that
+  prints used to show its trace line *after* the text it put on screen, so the
+  narration read a step behind. A bare expression is now narrated before it
+  runs, while value bindings still report after with the value they landed on,
+  and stdout is flushed before each trace line — so the order holds even when the
+  two streams are merged with `2>&1`.
+
 ## [0.12.0] - 2026-07-30
 
 ### Added
@@ -390,6 +401,7 @@ All notable changes to lux are recorded here. The format follows
   `lux build` compiles the Rust translation to a native binary.
 - A `curl` installer and uninstaller.
 
+[0.12.1]: https://github.com/anderix/lux/releases/tag/v0.12.1
 [0.12.0]: https://github.com/anderix/lux/releases/tag/v0.12.0
 [0.11.0]: https://github.com/anderix/lux/releases/tag/v0.11.0
 [0.10.1]: https://github.com/anderix/lux/releases/tag/v0.10.1

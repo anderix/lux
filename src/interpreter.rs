@@ -127,6 +127,10 @@ impl Tracer {
     /// so nesting shows), and a note about what just happened — a new value, a
     /// loop variable, an answer read from input.
     fn step(&self, span: Span, note: &str) {
+        // Push any pending program output to the screen first, so a line that
+        // prints shows its trace line and its output in the order they happen —
+        // even when the two streams are merged with a shell redirect.
+        let _ = std::io::stdout().flush();
         let (no, text) = self.line_of(span);
         let left = format!("{:>4}  {}", no, text);
         if note.is_empty() {
@@ -360,12 +364,20 @@ impl Interp {
 
     fn exec_block(&mut self, stmts: &[Stmt]) -> Result<Flow, LuxError> {
         for s in stmts {
+            // A bare expression (usually print) is announced before it runs, so
+            // its trace line comes ahead of the output it puts on screen. A value
+            // binding narrates after, so its note can carry the value it landed
+            // on. Compound statements (if/while/for) and input calls narrate from
+            // inside their own handlers, where the per-iteration and per-read
+            // state is in hand.
+            let effect = matches!(s, Stmt::Expr(_));
+            if effect {
+                self.trace_leaf(s);
+            }
             let flow = self.exec_stmt(s)?;
-            // Leaf bindings narrate here, after they've run, so the note carries
-            // the value they landed on. Compound statements (if/while/for) and
-            // input calls narrate from inside their own handlers instead, where
-            // the per-iteration and per-read state is in hand.
-            self.trace_bind(s);
+            if !effect {
+                self.trace_leaf(s);
+            }
             match flow {
                 Flow::Normal => {}
                 ret @ Flow::Return(_) => return Ok(ret),
@@ -374,10 +386,12 @@ impl Interp {
         Ok(Flow::Normal)
     }
 
-    /// If tracing, narrate a leaf binding statement — `let`, `var`, `assign` —
-    /// with the value the named variable now holds. Anything else is narrated
-    /// elsewhere (or not at all), so this quietly returns.
-    fn trace_bind(&self, s: &Stmt) {
+    /// If tracing, narrate a leaf statement: a `let`/`var`/`assign` with the
+    /// value the named variable now holds, or a bare expression as a plain line
+    /// (its effect shows on stdout). Anything else narrates elsewhere, so this
+    /// quietly returns. The caller decides whether to call it before or after the
+    /// statement runs.
+    fn trace_leaf(&self, s: &Stmt) {
         let Some(t) = &self.trace else { return };
         match s {
             Stmt::Let { name, span, .. }
