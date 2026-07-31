@@ -853,6 +853,10 @@ impl Interp {
                 }
             };
             let v = self.eval(value_expr)?;
+            // Storing a Result in a field is storing it — same rule as a `let`.
+            if is_result(&v) {
+                return Err(result_not_stored(value_expr.span()));
+            }
             if !self.type_matches(&f.ty, &v) {
                 return Err(LuxError::new(
                     format!(

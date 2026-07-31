@@ -146,6 +146,12 @@ fn a_result_cannot_be_stored() {
         &format!("{HALF}\nlet r: Result<int, string> = half(4)"),
         "can't be stored",
     );
+    // Nor does hiding it in a struct field, which is storing it just the same.
+    rejected(
+        "store-struct-field",
+        &format!("struct Box {{\n    r: Result<int, string>\n}}\n{HALF}\nlet b = Box(r: half(4))"),
+        "can't be stored",
+    );
 }
 
 #[test]
