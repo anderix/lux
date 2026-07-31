@@ -4,6 +4,29 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2026-07-31
+
+### Added
+
+- **lux runs on Windows.** Every release now includes a native Windows build
+  (`x86_64-pc-windows-msvc`) alongside the macOS and Linux ones, installed with a
+  single PowerShell line — `irm https://anderix.com/lux/install.ps1 | iex` — the
+  twin of the shell installer. lux was already portable Rust; this makes Windows a
+  first-class target rather than a build-it-yourself one.
+- **Syntax highlighting for Notepad++.** On Windows, `lux editors install` writes a
+  User Defined Language into Notepad++'s config, so `.lux` files colour the moment
+  you open them. It carries the same palette as lux's other editors — violet
+  keywords, teal types, rose built-ins, ocher literals, muted slate comments,
+  colour-blind safe — and uses foreground-only styling so the one file reads
+  correctly on both the light and dark Notepad++ themes.
+
+### Changed
+
+- **`lux update` knows what to do on Windows.** A running program can't overwrite
+  its own file on Windows, so rather than fail mid-swap, `lux update` there prints
+  the one-line PowerShell installer to run in a fresh terminal. On macOS and Linux
+  it still updates in place.
+
 ## [0.12.2] - 2026-07-31
 
 ### Fixed
@@ -416,6 +439,7 @@ All notable changes to lux are recorded here. The format follows
   `lux build` compiles the Rust translation to a native binary.
 - A `curl` installer and uninstaller.
 
+[0.13.0]: https://github.com/anderix/lux/releases/tag/v0.13.0
 [0.12.2]: https://github.com/anderix/lux/releases/tag/v0.12.2
 [0.12.1]: https://github.com/anderix/lux/releases/tag/v0.12.1
 [0.12.0]: https://github.com/anderix/lux/releases/tag/v0.12.0

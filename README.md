@@ -20,7 +20,13 @@ needed:
 curl -LsSf https://anderix.com/lux/install | sh
 ```
 
-That URL is a stable front door to the latest release: running it again updates
+On Windows, the same in PowerShell:
+
+```
+irm https://anderix.com/lux/install.ps1 | iex
+```
+
+Those URLs are stable front doors to the latest release: running one again updates
 in place, and once lux is installed `lux update` does the same from the binary
 itself. To remove it again:
 
@@ -115,8 +121,9 @@ small working spells, each carrying a trail back to the topic that explains it.
 play by running and change by editing — with a tutorial-free fast track
 (`lux magic room`, `exit`, `thing`, `command`) for the tinkerer who would rather
 skip straight to changing it. `lux editors install` sets up syntax highlighting
-for whichever of gedit, GNOME Text Editor, Vim, Neovim, or nano you already have
-— highlighting only, nothing that completes or corrects. And `lux update`
+for whichever of gedit, GNOME Text Editor, Vim, Neovim, nano, or — on Windows —
+Notepad++ you already have — highlighting only, nothing that completes or
+corrects. And `lux update`
 fetches the latest release in place.
 
 For the fuller history, see [CHANGELOG.md](CHANGELOG.md) and the scope notes at

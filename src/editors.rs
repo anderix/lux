@@ -11,14 +11,24 @@
 //! config — least of all the nano colours, which are meant to be hand-tuned.
 
 use std::path::{Path, PathBuf};
+#[cfg(unix)]
 use std::process::{Command, Stdio};
 
 // The highlighting files, embedded from the repo so the binary is self-contained.
+// Each editor belongs to a platform, so its file ships only in the build that can
+// use it — the Unix editors on Unix, Notepad++ on Windows.
+#[cfg(unix)]
 const GTKSOURCEVIEW_LANG: &str = include_str!("../editors/gtksourceview/lux.lang");
+#[cfg(unix)]
 const VIM_SYNTAX: &str = include_str!("../editors/vim/syntax/lux.vim");
+#[cfg(unix)]
 const VIM_FTDETECT: &str = include_str!("../editors/vim/ftdetect/lux.vim");
+#[cfg(unix)]
 const VIM_FTPLUGIN: &str = include_str!("../editors/vim/ftplugin/lux.vim");
+#[cfg(unix)]
 const NANO_NANORC: &str = include_str!("../editors/nano/lux.nanorc");
+#[cfg(windows)]
+const NOTEPADPP_UDL: &str = include_str!("../editors/notepad++/lux.xml");
 
 // The one line nano needs in ~/.nanorc to load lux's highlighting.
 const NANO_INCLUDE: &str = "include \"~/.nano/lux.nanorc\"";
@@ -76,9 +86,16 @@ impl Integration {
     }
 }
 
-/// Every editor lux knows how to highlight for, in the order they're reported.
-fn integrations(home: &Path) -> Vec<Integration> {
-    vec![
+/// Every editor lux knows how to highlight for on this platform, in the order
+/// they're reported — or None when the directory they'd live under can't be found.
+///
+/// The set is platform-split: Unix has the editors that read per-user config from
+/// $HOME, Windows has Notepad++. They don't overlap, so each build only carries
+/// the integrations it can act on.
+#[cfg(unix)]
+fn integrations() -> Option<Vec<Integration>> {
+    let home = home()?;
+    Some(vec![
         Integration {
             name: "Neovim",
             present: on_path("nvim"),
@@ -112,9 +129,29 @@ fn integrations(home: &Path) -> Vec<Integration> {
             }],
             nanorc_include: None,
         },
-    ]
+    ])
 }
 
+/// On Windows, one editor: Notepad++. Its per-user config lives under %APPDATA%,
+/// and dropping a UDL file into `userDefineLangs\` is the whole integration —
+/// Notepad++ loads every file there at startup. "Present" is that config folder
+/// existing, which it does once Notepad++ has run even once.
+#[cfg(windows)]
+fn integrations() -> Option<Vec<Integration>> {
+    let appdata = std::env::var_os("APPDATA").map(PathBuf::from)?;
+    let npp = appdata.join("Notepad++");
+    Some(vec![Integration {
+        name: "Notepad++",
+        present: npp.exists(),
+        files: vec![EditorFile {
+            path: npp.join("userDefineLangs").join("lux.xml"),
+            body: NOTEPADPP_UDL,
+        }],
+        nanorc_include: None,
+    }])
+}
+
+#[cfg(unix)]
 fn vim_files(root: &Path) -> Vec<EditorFile> {
     vec![
         EditorFile {
@@ -134,11 +171,11 @@ fn vim_files(root: &Path) -> Vec<EditorFile> {
 
 /// `lux editors`: report which editors are here and whether highlighting is in.
 pub fn report() -> String {
-    let Some(home) = home() else {
+    let Some(list) = integrations() else {
         return no_home();
     };
     let mut lines = Vec::new();
-    for it in integrations(&home) {
+    for it in list {
         let state = if !it.present {
             "not found"
         } else if it.installed() {
@@ -157,11 +194,11 @@ pub fn report() -> String {
 
 /// `lux editors install`: write the highlighting for every editor that's here.
 pub fn install() -> String {
-    let Some(home) = home() else {
+    let Some(list) = integrations() else {
         return no_home();
     };
     let mut lines = Vec::new();
-    for it in integrations(&home) {
+    for it in list {
         if !it.present {
             continue;
         }
@@ -173,9 +210,7 @@ pub fn install() -> String {
         lines.push(line);
     }
     if lines.is_empty() {
-        return "No supported editors found on your PATH \
-                (looked for nvim, vim, nano, gedit, gnome-text-editor)."
-            .to_string();
+        return no_editors_found();
     }
     format!(
         "Installed lux syntax highlighting:\n\n{}\n\n\
@@ -189,8 +224,7 @@ pub fn install() -> String {
 /// nothing when there's no editor to mention. `update` never writes these files
 /// itself — it only points at `lux editors install`.
 pub fn nudge() -> Option<String> {
-    let home = home()?;
-    let present: Vec<Integration> = integrations(&home).into_iter().filter(|i| i.present).collect();
+    let present: Vec<Integration> = integrations()?.into_iter().filter(|i| i.present).collect();
     if present.is_empty() {
         return None;
     }
@@ -211,16 +245,40 @@ pub fn nudge() -> Option<String> {
 
 // --- small helpers ---------------------------------------------------------
 
+/// The user's home directory — $HOME on Unix, %USERPROFILE% on Windows. Used to
+/// abbreviate paths for display; the Unix integrations also root their config here.
 fn home() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(PathBuf::from)
+    let var = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+    std::env::var_os(var).map(PathBuf::from)
 }
 
 fn no_home() -> String {
-    "Couldn't find your home directory (is $HOME set?).".to_string()
+    if cfg!(windows) {
+        "Couldn't find your %APPDATA% directory.".to_string()
+    } else {
+        "Couldn't find your home directory (is $HOME set?).".to_string()
+    }
+}
+
+/// The message when `install` finds nothing to write for — named per platform,
+/// since the editors lux looks for differ.
+#[cfg(unix)]
+fn no_editors_found() -> String {
+    "No supported editors found on your PATH \
+     (looked for nvim, vim, nano, gedit, gnome-text-editor)."
+        .to_string()
+}
+
+#[cfg(windows)]
+fn no_editors_found() -> String {
+    "Notepad++ doesn't appear to be installed \
+     (looked for its config folder under %APPDATA%)."
+        .to_string()
 }
 
 /// Is `cmd` an executable on PATH? Asked by running its `--version`, which every
 /// editor here answers without opening a window or waiting on input.
+#[cfg(unix)]
 fn on_path(cmd: &str) -> bool {
     Command::new(cmd)
         .arg("--version")
@@ -233,6 +291,7 @@ fn on_path(cmd: &str) -> bool {
 
 /// On many systems `vim` is a symlink to Neovim; its `--version` says so. We
 /// check to avoid installing classic-Vim files that Neovim would never load.
+#[cfg(unix)]
 fn vim_is_nvim() -> bool {
     Command::new("vim")
         .arg("--version")
@@ -281,12 +340,14 @@ mod tests {
 
     // A scratch HOME that cleans itself up, named per-test so parallel runs
     // never share a directory.
+    #[cfg(unix)]
     fn scratch(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("lux-editors-{}-{}", std::process::id(), tag));
         let _ = std::fs::remove_dir_all(&dir);
         dir
     }
 
+    #[cfg(unix)]
     #[test]
     fn writes_files_and_adds_the_nano_include_exactly_once() {
         let home = scratch("nano");
@@ -316,6 +377,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&home);
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_hand_edited_nanorc_keeps_its_other_lines() {
         let home = scratch("nanorc-keep");
@@ -337,6 +399,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&home);
     }
 
+    #[cfg(unix)]
     #[test]
     fn all_five_embedded_files_are_present_and_named_lux() {
         assert!(GTKSOURCEVIEW_LANG.contains("id=\"lux\""));
@@ -344,5 +407,18 @@ mod tests {
         assert!(VIM_FTDETECT.contains("*.lux"));
         assert!(VIM_FTPLUGIN.contains("commentstring"));
         assert!(NANO_NANORC.contains("syntax lux"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn notepadpp_udl_is_present_and_named_lux() {
+        assert!(NOTEPADPP_UDL.contains("name=\"lux\""));
+        assert!(NOTEPADPP_UDL.contains("ext=\"lux\""));
+        // the three keyword groups the styles colour
+        assert!(NOTEPADPP_UDL.contains("Keywords1"));
+        assert!(NOTEPADPP_UDL.contains("Keywords2"));
+        assert!(NOTEPADPP_UDL.contains("Keywords3"));
+        // foreground-only styling is what makes it read on light and dark themes
+        assert!(NOTEPADPP_UDL.contains("colorStyle=\"1\""));
     }
 }

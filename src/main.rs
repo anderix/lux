@@ -15,8 +15,15 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 // The stable front door for install and update: a short redirect on anderix.com
 // to the release installer. `lux update` and the docs both point here, so there
-// is one canonical way to get the latest lux.
+// is one canonical way to get the latest lux. Unix only — the Windows installer
+// is PowerShell, reached below.
+#[cfg(unix)]
 const INSTALL_URL: &str = "https://anderix.com/lux/install";
+
+// The Windows front door: the PowerShell twin of INSTALL_URL, a short redirect on
+// anderix.com to the repo's install.ps1 wrapper over the latest release.
+#[cfg(windows)]
+const INSTALL_PS_URL: &str = "https://anderix.com/lux/install.ps1";
 
 // The starter crawl, scaffolded by `lux crawl`. The world is the example file
 // itself, so the thing you play and the thing the tests run can never drift.
@@ -294,44 +301,60 @@ fn update_cmd(rest: &[String]) {
         eprintln!("usage: lux update");
         exit(1);
     }
-    // curl is the one tool the installer leans on. If it is missing, hand back
-    // the manual command rather than a cryptic pipe failure.
-    let has_curl = Command::new("curl")
-        .arg("--version")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
-    if !has_curl {
-        eprintln!("lux update needs curl, which isn't on your PATH.");
-        eprintln!("Update by hand with:");
-        eprintln!("  curl -LsSf {} | sh", INSTALL_URL);
-        exit(1);
+
+    // On Windows a running lux.exe can't overwrite its own file, and lux carries no
+    // self-replace machinery by design (zero dependencies). So instead of failing
+    // mid-swap, hand back the one-line PowerShell installer to run in a fresh
+    // terminal, where lux isn't the running process. `irm` is built into every
+    // PowerShell, so there's nothing to check for first.
+    #[cfg(windows)]
+    {
+        println!("On Windows, update lux by running the installer in a new terminal:");
+        println!("  irm {} | iex", INSTALL_PS_URL);
+        return;
     }
 
-    println!("Updating lux to the latest release...");
-    let status = Command::new("sh")
-        .arg("-c")
-        .arg(format!("curl -LsSf {} | sh", INSTALL_URL))
-        .status();
-    match status {
-        Ok(s) if s.success() => {
-            println!("Done. Run `lux --version` to see what you're on.");
-            // Point at editor highlighting without touching a single config file
-            // here — writing is `lux editors install`'s job, not update's.
-            if let Some(tip) = editors::nudge() {
-                println!("{}", tip);
-            }
-        }
-        Ok(_) => {
-            eprintln!("the update didn't finish. You can run it by hand:");
+    #[cfg(unix)]
+    {
+        // curl is the one tool the installer leans on. If it is missing, hand back
+        // the manual command rather than a cryptic pipe failure.
+        let has_curl = Command::new("curl")
+            .arg("--version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !has_curl {
+            eprintln!("lux update needs curl, which isn't on your PATH.");
+            eprintln!("Update by hand with:");
             eprintln!("  curl -LsSf {} | sh", INSTALL_URL);
             exit(1);
         }
-        Err(e) => {
-            eprintln!("could not start the update: {}", e);
-            exit(1);
+
+        println!("Updating lux to the latest release...");
+        let status = Command::new("sh")
+            .arg("-c")
+            .arg(format!("curl -LsSf {} | sh", INSTALL_URL))
+            .status();
+        match status {
+            Ok(s) if s.success() => {
+                println!("Done. Run `lux --version` to see what you're on.");
+                // Point at editor highlighting without touching a single config file
+                // here — writing is `lux editors install`'s job, not update's.
+                if let Some(tip) = editors::nudge() {
+                    println!("{}", tip);
+                }
+            }
+            Ok(_) => {
+                eprintln!("the update didn't finish. You can run it by hand:");
+                eprintln!("  curl -LsSf {} | sh", INSTALL_URL);
+                exit(1);
+            }
+            Err(e) => {
+                eprintln!("could not start the update: {}", e);
+                exit(1);
+            }
         }
     }
 }

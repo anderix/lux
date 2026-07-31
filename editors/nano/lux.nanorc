@@ -17,6 +17,11 @@
 # and lightness alone. Change any of it to taste; nano reloads on restart. (The
 # named colours need a 256-colour terminal, which every graphical one is.)
 #
+# The mid-tone names (purple, teal, slate, ...) arrived in nano 5.0 (2020). An
+# older nano rejects them with a "Mistakes in '.nanorc'" notice and shows no
+# colour. Notably, macOS ships a pre-5.0 nano frozen at the last GPLv2 release —
+# `brew install nano` gets a current one, and then this file just works.
+#
 # Install: copy to ~/.nano/lux.nanorc and add this line to ~/.nanorc:
 #   include "~/.nano/lux.nanorc"
 #
