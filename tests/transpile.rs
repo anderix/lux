@@ -261,6 +261,59 @@ match attempt() {
     );
 }
 
+/// An empty array literal carries no element to infer from, so its type must come
+/// from the annotation or field it's assigned into — otherwise Go gets `[]any{}`
+/// where a typed slice is required. Covers both the annotated binding and the
+/// struct-literal field.
+#[test]
+fn go_empty_arrays_take_their_declared_element_type() {
+    if !tool_available("go", "version") {
+        eprintln!("skipping: go not on PATH");
+        return;
+    }
+    let src = r#"
+struct Bag {
+    items: [int]
+    tags: [string]
+}
+func empties() -> [int] {
+    var out: [int] = []
+    out += 1
+    return out
+}
+let b = Bag(items: [], tags: [])
+print(length(empties()))
+print(length(b.items))
+print(length(b.tags))
+"#;
+    let program = parser::parse(lexer::lex(src).expect("lex")).expect("parse");
+    let go = convert::to_go(&program);
+    // The annotation and field types must reach the literal, not Go's `[]any{}`.
+    assert!(go.contains("out := []int{}"), "annotated binding:\n{go}");
+    assert!(
+        go.contains("items: []int{}") && go.contains("tags: []string{}"),
+        "struct-literal fields:\n{go}"
+    );
+
+    let tmp = std::env::temp_dir().join("lux_go_empty_arrays");
+    std::fs::create_dir_all(&tmp).expect("mkdir");
+    std::fs::write(tmp.join("go.mod"), "module luxtest\n\ngo 1.21\n").expect("write go.mod");
+    std::fs::write(tmp.join("main.go"), &go).expect("write go");
+    let out = Command::new("go")
+        .arg("build")
+        .arg("-o")
+        .arg(tmp.join("bin"))
+        .current_dir(&tmp)
+        .env("GOCACHE", std::env::temp_dir().join("lux_go_cache"))
+        .output()
+        .expect("run go build");
+    assert!(
+        out.status.success(),
+        "empty annotated arrays did not compile as Go:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 // --- structure shared by all three ----------------------------------------
 
 #[test]

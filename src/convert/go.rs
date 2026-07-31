@@ -497,9 +497,35 @@ impl Gen {
         let vty = ann
             .map(ty_from_ann)
             .unwrap_or_else(|| self.t.type_of(value));
-        let expr = self.emit_expr(value);
+        let expr = self.emit_expr_typed(value, &vty);
         self.line(format!("{} := {}", go_ident(name), expr));
         self.t.declare(name.to_string(), vty);
+    }
+
+    /// Emit `value` where the surrounding type is already known — an annotated
+    /// binding or a struct field. It changes only an empty array literal, which
+    /// carries no element to infer from: with the expected type in hand it emits
+    /// `[]int{}` rather than Go's untyped `[]any{}`, which won't assign to a typed
+    /// slice. Every other value emits exactly as `emit_expr` would.
+    fn emit_expr_typed(&mut self, value: &Expr, expected: &Ty) -> String {
+        if let (Expr::Array(els, _), Ty::Array(elem)) = (value, expected)
+            && els.is_empty()
+        {
+            return format!("[]{}{{}}", ty_text(elem));
+        }
+        self.emit_expr(value)
+    }
+
+    /// The declared type of `field` on struct `name`, when both are known — so a
+    /// struct literal can type an empty-array field from the field's own type.
+    fn field_ty(&self, name: &str, field: &str) -> Option<Ty> {
+        self.t
+            .env
+            .structs
+            .get(name)?
+            .iter()
+            .find(|f| f.name == field)
+            .map(|f| ty_from_ann(&f.ty))
     }
 
     fn emit_assign(&mut self, name: &str, op: AssignOp, value: &Expr) {
@@ -885,7 +911,12 @@ impl Gen {
                 let parts: Vec<String> = fields
                     .iter()
                     .map(|(k, v)| {
-                        let val = self.emit_expr(v);
+                        // Type each field from the struct's declaration, so an
+                        // empty-array field lands as `[]int{}`, not `[]any{}`.
+                        let val = match self.field_ty(name, k) {
+                            Some(t) => self.emit_expr_typed(v, &t),
+                            None => self.emit_expr(v),
+                        };
                         format!("{}: {}", k, val)
                     })
                     .collect();
