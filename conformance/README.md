@@ -42,6 +42,14 @@ teaching content (insertion sort builds a new row; the RPN machine folds a fault
 forward). Don't add language features to make them nicer. A divergence here is a
 bug in a target, not a missing feature.
 
+One difference is declared rather than fixed. Go's `fmt` prints a whole float
+without the trailing `.0` the interpreter, Rust, and Swift all keep — `5` where
+they write `5.0`. The value is identical; only Go's rendering differs, so
+`conformance.sh` normalizes that one thing before comparing and every other byte
+still has to match. It is a seam of the target, documented here, not a failure
+papered over — the same call lux makes for other places a backend's host language
+shows through.
+
 Only the Go leg is wired up today. Rust and Swift emit for every program but
 aren't yet compiled and compared — adding those legs is the obvious next step,
 and the shape of the check is identical.
