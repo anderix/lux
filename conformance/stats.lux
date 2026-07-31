@@ -71,7 +71,7 @@ var skipped = 0
 var reading = true
 
 while reading {
-    let line: Option<string> = readLine()
+    let line = readLine()
     reading = isLine(line)
     numbers = absorb(numbers, line)
     skipped += countBad(line)

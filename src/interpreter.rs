@@ -431,7 +431,14 @@ impl Interp {
                 let v = self.eval(value)?;
                 match ty {
                     Some(ann) => self.check_type(ann, &v)?,
-                    None => ensure_determined(&v, value.span())?,
+                    // A bare `let x = none` still needs an annotation, but a call
+                    // to a fallible built-in pins its own type — `let line =
+                    // readLine()` is fine even on the `none` it returns at EOF.
+                    None => {
+                        if !call_pins_type(value) {
+                            ensure_determined(&v, value.span())?;
+                        }
+                    }
                 }
                 if self.current_has(name) {
                     return Err(LuxError::new(
@@ -454,7 +461,11 @@ impl Interp {
                         let v = self.eval(e)?;
                         match ty {
                             Some(ann) => self.check_type(ann, &v)?,
-                            None => ensure_determined(&v, e.span())?,
+                            None => {
+                                if !call_pins_type(e) {
+                                    ensure_determined(&v, e.span())?;
+                                }
+                            }
                         }
                         v
                     }
@@ -2248,6 +2259,29 @@ fn fully_determined(v: &Value) -> bool {
         Value::Array(items) => items.is_empty() || items.iter().any(fully_determined),
         _ => true,
     }
+}
+
+/// The built-ins whose return type is a fixed `Option<T>` or `Result<T, E>`. The
+/// type is pinned by the signature even when the returned value can't show it — a
+/// `none` from `readLine` is still `Option<string>` — so a `let`/`var` bound
+/// straight to one of these calls needs no annotation, unlike a bare `none`/`err`
+/// literal whose type genuinely is open. `input` is absent on purpose: it returns
+/// a plain `string` (empty at end of input), so it never leaves a type unknown.
+const TYPE_PINNING_BUILTINS: [&str; 6] = [
+    "readLine",
+    "readFile",
+    "writeFile",
+    "run",
+    "parseInt",
+    "parseFloat",
+];
+
+/// Does this expression's type come from a built-in's signature rather than from
+/// the value it produced? True only for a direct call to one of the fallible
+/// built-ins above. `some(none)` and a bare `none` are still left to the
+/// value-directed check, because their type really is open.
+fn call_pins_type(expr: &Expr) -> bool {
+    matches!(expr, Expr::Call { name, .. } if TYPE_PINNING_BUILTINS.contains(&name.as_str()))
 }
 
 /// The comma-separated case names of an enum, for "did you mean" notes.
