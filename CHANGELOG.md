@@ -4,6 +4,21 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.2] - 2026-07-31
+
+### Fixed
+
+- **nano syntax highlighting is now legible on any terminal.** The nano colours
+  were built from the basic eight names (`brightblack`, `brightblue`, and the
+  rest), which every terminal theme is free to render its own way — so comments
+  came out as a near-invisible grey on a dark background and keywords sat too
+  close to it in a low-contrast blue. The palette now uses nano's fixed mid-tone
+  colour names, which map to set positions in the 256-colour palette and render
+  the same regardless of the terminal's theme, and every colour is chosen to stay
+  readable on both a black and a white background. It remains colour-blind safe:
+  keywords in violet, types in teal, built-ins in rose, literals in ocher, and
+  comments in a muted slate, told apart by hue and lightness with no red or green.
+
 ## [0.12.1] - 2026-07-30
 
 ### Fixed
@@ -401,6 +416,7 @@ All notable changes to lux are recorded here. The format follows
   `lux build` compiles the Rust translation to a native binary.
 - A `curl` installer and uninstaller.
 
+[0.12.2]: https://github.com/anderix/lux/releases/tag/v0.12.2
 [0.12.1]: https://github.com/anderix/lux/releases/tag/v0.12.1
 [0.12.0]: https://github.com/anderix/lux/releases/tag/v0.12.0
 [0.11.0]: https://github.com/anderix/lux/releases/tag/v0.11.0

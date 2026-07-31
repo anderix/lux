@@ -1,9 +1,21 @@
 # nano syntax highlighting for lux.
 #
-# Unlike Vim or GtkSourceView, nano has no notion of a theme to inherit colours
-# from — every colour is named here directly. These are chosen to stay legible
-# under red-green colour blindness: blue, cyan, magenta, yellow, and grey only,
-# no red and no green. Change any of them to taste; nano reloads on restart.
+# Unlike Vim or GtkSourceView, nano has no theme to inherit colours from — every
+# colour is named here directly, so the same file has to look right on a black
+# terminal and a white one, on whatever machine it lands on. Two rules follow
+# from that:
+#
+#   1. Use nano's fixed mid-tone colour names (purple, teal, slate, ...), not the
+#      basic eight (blue, brightblack, ...). The basic names are whatever each
+#      terminal's theme decides they are — that is why "brightblack" comments can
+#      vanish into a dark background. The named mid-tones map to fixed palette
+#      slots and render the same everywhere.
+#   2. Stay in the band that is legible on BOTH backgrounds — mid-luminance, no
+#      colour so bright it washes out on white nor so dark it sinks into black.
+#
+# The palette is also colour-blind safe: no red, no green, distinguished by hue
+# and lightness alone. Change any of it to taste; nano reloads on restart. (The
+# named colours need a 256-colour terminal, which every graphical one is.)
 #
 # Install: copy to ~/.nano/lux.nanorc and add this line to ~/.nanorc:
 #   include "~/.nano/lux.nanorc"
@@ -14,28 +26,28 @@ syntax lux "\.lux$"
 comment "//"
 
 # keywords and control flow
-color brightblue "\<(let|var|if|else|while|for|in|func|return|struct|enum|match)\>"
+color purple "\<(let|var|if|else|while|for|in|func|return|struct|enum|match)\>"
 
 # boolean values
-color brightblue "\<(true|false)\>"
+color purple "\<(true|false)\>"
 
 # built-in types
-color brightcyan "\<(int|float|bool|string|Option|Result|Output)\>"
+color teal "\<(int|float|bool|string|Option|Result|Output)\>"
 
 # Option and Result values
-color brightcyan "\<(some|none|ok|err)\>"
+color teal "\<(some|none|ok|err)\>"
 
 # built-in functions
-color brightmagenta "\<(print|eprint|input|readLine|readFile|writeFile|args|run|length|parseInt|parseFloat)\>"
+color rosy "\<(print|eprint|input|readLine|readFile|writeFile|args|run|length|parseInt|parseFloat)\>"
 
 # numbers
-color yellow "\<[0-9]+(\.[0-9]+)?\>"
+color ocher "\<[0-9]+(\.[0-9]+)?\>"
 
 # comments run // to end of line
-color brightblack "//.*$"
+color slate "//.*$"
 
 # strings last, so a real string repaints over any keyword that appears inside it
-color yellow ""([^"]|\\")*""
+color ocher ""([^"]|\\")*""
 
 # the four escapes lux understands, highlighted within the string
-color brightmagenta "\\[nt"\\]"
+color purple "\\[nt"\\]"
