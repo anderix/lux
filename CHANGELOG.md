@@ -4,6 +4,23 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-07-30
+
+### Added
+
+- **`lux trace` narrates a program as it runs.** It runs a program exactly like
+  `lux run` — same input, same output — but prints each line as it executes with
+  the state it changes beside it: a new value, a loop variable climbing, the
+  branch an `if` took, the answer a `readLine` handed back. The narration goes to
+  stderr while the program's own output stays on stdout, so the two can be
+  watched together or split with a redirect — play a crawl clean on screen and
+  capture the trace with `2> trace.log` to read afterward, which also makes that
+  log a replayable record of exactly what happened. It steps into your functions
+  rather than over them, so the whole computation is visible, and shows values
+  with strings quoted, so `some("north")` reads unmistakably as text. It is the
+  simplest form of a debugger: the habit of watching execution, met before the
+  bigger tools that formalize it.
+
 ## [0.11.0] - 2026-07-30
 
 ### Added
@@ -373,6 +390,7 @@ All notable changes to lux are recorded here. The format follows
   `lux build` compiles the Rust translation to a native binary.
 - A `curl` installer and uninstaller.
 
+[0.12.0]: https://github.com/anderix/lux/releases/tag/v0.12.0
 [0.11.0]: https://github.com/anderix/lux/releases/tag/v0.11.0
 [0.10.1]: https://github.com/anderix/lux/releases/tag/v0.10.1
 [0.10.0]: https://github.com/anderix/lux/releases/tag/v0.10.0

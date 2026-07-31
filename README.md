@@ -43,9 +43,12 @@ Remove that build with `cargo uninstall luxc`.
 lux run examples/tour.lux
 ```
 
-`lux run` interprets a program directly. `lux convert <rust|swift|go> <file.lux>`
-prints your program as real source in that language, and `lux build <file.lux>`
-runs the Rust translation through `rustc` to a native binary.
+`lux run` interprets a program directly. `lux trace <file.lux>` runs it the same
+way but narrates each line and the state it changes, so you can watch a program
+work step by step — the narration goes to stderr, so the program's own output
+stays clean and can be captured on its own. `lux convert <rust|swift|go>
+<file.lux>` prints your program as real source in that language, and `lux build
+<file.lux>` runs the Rust translation through `rustc` to a native binary.
 
 ## Playing a crawl
 

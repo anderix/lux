@@ -30,6 +30,7 @@ fn main() {
         Some("--version") | Some("-V") => println!("lux {}", VERSION),
         Some("--help") | Some("-h") => print_usage(),
         Some("run") => run_cmd(&args[2..]),
+        Some("trace") => trace_cmd(&args[2..]),
         Some("crawl") => crawl_cmd(&args[2..]),
         Some("build") => build_cmd(&args[2..]),
         Some("convert") => convert_cmd(&args[2..]),
@@ -57,6 +58,25 @@ fn run_cmd(rest: &[String]) {
     let (source, program) = load(path);
     // The program's own command line: the script at index 0, then its arguments.
     if let Err(err) = interpreter::run(&program, rest) {
+        diagnostic::report(path, &source, &err);
+        exit(1);
+    }
+}
+
+/// `lux trace`: run a program while narrating each line and the state it
+/// changes to stderr. The program's own output stays on stdout, so the two
+/// streams can be watched together, or split with a redirect — play the crawl
+/// clean on screen and capture the trace with `2> trace.log` to read after.
+fn trace_cmd(rest: &[String]) {
+    let Some(path) = rest.first() else {
+        eprintln!("usage: lux trace <file.lux>");
+        exit(1);
+    };
+    let (source, program) = load(path);
+    eprintln!("tracing {} — each line as it runs, with the state it changes on the right", path);
+    eprintln!("(your program's own output is on stdout; this trace is on stderr)");
+    eprintln!();
+    if let Err(err) = interpreter::run_traced(&program, rest, &source) {
         diagnostic::report(path, &source, &err);
         exit(1);
     }
@@ -339,6 +359,7 @@ fn print_usage() {
     println!();
     println!("usage:");
     println!("  lux run <file.lux>            run a program");
+    println!("  lux trace <file.lux>          run it, narrating each line and what changes");
     println!("  lux crawl [name]              start a text adventure you can open and change");
     println!("  lux build <file.lux>          compile to a native binary via Rust");
     println!("  lux convert <lang> <file.lux> translate to rust, swift, or go source");

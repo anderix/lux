@@ -94,17 +94,86 @@ struct Interp {
     /// itself at index 0. Supplied by the caller so the interpreter shows the
     /// script's arguments, not `lux run`'s.
     program_args: Vec<String>,
+    /// When set (by `lux trace`), narrate each executing line and the state it
+    /// changes to stderr, leaving the program's own output on stdout untouched.
+    trace: Option<Tracer>,
+}
+
+/// The line-by-line narrator behind `lux trace`. It holds the source so it can
+/// reprint each executing line, and writes to stderr — so the program's own
+/// output on stdout stays clean and can be watched, muted, or captured on its
+/// own with a shell redirect.
+struct Tracer {
+    source: String,
+}
+
+/// The column the state note starts at, when the source line is shorter.
+const TRACE_NOTE_COL: usize = 44;
+
+impl Tracer {
+    /// The 1-based line number and text of the line a span sits on.
+    fn line_of(&self, span: Span) -> (usize, &str) {
+        let at = span.start.min(self.source.len());
+        let line_start = self.source[..at].rfind('\n').map(|i| i + 1).unwrap_or(0);
+        let line_end = self.source[line_start..]
+            .find('\n')
+            .map(|i| line_start + i)
+            .unwrap_or(self.source.len());
+        let no = self.source[..line_start].bytes().filter(|&b| b == b'\n').count() + 1;
+        (no, self.source[line_start..line_end].trim_end())
+    }
+
+    /// Emit one trace line: the line number, the source line (indentation kept,
+    /// so nesting shows), and a note about what just happened — a new value, a
+    /// loop variable, an answer read from input.
+    fn step(&self, span: Span, note: &str) {
+        let (no, text) = self.line_of(span);
+        let left = format!("{:>4}  {}", no, text);
+        if note.is_empty() {
+            eprintln!("{left}");
+            return;
+        }
+        let width = left.chars().count();
+        if width >= TRACE_NOTE_COL {
+            eprintln!("{left}  {note}");
+        } else {
+            eprintln!("{left}{}{note}", " ".repeat(TRACE_NOTE_COL - width));
+        }
+    }
 }
 
 /// Run a parsed program. `program_args` is the program's command line —
 /// the script (or binary) at index 0, then anything the user passed after it.
 pub fn run(program: &[Stmt], program_args: &[String]) -> Result<(), LuxError> {
+    run_with(program, program_args, None)
+}
+
+/// Like `run`, but narrate each executing line and the state it changes to
+/// stderr. The program itself runs identically — same stdout, same stdin — so a
+/// traced program plays exactly as it would under `run`, with the trace riding
+/// alongside on a separate stream.
+pub fn run_traced(program: &[Stmt], program_args: &[String], source: &str) -> Result<(), LuxError> {
+    run_with(
+        program,
+        program_args,
+        Some(Tracer {
+            source: source.to_string(),
+        }),
+    )
+}
+
+fn run_with(
+    program: &[Stmt],
+    program_args: &[String],
+    trace: Option<Tracer>,
+) -> Result<(), LuxError> {
     let mut interp = Interp {
         scopes: vec![HashMap::new()],
         funcs: HashMap::new(),
         structs: HashMap::new(),
         enums: HashMap::new(),
         program_args: program_args.to_vec(),
+        trace,
     };
     // Option and Result are built-in enums, registered before anything else so
     // they exist for type-checking and so a user can't redeclare their names.
@@ -291,12 +360,46 @@ impl Interp {
 
     fn exec_block(&mut self, stmts: &[Stmt]) -> Result<Flow, LuxError> {
         for s in stmts {
-            match self.exec_stmt(s)? {
+            let flow = self.exec_stmt(s)?;
+            // Leaf bindings narrate here, after they've run, so the note carries
+            // the value they landed on. Compound statements (if/while/for) and
+            // input calls narrate from inside their own handlers instead, where
+            // the per-iteration and per-read state is in hand.
+            self.trace_bind(s);
+            match flow {
                 Flow::Normal => {}
                 ret @ Flow::Return(_) => return Ok(ret),
             }
         }
         Ok(Flow::Normal)
+    }
+
+    /// If tracing, narrate a leaf binding statement — `let`, `var`, `assign` —
+    /// with the value the named variable now holds. Anything else is narrated
+    /// elsewhere (or not at all), so this quietly returns.
+    fn trace_bind(&self, s: &Stmt) {
+        let Some(t) = &self.trace else { return };
+        match s {
+            Stmt::Let { name, span, .. }
+            | Stmt::Var { name, span, .. }
+            | Stmt::Assign { name, span, .. } => {
+                if let Some(b) = self.lookup(name) {
+                    t.step(*span, &format!("{} = {}", name, trace_render(&b.value)));
+                }
+            }
+            // A bare expression — usually a print — runs for its effect; its
+            // output lands on stdout, so the trace just marks that the line ran.
+            Stmt::Expr(e) => t.step(e.span(), ""),
+            _ => {}
+        }
+    }
+
+    /// If tracing, narrate a line with a given note. Used by the compound
+    /// statements and input calls, which narrate at points a leaf binding can't.
+    fn trace_at(&self, span: Span, note: &str) {
+        if let Some(t) = &self.trace {
+            t.step(span, note);
+        }
     }
 
     fn exec_stmt(&mut self, stmt: &Stmt) -> Result<Flow, LuxError> {
@@ -408,11 +511,12 @@ impl Interp {
             // themselves do nothing when execution reaches them.
             Stmt::Func { .. } | Stmt::Struct { .. } | Stmt::Enum { .. } => Ok(Flow::Normal),
 
-            Stmt::Return { value, .. } => {
+            Stmt::Return { value, span } => {
                 let v = match value {
                     Some(e) => self.eval(e)?,
                     None => Value::Unit,
                 };
+                self.trace_at(*span, &format!("→ {}", trace_render(&v)));
                 Ok(Flow::Return(v))
             }
 
@@ -420,19 +524,23 @@ impl Interp {
                 cond,
                 then_body,
                 else_body,
-                ..
+                span,
             } => {
                 if self.eval_bool(cond)? {
+                    self.trace_at(*span, "(yes)");
                     self.run_scoped(then_body)
                 } else if let Some(eb) = else_body {
+                    self.trace_at(*span, "(no)");
                     self.run_scoped(eb)
                 } else {
+                    self.trace_at(*span, "(no)");
                     Ok(Flow::Normal)
                 }
             }
 
-            Stmt::While { cond, body, .. } => {
+            Stmt::While { cond, body, span } => {
                 while self.eval_bool(cond)? {
+                    self.trace_at(*span, "");
                     match self.run_scoped(body)? {
                         Flow::Normal => {}
                         ret @ Flow::Return(_) => return Ok(ret),
@@ -442,12 +550,16 @@ impl Interp {
             }
 
             Stmt::For {
-                var, iter, body, ..
+                var,
+                iter,
+                body,
+                span,
             } => {
                 let iterable = self.eval(iter)?;
                 match iterable {
                     Value::Array(items) => {
                         for item in items {
+                            self.trace_at(*span, &format!("{} = {}", var, trace_render(&item)));
                             match self.run_loop_body(var, item, body)? {
                                 Flow::Normal => {}
                                 ret @ Flow::Return(_) => return Ok(ret),
@@ -457,6 +569,7 @@ impl Interp {
                     Value::Range(lo, hi) => {
                         let mut i = lo;
                         while i < hi {
+                            self.trace_at(*span, &format!("{} = {}", var, trace_render(&Value::Int(i))));
                             match self.run_loop_body(var, Value::Int(i), body)? {
                                 Flow::Normal => {}
                                 ret @ Flow::Return(_) => return Ok(ret),
@@ -1160,14 +1273,17 @@ impl Interp {
             "readLine" => {
                 self.no_args(name, args, span)?;
                 let mut line = String::new();
-                match std::io::stdin().read_line(&mut line) {
-                    Ok(0) | Err(_) => Ok(option_none()),
+                let result = match std::io::stdin().read_line(&mut line) {
+                    Ok(0) | Err(_) => option_none(),
                     Ok(_) => {
                         let text = line.strip_suffix('\n').unwrap_or(&line);
                         let text = text.strip_suffix('\r').unwrap_or(text);
-                        Ok(option_some(Value::Str(text.to_string())))
+                        option_some(Value::Str(text.to_string()))
                     }
-                }
+                };
+                // The input seam: show the typed line becoming a value.
+                self.trace_at(span, &format!("readLine() → {}", trace_render(&result)));
+                Ok(result)
             }
             // The friendly front door to input, meant to be usable long before
             // Option and match. An optional prompt is shown first, on the same
@@ -1191,14 +1307,16 @@ impl Interp {
                     let _ = std::io::stdout().flush();
                 }
                 let mut line = String::new();
-                match std::io::stdin().read_line(&mut line) {
-                    Ok(0) | Err(_) => Ok(Value::Str(String::new())),
+                let result = match std::io::stdin().read_line(&mut line) {
+                    Ok(0) | Err(_) => Value::Str(String::new()),
                     Ok(_) => {
                         let text = line.strip_suffix('\n').unwrap_or(&line);
                         let text = text.strip_suffix('\r').unwrap_or(text);
-                        Ok(Value::Str(text.to_string()))
+                        Value::Str(text.to_string())
                     }
-                }
+                };
+                self.trace_at(span, &format!("input() → {}", trace_render(&result)));
+                Ok(result)
             }
             // Like `print`, but to standard error — the stream for diagnostics,
             // kept separate so the real output on stdout stays clean for whatever
@@ -2136,18 +2254,37 @@ fn count(n: usize, noun: &str) -> String {
 /// How a value prints. Floats always show a decimal point so 3.0 reads as a
 /// float, not an int. Arrays print their elements comma-separated in brackets.
 fn display(v: &Value) -> String {
+    render(v, false)
+}
+
+/// Like `display`, but with strings quoted and escaped, so a traced value reads
+/// unambiguously — `some("north")`, `["key", "torch"]` — where `print` shows the
+/// bare text. Used only by `lux trace`.
+fn trace_render(v: &Value) -> String {
+    render(v, true)
+}
+
+/// Render a value to text. With `quote`, string leaves are shown quoted and
+/// escaped; without, they're shown as their plain text, the way `print` does.
+fn render(v: &Value, quote: bool) -> String {
     match v {
         Value::Int(n) => n.to_string(),
         Value::Float(f) => format_float(*f),
-        Value::Str(s) => s.clone(),
+        Value::Str(s) => {
+            if quote {
+                format!("{s:?}")
+            } else {
+                s.clone()
+            }
+        }
         Value::Bool(b) => b.to_string(),
         Value::Array(items) => {
-            let parts: Vec<String> = items.iter().map(display).collect();
+            let parts: Vec<String> = items.iter().map(|x| render(x, quote)).collect();
             format!("[{}]", parts.join(", "))
         }
         Value::Range(lo, hi) => format!("{}..{}", lo, hi),
         Value::Struct { name, fields } => {
-            format!("{}({})", name, display_fields(fields))
+            format!("{}({})", name, render_fields(fields, quote))
         }
         // The built-in generics print the way they're written — `some(5)`,
         // `none`, `err("nope")` — not in the labelled `Enum.case(...)` form.
@@ -2156,7 +2293,7 @@ fn display(v: &Value) -> String {
             variant,
             fields,
         } if enum_name == "Option" || enum_name == "Result" => match fields.first() {
-            Some((_, payload)) => format!("{}({})", variant, display(payload)),
+            Some((_, payload)) => format!("{}({})", variant, render(payload, quote)),
             None => variant.clone(),
         },
         Value::Enum {
@@ -2167,7 +2304,7 @@ fn display(v: &Value) -> String {
             if fields.is_empty() {
                 format!("{}.{}", enum_name, variant)
             } else {
-                format!("{}.{}({})", enum_name, variant, display_fields(fields))
+                format!("{}.{}({})", enum_name, variant, render_fields(fields, quote))
             }
         }
         Value::Unit => String::new(),
@@ -2184,10 +2321,10 @@ fn format_float(f: f64) -> String {
 
 /// Render labelled fields as `name: value, name: value`, shared by structs and
 /// enum cases so they print the way they were built.
-fn display_fields(fields: &[(String, Value)]) -> String {
+fn render_fields(fields: &[(String, Value)], quote: bool) -> String {
     fields
         .iter()
-        .map(|(k, v)| format!("{}: {}", k, display(v)))
+        .map(|(k, v)| format!("{}: {}", k, render(v, quote)))
         .collect::<Vec<_>>()
         .join(", ")
 }
