@@ -429,6 +429,10 @@ impl Interp {
                 span,
             } => {
                 let v = self.eval(value)?;
+                // A Result is answered where it's produced, not stashed for later.
+                if is_result(&v) {
+                    return Err(result_not_stored(value.span()));
+                }
                 match ty {
                     Some(ann) => self.check_type(ann, &v)?,
                     // A bare `let x = none` still needs an annotation, but a call
@@ -459,6 +463,9 @@ impl Interp {
                 let v = match value {
                     Some(e) => {
                         let v = self.eval(e)?;
+                        if is_result(&v) {
+                            return Err(result_not_stored(e.span()));
+                        }
                         match ty {
                             Some(ann) => self.check_type(ann, &v)?,
                             None => {
@@ -2285,6 +2292,29 @@ const TYPE_PINNING_BUILTINS: [&str; 6] = [
 fn call_pins_type(expr: &Expr, funcs: &HashMap<String, Rc<FuncData>>) -> bool {
     matches!(expr, Expr::Call { name, .. }
         if TYPE_PINNING_BUILTINS.contains(&name.as_str()) || funcs.contains_key(name))
+}
+
+/// Is this value a `Result`? A `Result` is meant to be handled where it's made,
+/// so it may not be stored in a variable (unlike an `Option`, which is a real
+/// value everywhere). Storing errors as values to pass around is a Rust/Swift
+/// habit that doesn't carry to Go — whose errors are handled at the call site —
+/// so lux keeps the rule uniform, and stashing a Result becomes a lesson for when
+/// you graduate to those languages.
+fn is_result(v: &Value) -> bool {
+    matches!(v, Value::Enum { enum_name, .. } if enum_name == "Result")
+}
+
+/// The error for trying to store a `Result` in a `let`/`var`.
+fn result_not_stored(span: Span) -> LuxError {
+    LuxError::new(
+        "a Result can't be stored — handle it where it's produced".to_string(),
+        span,
+    )
+    .with_note("match it right here — `match … { ok(let x) => …  err(let e) => … }` — or return it")
+    .with_learn(
+        "result",
+        "a Result is answered where it's made: matched or returned, not kept in a variable",
+    )
 }
 
 /// The comma-separated case names of an enum, for "did you mean" notes.

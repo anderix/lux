@@ -1,13 +1,12 @@
-//! Regression tests for the fix that lets a bare `let`/`var` bind a fallible
-//! built-in without an annotation.
+//! Bindings for fallible calls, and the line lux draws between Option and Result.
 //!
-//! `readLine`, `readFile`, `writeFile`, `run`, `parseInt`, and `parseFloat`
-//! return `Option`/`Result`, and the built-in's signature pins the type even when
-//! the value can't — a `none` from `readLine` is still `Option<string>`. So
-//! `let line = readLine()` is fine even on the `none` it returns at end of input.
-//! A bare `none`/`err` literal, whose type really is open, must still be
-//! annotated. The failure variant is the one that used to crash, so it is tested
-//! for every built-in; these drive the built binary the way a learner hits it.
+//! A built-in or function that returns `Option<T>` pins its type from the
+//! signature, so a bare `let n = parseInt(x)` needs no annotation even on the
+//! `none` path — built-ins and user functions alike. A `Result`, though, is a
+//! question you answer where you ask it: it may be matched inline or returned,
+//! but never stored, a Rust/Swift habit that doesn't carry to Go. And a bare
+//! `none` literal still needs its annotation. These drive the built binary the
+//! way a learner hits it.
 
 use std::io::Write;
 use std::process::{Command, Stdio};
@@ -45,17 +44,34 @@ fn run(tag: &str, src: &str, stdin: &str) -> (bool, String, String) {
     )
 }
 
-/// A declaration binds cleanly: the program reaches the marker print with no
-/// determinacy error.
-fn binds(tag: &str, decl: &str, stdin: &str) {
-    let src = format!("{decl}\nprint(\"bound\")\n");
+/// A program reaches its marker print with no error.
+fn ok_reaches_end(tag: &str, body: &str, stdin: &str) {
+    let src = format!("{body}\nprint(\"reached\")\n");
     let (ok, stdout, stderr) = run(tag, &src, stdin);
-    assert!(ok, "`{decl}` should bind without an annotation:\n{stderr}");
+    assert!(ok, "`{body}` should run:\n{stderr}");
     assert!(
-        stdout.contains("bound"),
-        "`{decl}` never reached the print:\nstdout: {stdout}\nstderr: {stderr}"
+        stdout.contains("reached"),
+        "`{body}` never reached the end:\nstdout: {stdout}\nstderr: {stderr}"
     );
 }
+
+/// A bare `let`/`var` binding reaches its marker (binds cleanly, no annotation).
+fn binds(tag: &str, decl: &str, stdin: &str) {
+    ok_reaches_end(tag, decl, stdin);
+}
+
+/// A declaration is rejected, with an error containing `needle`.
+fn rejected(tag: &str, decl: &str, needle: &str) {
+    let src = format!("{decl}\nprint(\"reached\")\n");
+    let (ok, stdout, stderr) = run(tag, &src, "");
+    assert!(!ok, "`{decl}` should be rejected, but ran:\n{stdout}");
+    assert!(
+        stderr.contains(needle),
+        "`{decl}` gave the wrong error (wanted `{needle}`):\n{stderr}"
+    );
+}
+
+// --- Option: a real value, storable without an annotation ------------------
 
 #[test]
 fn parse_int_binds_on_both_variants() {
@@ -76,68 +92,76 @@ fn read_line_binds_on_both_variants() {
 }
 
 #[test]
-fn read_file_binds_on_the_error_path() {
-    binds("readfile-err", "let r = readFile(\"/no/such/file\")", "");
-}
-
-#[test]
-fn write_file_binds_on_the_error_path() {
-    binds(
-        "writefile-err",
-        "let w = writeFile(\"/no/such/dir/f\", \"x\")",
-        "",
-    );
-}
-
-#[test]
-fn run_binds_on_both_variants() {
-    // The error path: a command that can't launch. The success path runs the lux
-    // binary itself, which is guaranteed to exist, so both sides of the `Result`
-    // are covered — and a `Result` value never pins its own type, so before the
-    // fix even the success path needed an annotation.
-    binds(
-        "run-err",
-        "let r = run(\"lux-no-such-command-xyzzy\", [])",
-        "",
-    );
-    let bin = env!("CARGO_BIN_EXE_lux")
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"");
-    binds(
-        "run-ok",
-        &format!("let r = run(\"{bin}\", [\"--version\"])"),
-        "",
-    );
-}
-
-#[test]
-fn var_form_also_binds_a_fallible_builtin() {
+fn var_form_also_binds_an_option() {
     binds("var-parseint", "var n = parseInt(\"nope\")", "");
 }
 
 #[test]
-fn user_functions_pin_the_type_the_same_way_builtins_do() {
-    // A declared return type pins the binding whether the callee is a built-in or
-    // a function the program wrote — so a bare `let` needs no annotation even on
-    // the none/err path, just as for `parseInt`.
+fn user_option_functions_bind_without_annotation() {
+    // A declared return type pins the binding for a user function too, so a bare
+    // `let` needs no annotation even on the `none` path.
     binds(
         "userfn-option",
         "func find() -> Option<int> {\n    return none\n}\nlet o = find()",
-        "",
-    );
-    binds(
-        "userfn-result",
-        "func attempt() -> Result<int, string> {\n    return err(\"no\")\n}\nlet r = attempt()",
         "",
     );
 }
 
 #[test]
 fn a_bare_none_still_needs_an_annotation() {
-    let (ok, _stdout, stderr) = run("bare-none", "let x = none\nprint(\"bound\")\n", "");
+    let (ok, _stdout, stderr) = run("bare-none", "let x = none\nprint(\"reached\")\n", "");
     assert!(!ok, "a bare `let x = none` must still be rejected");
     assert!(
         stderr.contains("leaves it open"),
         "expected the determinacy error, got:\n{stderr}"
+    );
+}
+
+// --- Result: handled where it's produced, never stored ---------------------
+
+const HALF: &str = "func half(n: int) -> Result<int, string> {\n    if n % 2 == 0 { return ok(n / 2) }\n    return err(\"odd\")\n}";
+
+#[test]
+fn a_result_cannot_be_stored() {
+    // Built-ins that return Result, and a user function that does — none may be
+    // stashed in a binding.
+    rejected(
+        "store-readfile",
+        "let r = readFile(\"/no/such\")",
+        "can't be stored",
+    );
+    rejected(
+        "store-run",
+        "let r = run(\"lux-nope-xyzzy\", [])",
+        "can't be stored",
+    );
+    rejected(
+        "store-userfn",
+        &format!("{HALF}\nlet r = half(4)"),
+        "can't be stored",
+    );
+    // An annotation doesn't buy it back — storing is the thing that's disallowed.
+    rejected(
+        "store-annotated",
+        &format!("{HALF}\nlet r: Result<int, string> = half(4)"),
+        "can't be stored",
+    );
+}
+
+#[test]
+fn a_result_can_be_matched_inline_or_returned() {
+    // Matched right where it's produced.
+    ok_reaches_end(
+        "match-inline",
+        &format!("{HALF}\nmatch half(4) {{ ok(let v) => print(v)  err(let e) => print(e) }}"),
+        "",
+    );
+    // Or handed straight back up — a Result return is a passthrough, not storage.
+    ok_reaches_end(
+        "return-passthrough",
+        &format!(
+            "{HALF}\nfunc g(n: int) -> Result<int, string> {{ return half(n) }}\nmatch g(6) {{ ok(let v) => print(v)  err(let e) => print(e) }}"
+        ),
+        "",
     );
 }
