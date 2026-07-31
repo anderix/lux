@@ -658,9 +658,10 @@ impl Gen {
 
     fn emit_match_enum(&mut self, scrutinee: &Expr, enum_name: &str, arms: &[MatchArm], ret: bool) {
         let s = self.emit_expr(scrutinee);
-        let any_bind = arms.iter().any(
-            |a| matches!(&a.pattern, Pattern::Variant { bindings, .. } if !bindings.is_empty()),
-        );
+        // `switch v := s.(type)` only when some arm actually reads its payload;
+        // otherwise `v` itself would be an unused local, which Go rejects. An arm
+        // that binds a value it never uses falls through to a plain type switch.
+        let any_bind = arms.iter().any(arm_uses_a_binding);
         let head = if any_bind {
             format!("switch v := {}.(type) {{", s)
         } else {
@@ -686,7 +687,11 @@ impl Gen {
                 .unwrap_or_default();
             self.declare_variant_bindings(enum_name, name, bindings);
             for (b, fname) in bindings.iter().zip(&field_names) {
-                self.line(format!("{} := v.{}", b, fname));
+                // Only pull out a binding the arm actually reads — an unused local
+                // is a compile error in Go, not a warning.
+                if b != "_" && expr_mentions(&arm.body, b) {
+                    self.line(format!("{} := v.{}", b, fname));
+                }
             }
             self.emit_arm_body(&arm.body, ret);
             self.t.pop_scope();
@@ -720,9 +725,11 @@ impl Gen {
         self.indent += 1;
         self.t.push_scope();
         if let Some(b) = &bind {
-            // A `_` binding is skipped — `_ := *ptr` is invalid Go, and the
-            // pointer is already used by the `!= nil` test above.
-            if b != "_" {
+            // Bind the inner value only when the arm reads it. An unused `_` — or a
+            // name the body never touches — is skipped: `_ := *ptr` is invalid Go,
+            // and the pointer is already used by the `!= nil` test above.
+            let used = some_arm.is_some_and(|a| b != "_" && expr_mentions(&a.body, b));
+            if used {
                 self.t.declare(b.clone(), inner);
                 self.line(format!("{} := *{}", b, ptr));
             }
@@ -763,7 +770,14 @@ impl Gen {
         if ok_ty == Ty::Unit {
             self.line(format!("if err := {}; err == nil {{", s));
         } else {
-            let lhs = ok_bind.clone().unwrap_or_else(|| "_".to_string());
+            // Bind the ok value only when the arm reads it; otherwise `_`, since Go
+            // rejects an unused local. `err` is always used by the test itself.
+            let lhs = match &ok_bind {
+                Some(b) if b != "_" && ok_arm.is_some_and(|a| expr_mentions(&a.body, b)) => {
+                    b.clone()
+                }
+                _ => "_".to_string(),
+            };
             self.line(format!("if {}, err := {}; err == nil {{", lhs, s));
         }
         self.indent += 1;
@@ -780,10 +794,11 @@ impl Gen {
         self.indent += 1;
         self.t.push_scope();
         if let Some(b) = &err_bind {
-            // lux carries the reason as a string; Go's error gives it back. A `_`
-            // binding is skipped — `_ := err.Error()` is invalid Go, and `err` is
-            // already used by the `err == nil` test above.
-            if b != "_" {
+            // lux carries the reason as a string; Go's error gives it back. Bind it
+            // only when the arm reads it — an unused `_`, or a name the body never
+            // touches, is skipped, since `err` is already used by the test above.
+            let used = err_arm.is_some_and(|a| b != "_" && expr_mentions(&a.body, b));
+            if used {
                 self.t.declare(b.clone(), err_ty);
                 self.line(format!("{} := err.Error()", b));
             }
@@ -1078,5 +1093,45 @@ fn arm_name(arm: &MatchArm) -> Option<&str> {
     match &arm.pattern {
         Pattern::Variant { name, .. } => Some(name.as_str()),
         _ => None,
+    }
+}
+
+/// Does `name` appear as an identifier anywhere in this expression? Used to
+/// decide whether a match arm actually reads the payload it binds. Go rejects an
+/// unused local where Rust and Swift only warn, so a `some(let x) => "yes"` that
+/// ignores `x` must not emit `x := ...`. The check is deliberately conservative:
+/// a name shadowed by an inner binding still counts as "used", so at worst it
+/// keeps emitting a binding that was safe to emit before — it never drops one
+/// the body relies on.
+fn expr_mentions(e: &Expr, name: &str) -> bool {
+    match e {
+        Expr::Ident(n, _) => n == name,
+        Expr::Int(..) | Expr::Float(..) | Expr::Str(..) | Expr::Bool(..) => false,
+        Expr::Array(items, _) => items.iter().any(|x| expr_mentions(x, name)),
+        Expr::Unary { rhs, .. } => expr_mentions(rhs, name),
+        Expr::Binary { lhs, rhs, .. } => expr_mentions(lhs, name) || expr_mentions(rhs, name),
+        Expr::Index { base, index, .. } => expr_mentions(base, name) || expr_mentions(index, name),
+        Expr::Range { start, end, .. } => expr_mentions(start, name) || expr_mentions(end, name),
+        // The callee is a function name, never a bound value, so only the
+        // arguments can read the binding.
+        Expr::Call { args, .. } => args.iter().any(|a| expr_mentions(a, name)),
+        Expr::StructLit { fields, .. } | Expr::EnumLit { fields, .. } => {
+            fields.iter().any(|(_, v)| expr_mentions(v, name))
+        }
+        Expr::Field { base, .. } => expr_mentions(base, name),
+        Expr::Match {
+            scrutinee, arms, ..
+        } => expr_mentions(scrutinee, name) || arms.iter().any(|a| expr_mentions(&a.body, name)),
+    }
+}
+
+/// Does this arm read the value it captures — i.e. is at least one non-`_`
+/// binding used in its body?
+fn arm_uses_a_binding(arm: &MatchArm) -> bool {
+    match &arm.pattern {
+        Pattern::Variant { bindings, .. } => bindings
+            .iter()
+            .any(|b| b != "_" && expr_mentions(&arm.body, b)),
+        _ => false,
     }
 }

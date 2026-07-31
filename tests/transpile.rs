@@ -195,6 +195,72 @@ fn go_idioms() {
     assert!(opt.contains("errors.New("), "err carries a reason");
 }
 
+/// Go rejects an unused local where Rust and Swift only warn, so a match arm that
+/// binds a payload and ignores it must not emit the binding. This covers all
+/// three lowerings: a user enum (both arms ignore — so even the type-switch guard
+/// must be dropped — and one-of-two), an Option, and a Result on both sides.
+#[test]
+fn go_match_arms_that_ignore_their_binding_compile() {
+    if !tool_available("go", "version") {
+        eprintln!("skipping: go not on PATH");
+        return;
+    }
+    let src = r#"
+enum Shape {
+    circle(radius: float)
+    square(side: float)
+}
+func name(s: Shape) -> string {
+    return match s {
+        circle(let r) => "round"
+        square(let a) => "boxy"
+    }
+}
+func area(s: Shape) -> float {
+    return match s {
+        circle(let r) => 3.14159 * r * r
+        square(let a) => 0.0
+    }
+}
+func maybe() -> Option<int> {
+    return some(5)
+}
+func attempt() -> Result<int, string> {
+    return ok(1)
+}
+print(name(Shape.circle(radius: 2.0)))
+print(area(Shape.square(side: 3.0)))
+match maybe() {
+    some(let x) => print("present")
+    none => print("absent")
+}
+match attempt() {
+    ok(let v) => print("good")
+    err(let e) => print("bad")
+}
+"#;
+    let program = parser::parse(lexer::lex(src).expect("lex")).expect("parse");
+    let go = convert::to_go(&program);
+
+    let tmp = std::env::temp_dir().join("lux_go_match_ignore");
+    std::fs::create_dir_all(&tmp).expect("mkdir");
+    std::fs::write(tmp.join("go.mod"), "module luxtest\n\ngo 1.21\n").expect("write go.mod");
+    std::fs::write(tmp.join("main.go"), &go).expect("write go");
+    let out = Command::new("go")
+        .arg("build")
+        .arg("-o")
+        .arg(tmp.join("bin"))
+        .current_dir(&tmp)
+        .env("GOCACHE", std::env::temp_dir().join("lux_go_cache"))
+        .output()
+        .expect("run go build");
+    assert!(
+        out.status.success(),
+        "match arms that ignore their binding did not compile as Go:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 // --- structure shared by all three ----------------------------------------
 
 #[test]
