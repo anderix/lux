@@ -81,7 +81,12 @@ fn every_spell_converts() {
             ("swift", convert::to_swift(&prog)),
             ("go", convert::to_go(&prog)),
         ] {
-            assert!(!src.trim().is_empty(), "spell `{}` produced no {}", s.id, lang);
+            assert!(
+                !src.trim().is_empty(),
+                "spell `{}` produced no {}",
+                s.id,
+                lang
+            );
         }
     }
 }

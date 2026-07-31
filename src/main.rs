@@ -80,7 +80,10 @@ fn trace_cmd(rest: &[String]) {
         exit(1);
     };
     let (source, program) = load(path);
-    eprintln!("tracing {} — each line as it runs, with the state it changes on the right", path);
+    eprintln!(
+        "tracing {} — each line as it runs, with the state it changes on the right",
+        path
+    );
     eprintln!("(your program's own output is on stdout; this trace is on stderr)");
     eprintln!();
     if let Err(err) = interpreter::run_traced(&program, rest, &source) {
@@ -242,7 +245,10 @@ fn crawl_cmd(rest: &[String]) {
         }
     }
 
-    println!("A new crawl is waiting in ./{}/. Step inside it first:", dir);
+    println!(
+        "A new crawl is waiting in ./{}/. Step inside it first:",
+        dir
+    );
     println!();
     println!("  cd {}", dir);
     println!();

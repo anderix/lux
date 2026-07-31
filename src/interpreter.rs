@@ -119,7 +119,11 @@ impl Tracer {
             .find('\n')
             .map(|i| line_start + i)
             .unwrap_or(self.source.len());
-        let no = self.source[..line_start].bytes().filter(|&b| b == b'\n').count() + 1;
+        let no = self.source[..line_start]
+            .bytes()
+            .filter(|&b| b == b'\n')
+            .count()
+            + 1;
         (no, self.source[line_start..line_end].trim_end())
     }
 
@@ -583,7 +587,10 @@ impl Interp {
                     Value::Range(lo, hi) => {
                         let mut i = lo;
                         while i < hi {
-                            self.trace_at(*span, &format!("{} = {}", var, trace_render(&Value::Int(i))));
+                            self.trace_at(
+                                *span,
+                                &format!("{} = {}", var, trace_render(&Value::Int(i))),
+                            );
                             match self.run_loop_body(var, Value::Int(i), body)? {
                                 Flow::Normal => {}
                                 ret @ Flow::Return(_) => return Ok(ret),
@@ -1387,7 +1394,10 @@ impl Interp {
                     Err(_) => option_none(),
                 }),
                 other => Err(LuxError::new(
-                    format!("parseFloat reads text, but got {}", named(other.type_name())),
+                    format!(
+                        "parseFloat reads text, but got {}",
+                        named(other.type_name())
+                    ),
                     span,
                 )),
             },
@@ -2318,7 +2328,12 @@ fn render(v: &Value, quote: bool) -> String {
             if fields.is_empty() {
                 format!("{}.{}", enum_name, variant)
             } else {
-                format!("{}.{}({})", enum_name, variant, render_fields(fields, quote))
+                format!(
+                    "{}.{}({})",
+                    enum_name,
+                    variant,
+                    render_fields(fields, quote)
+                )
             }
         }
         Value::Unit => String::new(),

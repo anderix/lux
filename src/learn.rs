@@ -23,12 +23,22 @@ const DOC: &str = include_str!("../learn-lux.md");
 const PATHS: &[(&str, &[&str])] = &[
     (
         "start",
-        &["hello", "errors", "variables", "numbers", "strings", "input"],
+        &[
+            "hello",
+            "errors",
+            "variables",
+            "numbers",
+            "strings",
+            "input",
+        ],
     ),
     ("logic", &["booleans", "if", "while"]),
     ("data", &["arrays", "for", "functions", "scope"]),
     ("types", &["structs", "enums", "match"]),
-    ("safety", &["option", "conversions", "result", "io", "shell"]),
+    (
+        "safety",
+        &["option", "conversions", "result", "io", "shell"],
+    ),
     ("build", &["crawl"]),
 ];
 

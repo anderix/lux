@@ -11,8 +11,7 @@ fn lux() -> Command {
 
 /// Write `src` to a uniquely named temp .lux file and return its path.
 fn write_lux(tag: &str, src: &str) -> std::path::PathBuf {
-    let path =
-        std::env::temp_dir().join(format!("lux-trace-{}-{}.lux", std::process::id(), tag));
+    let path = std::env::temp_dir().join(format!("lux-trace-{}-{}.lux", std::process::id(), tag));
     std::fs::write(&path, src).unwrap();
     path
 }
@@ -33,11 +32,22 @@ fn trace_narrates_a_loop_accumulating_on_stderr() {
     let stdout = String::from_utf8_lossy(&out.stdout);
 
     // The loop variable climbs and the total accumulates, all on stderr.
-    for needle in ["i = 1", "i = 2", "i = 3", "total = 1", "total = 3", "total = 6"] {
+    for needle in [
+        "i = 1",
+        "i = 2",
+        "i = 3",
+        "total = 1",
+        "total = 3",
+        "total = 6",
+    ] {
         assert!(trace.contains(needle), "trace missing `{needle}`:\n{trace}");
     }
     // The program's own output is just the number, alone, on stdout.
-    assert_eq!(stdout.trim(), "6", "program output should be 6, got {stdout:?}");
+    assert_eq!(
+        stdout.trim(),
+        "6",
+        "program output should be 6, got {stdout:?}"
+    );
     let _ = std::fs::remove_file(&path);
 }
 
