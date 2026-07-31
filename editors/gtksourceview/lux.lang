@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+ lux syntax highlighting for GtkSourceView 5 — the engine behind gedit and
+ GNOME Text Editor. Drop this in ~/.local/share/gtksourceview-5/language-specs/
+ and restart the editor; any *.lux file is highlighted from then on.
+
+ Written by David M. Anderson with AI assistance. MIT, same as lux.
+
+-->
+<language id="lux" name="lux" version="2.0" _section="Source">
+  <metadata>
+    <property name="mimetypes">text/x-lux</property>
+    <property name="globs">*.lux</property>
+    <property name="line-comment-start">//</property>
+  </metadata>
+
+  <!-- Every style maps to a def: role, so the colours come from whichever
+       scheme the reader has chosen. Nothing here hard-codes a colour. -->
+  <styles>
+    <style id="comment"           name="Comment"              map-to="def:comment"/>
+    <style id="string"            name="String"               map-to="def:string"/>
+    <style id="escaped-character" name="Escaped Character"     map-to="def:special-char"/>
+    <style id="keyword"           name="Keyword"              map-to="def:keyword"/>
+    <style id="type"              name="Data Type"            map-to="def:type"/>
+    <style id="boolean"           name="Boolean value"        map-to="def:boolean"/>
+    <style id="constructor"       name="Option/Result value"  map-to="def:special-constant"/>
+    <style id="builtin"           name="Builtin Function"     map-to="def:builtin"/>
+    <style id="decimal"           name="Decimal number"       map-to="def:decimal"/>
+    <style id="float"             name="Floating point number" map-to="def:floating-point"/>
+  </styles>
+
+  <definitions>
+
+    <!-- lux has line comments only: // to end of line. -->
+    <context id="line-comment" style-ref="comment" end-at-line-end="true" class="comment" class-disabled="no-spell-check">
+      <start>//</start>
+    </context>
+
+    <!-- The four escapes lux understands: \n \t \" \\ -->
+    <define-regex id="escaped-character" extended="true">
+      \\[nt"\\]
+    </define-regex>
+
+    <!-- Strings never span lines in lux; end-at-line-end keeps a missing "
+         from swallowing the rest of the file, matching how lux itself lexes. -->
+    <context id="string" style-ref="string" end-at-line-end="true" class="string" class-disabled="no-spell-check">
+      <start>"</start>
+      <end>"</end>
+      <include>
+        <context id="escaped-character-in-string" style-ref="escaped-character">
+          <match>\%{escaped-character}</match>
+        </context>
+      </include>
+    </context>
+
+    <context id="keywords" style-ref="keyword">
+      <keyword>let</keyword>
+      <keyword>var</keyword>
+      <keyword>if</keyword>
+      <keyword>else</keyword>
+      <keyword>while</keyword>
+      <keyword>for</keyword>
+      <keyword>in</keyword>
+      <keyword>func</keyword>
+      <keyword>return</keyword>
+      <keyword>struct</keyword>
+      <keyword>enum</keyword>
+      <keyword>match</keyword>
+    </context>
+
+    <context id="boolean" style-ref="boolean">
+      <keyword>true</keyword>
+      <keyword>false</keyword>
+    </context>
+
+    <context id="types" style-ref="type">
+      <keyword>int</keyword>
+      <keyword>float</keyword>
+      <keyword>bool</keyword>
+      <keyword>string</keyword>
+      <keyword>Option</keyword>
+      <keyword>Result</keyword>
+      <keyword>Output</keyword>
+    </context>
+
+    <!-- The Option and Result values, spelled lowercase in lux. -->
+    <context id="constructors" style-ref="constructor">
+      <keyword>some</keyword>
+      <keyword>none</keyword>
+      <keyword>ok</keyword>
+      <keyword>err</keyword>
+    </context>
+
+    <context id="builtins" style-ref="builtin">
+      <keyword>print</keyword>
+      <keyword>eprint</keyword>
+      <keyword>input</keyword>
+      <keyword>readLine</keyword>
+      <keyword>readFile</keyword>
+      <keyword>writeFile</keyword>
+      <keyword>args</keyword>
+      <keyword>run</keyword>
+      <keyword>length</keyword>
+      <keyword>parseInt</keyword>
+      <keyword>parseFloat</keyword>
+    </context>
+
+    <!-- Float must be tried before decimal, or 3.0 lexes as 3 then .0 . -->
+    <context id="float" style-ref="float">
+      <match extended="true">\b[0-9]+\.[0-9]+\b</match>
+    </context>
+
+    <context id="decimal" style-ref="decimal">
+      <match extended="true">\b[0-9]+\b</match>
+    </context>
+
+    <context id="lux" class="no-spell-check">
+      <include>
+        <context ref="line-comment"/>
+        <context ref="string"/>
+        <context ref="keywords"/>
+        <context ref="boolean"/>
+        <context ref="types"/>
+        <context ref="constructors"/>
+        <context ref="builtins"/>
+        <context ref="float"/>
+        <context ref="decimal"/>
+      </include>
+    </context>
+
+  </definitions>
+</language>

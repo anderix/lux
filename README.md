@@ -111,8 +111,10 @@ small working spells, each carrying a trail back to the topic that explains it.
 `lux crawl` drops a small text adventure whose whole world is one lux file you
 play by running and change by editing — with a tutorial-free fast track
 (`lux magic room`, `exit`, `thing`, `command`) for the tinkerer who would rather
-skip straight to changing it. And `lux update` fetches the latest release in
-place.
+skip straight to changing it. `lux editors install` sets up syntax highlighting
+for whichever of gedit, GNOME Text Editor, Vim, Neovim, or nano you already have
+— highlighting only, nothing that completes or corrects. And `lux update`
+fetches the latest release in place.
 
 For the fuller history, see [CHANGELOG.md](CHANGELOG.md) and the scope notes at
 the bottom of [learn-lux.md](learn-lux.md).

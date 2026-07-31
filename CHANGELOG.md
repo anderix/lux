@@ -4,6 +4,25 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-07-30
+
+### Added
+
+- **`lux editors` sets up editor syntax highlighting.** lux ships small
+  highlighting files for GtkSourceView (gedit and GNOME Text Editor), Vim and
+  Neovim, and nano, embedded in the binary the same way `lux learn` carries its
+  reference. `lux editors` on its own reports which of those editors are on the
+  machine and whether highlighting is installed; `lux editors install` writes it
+  for each one found, creating the config directories it needs and adding nano's
+  one `include` line to `~/.nanorc` if it isn't already there. It's idempotent —
+  a second run reports what's already current and rewrites nothing, so hand-tuned
+  nano colours survive. Everything lands under the user's own home, so it needs
+  no sudo. The highlighting is exactly that: colour on the words, with no
+  completion or correction. `lux update` now ends with a one-line pointer to
+  `lux editors install` when there's an editor to mention, but never writes those
+  files itself — updating the binary can't surprise anyone by rewriting an editor
+  config.
+
 ## [0.10.1] - 2026-07-09
 
 ### Fixed
@@ -354,6 +373,7 @@ All notable changes to lux are recorded here. The format follows
   `lux build` compiles the Rust translation to a native binary.
 - A `curl` installer and uninstaller.
 
+[0.11.0]: https://github.com/anderix/lux/releases/tag/v0.11.0
 [0.10.1]: https://github.com/anderix/lux/releases/tag/v0.10.1
 [0.10.0]: https://github.com/anderix/lux/releases/tag/v0.10.0
 [0.9.0]: https://github.com/anderix/lux/releases/tag/v0.9.0

@@ -9,7 +9,7 @@ use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio, exit};
 
-use lux::{convert, diagnostic, interpreter, learn, lexer, magic, parser};
+use lux::{convert, diagnostic, editors, interpreter, learn, lexer, magic, parser};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -35,6 +35,7 @@ fn main() {
         Some("convert") => convert_cmd(&args[2..]),
         Some("learn") => learn_cmd(&args[2..]),
         Some("magic") => magic_cmd(&args[2..]),
+        Some("editors") => editors_cmd(&args[2..]),
         Some("update") => update_cmd(&args[2..]),
         Some(other) => {
             eprintln!("unknown command `{}`\n", other);
@@ -127,6 +128,20 @@ fn magic_cmd(rest: &[String]) {
                 exit(1);
             }
         },
+    }
+}
+
+/// `lux editors`: with no argument, report which editors are here and whether
+/// lux highlighting is installed; `lux editors install` writes it for each.
+fn editors_cmd(rest: &[String]) {
+    match rest.first().map(String::as_str) {
+        None => println!("{}", editors::report()),
+        Some("install") => println!("{}", editors::install()),
+        Some(other) => {
+            eprintln!("`lux editors` knows `install`, not `{}`.\n", other);
+            println!("{}", editors::report());
+            exit(1);
+        }
     }
 }
 
@@ -283,6 +298,11 @@ fn update_cmd(rest: &[String]) {
     match status {
         Ok(s) if s.success() => {
             println!("Done. Run `lux --version` to see what you're on.");
+            // Point at editor highlighting without touching a single config file
+            // here — writing is `lux editors install`'s job, not update's.
+            if let Some(tip) = editors::nudge() {
+                println!("{}", tip);
+            }
         }
         Ok(_) => {
             eprintln!("the update didn't finish. You can run it by hand:");
@@ -324,6 +344,7 @@ fn print_usage() {
     println!("  lux convert <lang> <file.lux> translate to rust, swift, or go source");
     println!("  lux learn [topic] [more]      read the language, built in");
     println!("  lux magic [spell]             working shapes for what you want to do now");
+    println!("  lux editors [install]         syntax highlighting for your editors");
     println!("  lux update                    update lux to the latest release");
     println!();
     println!("  -V, --version                 print version");

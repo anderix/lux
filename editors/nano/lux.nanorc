@@ -1,0 +1,41 @@
+# nano syntax highlighting for lux.
+#
+# Unlike Vim or GtkSourceView, nano has no notion of a theme to inherit colours
+# from — every colour is named here directly. These are chosen to stay legible
+# under red-green colour blindness: blue, cyan, magenta, yellow, and grey only,
+# no red and no green. Change any of them to taste; nano reloads on restart.
+#
+# Install: copy to ~/.nano/lux.nanorc and add this line to ~/.nanorc:
+#   include "~/.nano/lux.nanorc"
+#
+# Written by David M. Anderson with AI assistance. MIT, same as lux.
+
+syntax lux "\.lux$"
+comment "//"
+
+# keywords and control flow
+color brightblue "\<(let|var|if|else|while|for|in|func|return|struct|enum|match)\>"
+
+# boolean values
+color brightblue "\<(true|false)\>"
+
+# built-in types
+color brightcyan "\<(int|float|bool|string|Option|Result|Output)\>"
+
+# Option and Result values
+color brightcyan "\<(some|none|ok|err)\>"
+
+# built-in functions
+color brightmagenta "\<(print|eprint|input|readLine|readFile|writeFile|args|run|length|parseInt|parseFloat)\>"
+
+# numbers
+color yellow "\<[0-9]+(\.[0-9]+)?\>"
+
+# comments run // to end of line
+color brightblack "//.*$"
+
+# strings last, so a real string repaints over any keyword that appears inside it
+color yellow ""([^"]|\\")*""
+
+# the four escapes lux understands, highlighted within the string
+color brightmagenta "\\[nt"\\]"
