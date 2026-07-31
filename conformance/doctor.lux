@@ -1,0 +1,94 @@
+// doctor — checks whether the tools a project needs are actually present.
+//
+//   lux run doctor.lux
+//
+// This is the shape a setup script has, and it's where `run` earns the
+// two-layer failure split lux insists on:
+//
+//   Result   did the command LAUNCH?      (no such program -> err)
+//   status   did the command SUCCEED?     (launched fine, exited non-zero)
+//
+// Conflating those two is the classic setup-script bug — "git not found" and
+// "git said no" are different problems with different fixes, and here they
+// can't collapse into one, because they live at different levels of the value.
+//
+// Note also that arguments go in as a list, never as one shell string. There
+// is no shell in the middle to misread a space, so there is nothing to inject.
+
+struct Tool {
+    name: string
+    program: string
+    probe: [string]
+    why: string
+}
+
+enum Verdict {
+    working(detail: string)
+    unhappy(status: int, detail: string)
+    absent(reason: string)
+}
+
+func firstLine(text: string) -> string {
+    // No string slicing in lux, so "summarize the output" is honestly just
+    // "say how much there was". A real limit, shown rather than hidden.
+    return string(length(text)) + " bytes of output"
+}
+
+func grade(status: int, out: string) -> Verdict {
+    if status == 0 {
+        return Verdict.working(detail: firstLine(out))
+    }
+    return Verdict.unhappy(status: status, detail: firstLine(out))
+}
+
+func inspect(t: Tool) -> Verdict {
+    return match run(t.program, t.probe) {
+        ok(let out) => grade(out.status, out.stdout)
+        err(let e)  => Verdict.absent(reason: e)
+    }
+}
+
+// Every verdict has to be handled — add a case to the enum and lux refuses
+// to run until this match grows an arm for it.
+func describe(t: Tool, v: Verdict) -> string {
+    return match v {
+        working(let d)          => "  ok      " + t.name + " — " + d
+        unhappy(let s, let d)   => "  warn    " + t.name + " exited " + string(s) + " — " + d
+        absent(let r)           => "  MISSING " + t.name + " — " + t.why
+    }
+}
+
+func isFatal(v: Verdict) -> bool {
+    return match v {
+        working(let d)        => false
+        unhappy(let s, let d) => false
+        absent(let r)         => true
+    }
+}
+
+let tools = [
+    Tool(name: "git",  program: "git",  probe: ["--version"], why: "needed to clone and commit"),
+    Tool(name: "sh",   program: "sh",   probe: ["-c", "exit 0"], why: "needed by the build script"),
+    Tool(name: "grep", program: "grep", probe: ["--version"], why: "needed by the release checks"),
+    Tool(name: "false", program: "false", probe: [], why: "a tool that launches but reports failure"),
+    Tool(name: "frobnicate", program: "frobnicate", probe: ["--help"], why: "not a real program, on purpose")
+]
+
+print("checking " + string(length(tools)) + " tools\n")
+var fatal = 0
+for t in tools {
+    let v = inspect(t)
+    print(describe(t, v))
+    if isFatal(v) {
+        fatal += 1
+    }
+}
+
+print("")
+if fatal == 0 {
+    print("all present")
+}
+if fatal > 0 {
+    eprint("doctor: " + string(fatal) + " tool(s) missing — install them before building")
+    print("not ready")
+}

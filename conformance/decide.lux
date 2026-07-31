@@ -1,0 +1,131 @@
+// decide — a change-approval policy as a decision table.
+//
+//   lux run decide.lux
+//   lux convert go decide.lux    (or rust, or swift)
+//
+// This is the shape I think lux is quietly good at. The rules are a nested
+// match over two enums, and the exhaustiveness check means the *language*
+// guarantees every combination of risk and window has an answer — not your
+// test coverage, and not your memory. Add a `Risk.critical` case below and
+// lux refuses to run the program until you have said what happens to it.
+//
+// A denial carries its reason as data, so the "why" is part of the decision
+// instead of a log line written next to it.
+
+enum Risk {
+    low
+    medium
+    high
+}
+
+enum Window {
+    business
+    maintenance
+    frozen
+}
+
+struct Change {
+    ticket: string
+    risk: Risk
+    window: Window
+    approvals: int
+    rollback: bool
+}
+
+enum Decision {
+    approve
+    conditional(requirement: string)
+    deny(reason: string)
+}
+
+// The table. Read it as a grid: risk down the side, window across the top.
+func baseline(risk: Risk, window: Window) -> Decision {
+    return match risk {
+        low => match window {
+            business    => Decision.approve
+            maintenance => Decision.approve
+            frozen      => Decision.conditional(requirement: "freeze exception from the change board")
+        }
+        medium => match window {
+            business    => Decision.conditional(requirement: "a named on-call owner for the deploy")
+            maintenance => Decision.approve
+            frozen      => Decision.deny(reason: "medium-risk changes do not ship during a freeze")
+        }
+        high => match window {
+            business    => Decision.deny(reason: "high-risk changes are maintenance-window only")
+            maintenance => Decision.conditional(requirement: "a rehearsed rollback and two approvals")
+            frozen      => Decision.deny(reason: "high-risk changes do not ship during a freeze")
+        }
+    }
+}
+
+func approvalsNeeded(risk: Risk) -> int {
+    return match risk {
+        low    => 1
+        medium => 1
+        high   => 2
+    }
+}
+
+// Gates that apply on top of the table. A deny already in hand stays a deny —
+// the first reason wins, and nothing downstream can quietly upgrade it.
+func gate(c: Change, d: Decision) -> Decision {
+    return match d {
+        deny(let r)        => Decision.deny(reason: r)
+        conditional(let q) => enforce(c, Decision.conditional(requirement: q))
+        approve            => enforce(c, Decision.approve)
+    }
+}
+
+func enforce(c: Change, d: Decision) -> Decision {
+    let needed = approvalsNeeded(c.risk)
+    if c.approvals < needed {
+        return Decision.deny(reason: "needs " + string(needed) + " approvals, has " + string(c.approvals))
+    }
+    if !c.rollback {
+        return Decision.deny(reason: "no rollback plan on file")
+    }
+    return d
+}
+
+func verdict(c: Change) -> Decision {
+    return gate(c, baseline(c.risk, c.window))
+}
+
+func riskName(r: Risk) -> string {
+    return match r {
+        low    => "low"
+        medium => "medium"
+        high   => "high"
+    }
+}
+
+func windowName(w: Window) -> string {
+    return match w {
+        business    => "business hours"
+        maintenance => "maintenance"
+        frozen      => "change freeze"
+    }
+}
+
+func line(c: Change, d: Decision) -> string {
+    let head = c.ticket + "  " + riskName(c.risk) + " / " + windowName(c.window) + "  ->  "
+    return match d {
+        approve            => head + "APPROVED"
+        conditional(let q) => head + "APPROVED IF: " + q
+        deny(let r)        => head + "DENIED: " + r
+    }
+}
+
+let queue = [
+    Change(ticket: "CHG-1041", risk: Risk.low,    window: Window.business,    approvals: 1, rollback: true),
+    Change(ticket: "CHG-1042", risk: Risk.medium, window: Window.business,    approvals: 1, rollback: true),
+    Change(ticket: "CHG-1043", risk: Risk.high,   window: Window.maintenance, approvals: 2, rollback: true),
+    Change(ticket: "CHG-1044", risk: Risk.high,   window: Window.maintenance, approvals: 2, rollback: false),
+    Change(ticket: "CHG-1045", risk: Risk.medium, window: Window.frozen,      approvals: 3, rollback: true),
+    Change(ticket: "CHG-1046", risk: Risk.low,    window: Window.frozen,      approvals: 0, rollback: true)
+]
+
+for c in queue {
+    print(line(c, verdict(c)))
+}

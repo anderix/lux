@@ -1,0 +1,92 @@
+// rpn — a stack machine in 60 lines.
+//
+//   lux run rpn.lux 3 4 + 2 x        ->  14
+//   lux run rpn.lux 10 2 /           ->  5
+//   lux run rpn.lux 1 +              ->  error: `+` needs two numbers
+//
+// The shell already split the expression for us, so args() arrives
+// pre-tokenized: every argument is one number or one operator.
+// ("x" for multiply, so you don't have to quote the * away from the shell.)
+
+// A machine is a stack and, maybe, a complaint. Once it has a complaint
+// it stops working — but it never crashes, and it still knows why.
+struct Machine {
+    stack: [int]
+    fault: Option<string>
+}
+
+func broken(m: Machine, why: string) -> Machine {
+    return Machine(stack: m.stack, fault: some(why))
+}
+
+// lux never changes a value in place, so "pop" means "hand back a shorter one".
+func dropLast(xs: [int], k: int) -> [int] {
+    var out: [int] = []
+    for i in 0..(length(xs) - k) {
+        out += xs[i]
+    }
+    return out
+}
+
+func pushed(stack: [int], v: int) -> Machine {
+    var out = stack
+    out += v
+    return Machine(stack: out, fault: none)
+}
+
+func divide(rest: [int], a: int, b: int) -> Machine {
+    if b == 0 {
+        return broken(Machine(stack: rest, fault: none), "divide by zero")
+    }
+    return pushed(rest, a / b)
+}
+
+func apply(m: Machine, symbol: string) -> Machine {
+    if length(m.stack) < 2 {
+        return broken(m, "`" + symbol + "` needs two numbers")
+    }
+    let b = m.stack[length(m.stack) - 1]
+    let a = m.stack[length(m.stack) - 2]
+    let rest = dropLast(m.stack, 2)
+    return match symbol {
+        "+" => pushed(rest, a + b)
+        "-" => pushed(rest, a - b)
+        "x" => pushed(rest, a * b)
+        "/" => divide(rest, a, b)
+        _   => broken(m, "unknown operator `" + symbol + "`")
+    }
+}
+
+// A word is a number or it isn't. parseInt says which, as a value.
+func feed(m: Machine, word: string) -> Machine {
+    return match parseInt(word) {
+        some(let n) => pushed(m.stack, n)
+        none        => apply(m, word)
+    }
+}
+
+// The whole program is this: fold every word into the machine, and let a
+// faulted machine pass through untouched. No break, no exceptions.
+func step(m: Machine, word: string) -> Machine {
+    return match m.fault {
+        some(let e) => m
+        none        => feed(m, word)
+    }
+}
+
+func report(m: Machine) -> string {
+    return match m.fault {
+        some(let e) => "error: " + e
+        none        => match length(m.stack) {
+            1 => "= " + string(m.stack[0])
+            _ => "error: " + string(length(m.stack)) + " values left on the stack"
+        }
+    }
+}
+
+let words = args()
+var machine = Machine(stack: [], fault: none)
+for i in 1..length(words) {
+    machine = step(machine, words[i])
+}
+print(report(machine))

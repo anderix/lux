@@ -1,0 +1,100 @@
+// stats — a Unix filter: numbers in on stdin, a summary out on stdout.
+//
+//   seq 1 100 | lux run stats.lux
+//   printf '5\n3\nnope\n9\n' | lux run stats.lux
+//
+// This is the shape most small tools have: read until the input runs out,
+// tolerate garbage without dying, then report. Two different "might not be
+// there" cases show up, and lux makes you tell them apart —
+//   readLine() -> Option<string>   the input ended
+//   parseInt() -> Option<int>      the line wasn't a number
+// Neither can crash the program, and neither can be silently ignored.
+
+// Insertion sort. With no index assignment, "insert into the middle" means
+// building a new row and dropping the value in as you pass the spot.
+func insert(sorted: [int], v: int) -> [int] {
+    var out: [int] = []
+    var placed = false
+    for x in sorted {
+        if !placed && v <= x {
+            out += v
+            placed = true
+        }
+        out += x
+    }
+    if !placed {
+        out += v
+    }
+    return out
+}
+
+func median(sorted: [int]) -> float {
+    let n = length(sorted)
+    let mid = n / 2
+    if n % 2 == 1 {
+        return float(sorted[mid])
+    }
+    return float(sorted[mid - 1] + sorted[mid]) / 2.0
+}
+
+func isLine(o: Option<string>) -> bool {
+    return match o {
+        some(let s) => true
+        none        => false
+    }
+}
+
+// A line either contributes a number or it doesn't; either way we hand back
+// the (possibly unchanged) collection rather than reaching out and touching it.
+func absorb(nums: [int], o: Option<string>) -> [int] {
+    return match o {
+        none => nums
+        some(let line) => match parseInt(line) {
+            some(let n) => insert(nums, n)
+            none        => nums
+        }
+    }
+}
+
+func countBad(o: Option<string>) -> int {
+    return match o {
+        none => 0
+        some(let line) => match parseInt(line) {
+            some(let n) => 0
+            none        => 1
+        }
+    }
+}
+
+var numbers: [int] = []
+var skipped = 0
+var reading = true
+
+while reading {
+    let line: Option<string> = readLine()
+    reading = isLine(line)
+    numbers = absorb(numbers, line)
+    skipped += countBad(line)
+}
+
+if length(numbers) == 0 {
+    eprint("stats: no numbers on stdin")
+    print("nothing to summarize")
+}
+
+if length(numbers) > 0 {
+    var total = 0
+    for n in numbers {
+        total += n
+    }
+    let count = length(numbers)
+    print("count   ", count)
+    print("min     ", numbers[0])
+    print("max     ", numbers[count - 1])
+    print("sum     ", total)
+    print("mean    ", float(total) / float(count))
+    print("median  ", median(numbers))
+    if skipped > 0 {
+        print("skipped ", skipped, "line(s) that weren't numbers")
+    }
+}
