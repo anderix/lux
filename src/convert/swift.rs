@@ -16,7 +16,8 @@
 use crate::ast::*;
 
 use super::{
-    Ty, Types, bin_prec, escape, format_float, indent, op_str, swift_case, swift_ident, ty_from_ann,
+    Ty, Types, bin_prec, escape, expr_mentions, format_float, indent, op_str, swift_case,
+    swift_ident, ty_from_ann,
 };
 
 struct Gen {
@@ -506,7 +507,7 @@ impl Gen {
         let s = self.emit_expr(scrutinee);
         self.line(format!("switch {} {{", s));
         for arm in arms {
-            let label = self.case_label(&arm.pattern, &st);
+            let label = self.case_label(&arm.pattern, &st, &arm.body);
             self.line(format!("{}:", label));
             self.indent += 1;
             self.t.push_scope();
@@ -528,18 +529,20 @@ impl Gen {
     }
 
     /// The `case ...` (or `default`) label for one pattern.
-    fn case_label(&self, pat: &Pattern, st: &Ty) -> String {
+    fn case_label(&self, pat: &Pattern, st: &Ty, body: &Expr) -> String {
         match pat {
             Pattern::Wildcard(_) => "default".to_string(),
             Pattern::Int(n, _) => format!("case {}", n),
             Pattern::Str(s, _) => format!("case \"{}\"", escape(s)),
             Pattern::Bool(b, _) => format!("case {}", b),
             Pattern::Variant { name, bindings, .. } => {
-                // A `_` binding discards; `let _` would only draw a warning.
+                // A `_` binding discards, and so does one the arm never reads —
+                // Swift only warns on an unused capture, but the bar is a clean
+                // build. `let _` would itself warn, so an unread binding is bare `_`.
                 let binds: Vec<String> = bindings
                     .iter()
                     .map(|b| {
-                        if b == "_" {
+                        if b == "_" || !expr_mentions(body, b) {
                             "_".to_string()
                         } else {
                             format!("let {}", b)

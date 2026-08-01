@@ -166,6 +166,12 @@ impl Types {
         Ty::Unknown
     }
 
+    /// Is `name` bound in any enclosing scope? Used by a backend that picks a
+    /// scratch name and must not shadow a value the surrounding code still reads.
+    fn in_scope(&self, name: &str) -> bool {
+        self.scopes.iter().any(|s| s.contains_key(name))
+    }
+
     fn type_of(&self, e: &Expr) -> Ty {
         match e {
             Expr::Int(..) => Ty::Int,
@@ -543,5 +549,34 @@ fn swift_case(name: &str) -> String {
         format!("`{name}`")
     } else {
         name.to_string()
+    }
+}
+
+/// Does `name` appear as an identifier anywhere in this expression? Used to decide
+/// whether a match arm actually reads the payload it binds. Go rejects an unused
+/// local outright; Rust and Swift only warn, but the backends' bar is warning-
+/// clean output, so all three drop a binding the arm never reads. The check is
+/// deliberately conservative: a name shadowed by an inner binding still counts as
+/// "used", so at worst it keeps a binding that was safe to keep — it never drops
+/// one the body relies on.
+fn expr_mentions(e: &Expr, name: &str) -> bool {
+    match e {
+        Expr::Ident(n, _) => n == name,
+        Expr::Int(..) | Expr::Float(..) | Expr::Str(..) | Expr::Bool(..) => false,
+        Expr::Array(items, _) => items.iter().any(|x| expr_mentions(x, name)),
+        Expr::Unary { rhs, .. } => expr_mentions(rhs, name),
+        Expr::Binary { lhs, rhs, .. } => expr_mentions(lhs, name) || expr_mentions(rhs, name),
+        Expr::Index { base, index, .. } => expr_mentions(base, name) || expr_mentions(index, name),
+        Expr::Range { start, end, .. } => expr_mentions(start, name) || expr_mentions(end, name),
+        // The callee is a function name, never a bound value, so only the
+        // arguments can read the binding.
+        Expr::Call { args, .. } => args.iter().any(|a| expr_mentions(a, name)),
+        Expr::StructLit { fields, .. } | Expr::EnumLit { fields, .. } => {
+            fields.iter().any(|(_, v)| expr_mentions(v, name))
+        }
+        Expr::Field { base, .. } => expr_mentions(base, name),
+        Expr::Match {
+            scrutinee, arms, ..
+        } => expr_mentions(scrutinee, name) || arms.iter().any(|a| expr_mentions(&a.body, name)),
     }
 }

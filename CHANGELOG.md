@@ -23,8 +23,16 @@ All notable changes to lux are recorded here. The format follows
   Go type switch opens with a subject `v` and the `Result` lowering names its
   error `err`; an arm that bound a variable with that same name — `full(let v, …)`
   or `err(let err)` — produced Go that redeclared the scratch and wouldn't compile.
-  The scratch now steps aside to `v_` / `err_` only on a real collision, so the
-  common case still reads `v` and `err`.
+  A nested match compounded it: an inner switch reused `v` while an outer arm still
+  held it, returning the wrong value. The scratch now steps aside — to `v_`, `v__`,
+  … — past every name in reach: the arm's own captures, anything an enclosing match
+  still holds, and outer scratch names. The common single match still reads `v` and
+  `err`.
+- **Rust and Swift drop a match binding the arm never reads.** A `node(let l, let v,
+  let r) => v` that ignores the subtrees emitted `l` and `r` as live captures, which
+  Rust and Swift warn on. An unread binding is now `_`, so the output is warning-
+  clean — the same elision the Go backend already did out of necessity, since an
+  unused local is a hard error there.
 - **A Swift enum case named after a keyword compiles.** Swift emits the bare
   lowercase case name, so an enum case called `nil` — the textbook empty-list case
   — produced `case nil`, which Swift rejects. Such a case is now backtick-quoted

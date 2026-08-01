@@ -10,8 +10,8 @@
 use crate::ast::*;
 
 use super::{
-    Ty, Types, bin_prec, escape, format_float, indent, op_str, rust_ident, to_pascal, to_snake,
-    ty_from_ann,
+    Ty, Types, bin_prec, escape, expr_mentions, format_float, indent, op_str, rust_ident,
+    to_pascal, to_snake, ty_from_ann,
 };
 
 struct Gen {
@@ -808,7 +808,7 @@ impl Gen {
         };
         let mut s = format!("match {} {{\n", scrut);
         for arm in arms {
-            let pat = self.emit_pattern(&arm.pattern, &st);
+            let pat = self.emit_pattern(&arm.pattern, &st, &arm.body);
             // Bring the pattern's captures into scope so the arm body types
             // correctly (a captured string should print without quotes).
             self.t.push_scope();
@@ -830,14 +830,25 @@ impl Gen {
         s
     }
 
-    fn emit_pattern(&mut self, pat: &Pattern, st: &Ty) -> String {
+    fn emit_pattern(&mut self, pat: &Pattern, st: &Ty, body: &Expr) -> String {
         match pat {
             Pattern::Wildcard(_) => "_".to_string(),
             Pattern::Int(n, _) => n.to_string(),
             Pattern::Str(s, _) => format!("\"{}\"", escape(s)),
             Pattern::Bool(b, _) => b.to_string(),
             Pattern::Variant { name, bindings, .. } => {
-                let binds: Vec<String> = bindings.iter().map(|b| to_snake(b)).collect();
+                // A binding the arm never reads becomes `_`: Rust only warns on an
+                // unused capture, but the backend's bar is warning-clean output.
+                let binds: Vec<String> = bindings
+                    .iter()
+                    .map(|b| {
+                        if b != "_" && !expr_mentions(body, b) {
+                            "_".to_string()
+                        } else {
+                            to_snake(b)
+                        }
+                    })
+                    .collect();
                 let inner = if binds.is_empty() {
                     String::new()
                 } else {

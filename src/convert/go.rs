@@ -18,7 +18,10 @@
 
 use crate::ast::*;
 
-use super::{Ty, Types, bin_prec, escape, format_float, go_ident, op_str, to_pascal, ty_from_ann};
+use super::{
+    Ty, Types, bin_prec, escape, expr_mentions, format_float, go_ident, op_str, to_pascal,
+    ty_from_ann,
+};
 
 struct Gen {
     t: Types,
@@ -49,6 +52,10 @@ struct Gen {
     /// `run` pulls in `bytes` and `os/exec`, the built-in `Output` struct, and a
     /// helper that adapts `exec`'s error into lux's launch-or-status split.
     uses_run: bool,
+    /// The type-switch subjects and error names the emitter has introduced in the
+    /// current nesting. A scratch name must dodge these too, so an inner match
+    /// doesn't reuse the name an enclosing one is still holding.
+    scratches: Vec<String>,
 }
 
 /// Translate a whole program to Go source text.
@@ -72,6 +79,7 @@ pub fn to_go(program: &[Stmt]) -> String {
         uses_parse_int: false,
         uses_parse_float: false,
         uses_run: false,
+        scratches: Vec::new(),
     };
 
     for stmt in program {
@@ -688,15 +696,20 @@ impl Gen {
         // otherwise `v` itself would be an unused local, which Go rejects. An arm
         // that binds a value it never uses falls through to a plain type switch.
         let any_bind = arms.iter().any(arm_uses_a_binding);
-        // The subject steps aside if an arm binds its name, so `full(let v, …)`
-        // doesn't shadow the switch variable it's pulled out of.
-        let subj = scratch_clear_of("v", arm_bindings(arms));
+        // The subject steps aside if its name is already taken — by an arm binding
+        // (`full(let v, …)` pulling a field off the subject), or by anything an
+        // enclosing match left in scope, so a nested switch doesn't reuse it.
+        let subj = self.fresh_scratch("v", arms);
         let head = if any_bind {
             format!("switch {} := {}.(type) {{", subj, s)
         } else {
             format!("switch {}.(type) {{", s)
         };
         self.line(head);
+        // Only the binding form introduces the subject as a live name.
+        if any_bind {
+            self.scratches.push(subj.clone());
+        }
         for arm in arms {
             let Pattern::Variant { name, bindings, .. } = &arm.pattern else {
                 continue;
@@ -725,6 +738,9 @@ impl Gen {
             self.emit_arm_body(&arm.body, ret);
             self.t.pop_scope();
             self.indent -= 1;
+        }
+        if any_bind {
+            self.scratches.pop();
         }
         self.line("}".into());
         // The type switch lists every case but Go can't see that, so a returning
@@ -793,14 +809,10 @@ impl Gen {
             _ => None,
         });
         let s = self.emit_expr(scrutinee);
-        // The error scratch steps aside if an arm binds `err` itself, so
-        // `err(let err)` doesn't try to redeclare the test variable.
-        let bound: Vec<&str> = [&ok_bind, &err_bind]
-            .into_iter()
-            .flatten()
-            .map(String::as_str)
-            .collect();
-        let ev = scratch_clear_of("err", bound.into_iter());
+        // The error scratch steps aside if its name is taken — by an arm binding
+        // (`err(let err)` would redeclare the test variable) or by an enclosing
+        // match that's still holding it.
+        let ev = self.fresh_scratch("err", arms);
         // An if-init scopes the value and error to this match, so two reads in
         // one block don't collide on the names. A success that carries nothing
         // leaves only the error to bind.
@@ -817,6 +829,9 @@ impl Gen {
             };
             self.line(format!("if {}, {} := {}; {} == nil {{", lhs, ev, s, ev));
         }
+        // The error scratch is live across both branches, so a nested match inside
+        // either one must not reuse it.
+        self.scratches.push(ev.clone());
         self.indent += 1;
         self.t.push_scope();
         if let Some(b) = &ok_bind {
@@ -845,7 +860,23 @@ impl Gen {
         }
         self.t.pop_scope();
         self.indent -= 1;
+        self.scratches.pop();
         self.line("}".into());
+    }
+
+    /// A scratch name clear of everything it could collide with: the match's own
+    /// captures, any lux binding still live in an enclosing scope, and the scratch
+    /// names outer matches are still holding. Starts from `base` and steps aside a
+    /// `_` at a time, so the common case keeps the readable `v` / `err`.
+    fn fresh_scratch(&self, base: &str, arms: &[MatchArm]) -> String {
+        let mut name = base.to_string();
+        while arm_bindings(arms).any(|b| b == name)
+            || self.t.in_scope(&name)
+            || self.scratches.iter().any(|s| *s == name)
+        {
+            name.push('_');
+        }
+        name
     }
 
     fn declare_variant_bindings(&mut self, enum_name: &str, variant: &str, bindings: &[String]) {
@@ -1136,50 +1167,6 @@ fn arm_name(arm: &MatchArm) -> Option<&str> {
         Pattern::Variant { name, .. } => Some(name.as_str()),
         _ => None,
     }
-}
-
-/// Does `name` appear as an identifier anywhere in this expression? Used to
-/// decide whether a match arm actually reads the payload it binds. Go rejects an
-/// unused local where Rust and Swift only warn, so a `some(let x) => "yes"` that
-/// ignores `x` must not emit `x := ...`. The check is deliberately conservative:
-/// a name shadowed by an inner binding still counts as "used", so at worst it
-/// keeps emitting a binding that was safe to emit before — it never drops one
-/// the body relies on.
-fn expr_mentions(e: &Expr, name: &str) -> bool {
-    match e {
-        Expr::Ident(n, _) => n == name,
-        Expr::Int(..) | Expr::Float(..) | Expr::Str(..) | Expr::Bool(..) => false,
-        Expr::Array(items, _) => items.iter().any(|x| expr_mentions(x, name)),
-        Expr::Unary { rhs, .. } => expr_mentions(rhs, name),
-        Expr::Binary { lhs, rhs, .. } => expr_mentions(lhs, name) || expr_mentions(rhs, name),
-        Expr::Index { base, index, .. } => expr_mentions(base, name) || expr_mentions(index, name),
-        Expr::Range { start, end, .. } => expr_mentions(start, name) || expr_mentions(end, name),
-        // The callee is a function name, never a bound value, so only the
-        // arguments can read the binding.
-        Expr::Call { args, .. } => args.iter().any(|a| expr_mentions(a, name)),
-        Expr::StructLit { fields, .. } | Expr::EnumLit { fields, .. } => {
-            fields.iter().any(|(_, v)| expr_mentions(v, name))
-        }
-        Expr::Field { base, .. } => expr_mentions(base, name),
-        Expr::Match {
-            scrutinee, arms, ..
-        } => expr_mentions(scrutinee, name) || arms.iter().any(|a| expr_mentions(&a.body, name)),
-    }
-}
-
-/// A scratch name for the emitter that no arm binding can collide with. We start
-/// from `base` and append underscores until it's clear of every name the match
-/// captures — so `switch v := …` still reads as `v` unless an arm itself binds
-/// `v`, in which case the subject steps aside to `v_`. Go rejects `v := v.field`
-/// ("no new variables on left side of :="), so the subject must not share a name
-/// with anything the case pulls out of it.
-fn scratch_clear_of<'a>(base: &str, bindings: impl Iterator<Item = &'a str>) -> String {
-    let taken: std::collections::HashSet<&str> = bindings.collect();
-    let mut name = base.to_string();
-    while taken.contains(name.as_str()) {
-        name.push('_');
-    }
-    name
 }
 
 /// Every binding name captured across a match's arms.

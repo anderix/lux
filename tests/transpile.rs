@@ -365,6 +365,116 @@ print(sum(t))
     }
 }
 
+/// A binding a match arm never reads becomes `_`, so Rust and Swift compile
+/// warning-clean (Go already had to drop it — an unused local is a hard error
+/// there). This matches a tree and, in the `node` arm, ignores both subtrees to
+/// return the value, so `l` and `r` must be elided on every backend.
+#[test]
+fn unread_match_bindings_are_dropped_on_every_backend() {
+    let src = r#"
+enum Tree {
+    leaf
+    node(left: Tree, value: int, right: Tree)
+}
+func rootvalue(t: Tree) -> int {
+    return match t {
+        leaf => -1
+        node(let l, let v, let r) => v
+    }
+}
+let t = Tree.node(left: Tree.leaf, value: 42, right: Tree.leaf)
+print(rootvalue(t))
+"#;
+    let program = parser::parse(lexer::lex(src).expect("lex")).expect("parse");
+    let tmp = std::env::temp_dir();
+
+    if tool_available("rustc", "--version") {
+        let rust = convert::to_rust(&program);
+        let rs = tmp.join("lux_unread.rs");
+        std::fs::write(&rs, &rust).expect("write rust");
+        let out = Command::new("rustc")
+            .arg(&rs)
+            .arg("-o")
+            .arg(tmp.join("lux_unread_rs"))
+            .output()
+            .expect("run rustc");
+        assert!(
+            out.status.success() && out.stderr.is_empty(),
+            "an ignored binding should compile warning-clean as Rust, got:\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    if tool_available("swiftc", "--version") {
+        let swift = convert::to_swift(&program);
+        let sw = tmp.join("lux_unread.swift");
+        std::fs::write(&sw, &swift).expect("write swift");
+        let out = Command::new("swiftc")
+            .arg(&sw)
+            .arg("-o")
+            .arg(tmp.join("lux_unread_sw"))
+            .output()
+            .expect("run swiftc");
+        assert!(
+            out.status.success() && out.stderr.is_empty(),
+            "an ignored binding should compile warning-clean as Swift, got:\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+}
+
+/// A nested type switch must not reuse the scratch name an enclosing one holds.
+/// Here the outer `node` arm binds `v` and the inner match on the left subtree
+/// returns it, so the inner switch subject has to step past both the outer
+/// binding `v` and the outer subject `v_` — or Go shadows `v` and returns the
+/// wrong value (or won't compile).
+#[test]
+fn go_nested_type_switch_does_not_shadow_an_outer_binding() {
+    if !tool_available("go", "version") {
+        eprintln!("skipping: go not on PATH");
+        return;
+    }
+    let src = r#"
+enum Tree {
+    leaf
+    node(left: Tree, value: int, right: Tree)
+}
+func leftval(t: Tree) -> int {
+    return match t {
+        leaf => 0
+        node(let l, let v, let r) => match l {
+            leaf => v
+            node(let ll, let lv, let lr) => lv
+        }
+    }
+}
+let t = Tree.node(left: Tree.node(left: Tree.leaf, value: 7, right: Tree.leaf), value: 9, right: Tree.leaf)
+print(leftval(t))
+"#;
+    let program = parser::parse(lexer::lex(src).expect("lex")).expect("parse");
+    let go = convert::to_go(&program);
+    let dir = std::env::temp_dir().join("lux_go_nested_scratch");
+    std::fs::create_dir_all(&dir).expect("mkdir");
+    std::fs::write(dir.join("go.mod"), "module luxtest\n\ngo 1.21\n").expect("write go.mod");
+    std::fs::write(dir.join("main.go"), &go).expect("write go");
+    let bin = dir.join("bin");
+    let out = Command::new("go")
+        .arg("build")
+        .arg("-o")
+        .arg(&bin)
+        .current_dir(&dir)
+        .env("GOCACHE", std::env::temp_dir().join("lux_go_cache"))
+        .output()
+        .expect("run go build");
+    assert!(
+        out.status.success(),
+        "a nested type switch that shadows an outer binding did not compile as Go:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let run = Command::new(&bin).output().expect("run go bin");
+    // The left child is a leaf-flanked node whose value is 7; leftval returns it.
+    assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "7");
+}
+
 #[test]
 fn go_idioms() {
     let go = convert::to_go(&parse("tour"));
