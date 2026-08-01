@@ -6,8 +6,45 @@ All notable changes to lux are recorded here. The format follows
 
 ## [0.14.4] - 2026-08-01
 
+A sweep of transpiler edges found by writing a corpus of small programs — sorts,
+a BST, an expression evaluator, a state machine, Unix-style filters — and running
+each through `lux run` and its compiled Go, Rust, and Swift translations. The
+whole corpus now behaves identically on all four.
+
 ### Fixed
 
+- **Go: arrays keep lux's value semantics.** A Go slice is a reference, so
+  `var xs = input` aliased the caller's row and an in-place sort reached back
+  through it, mutating a source the program was told stays untouched. An array
+  bound from anything but a fresh literal is now copied, the same point Rust
+  clones at. (A slice inside a struct is still a shared reference underneath — a
+  deeper seam than a flat sort row.)
+- **Go: an empty array literal is typed at an argument or a return.** `total([])`
+  and `empty => []` (returning `[int]`) emitted Go's untyped `[]any{}`, which
+  won't assign to a typed slice. Both positions now take the element type from the
+  parameter or the return, the way 0.14.0 already typed an annotated binding.
+- **Go: a `var` of an enum case takes the enum's type, not the case's.** An enum
+  lowers to a Go interface; `:=` inferred the concrete case struct, so
+  reassigning a different case wouldn't compile — the ordinary way to accumulate a
+  value, `var out = List.nil` then `out = push(out, x)` in a loop. The binding now
+  pins the interface type.
+- **Go: forwarding an error from a match arm returns the right shape.**
+  `err(why) => err(why)` emitted one value where Go's `(value, error)` lowering
+  wants two. A returning arm now takes the same return path a top-level
+  `return err(why)` does — the arm the "handle a Result where it's produced" rule
+  pushes every program toward.
+- **Go: printing an array renders like lux, not `fmt`.** `print(xs)` on
+  `[1, 2, 3]` came out `[1 2 3]`, space-separated, where every other target uses
+  commas. Arrays now render with commas and recurse into nesting.
+- **Swift: a reversed range iterates zero times instead of crashing.** A range
+  whose end falls below its start is empty in the interpreter, Rust, and Go, but
+  Swift's `..<` traps on out-of-order bounds — so a bubble sort's shrinking inner
+  bound took the Swift build down on an empty row. Swift range loops now emit
+  `stride(from:to:by:)`, which is empty rather than fatal.
+- **Rust and Swift: a loop variable the body never reads is dropped.** It warned
+  where the body counts without using the counter (`for i in 0..n`, drawing a bar
+  of fixed width); it's now emitted as `_`, the same elision 0.14.2 gave unread
+  match bindings. Go was already clean.
 - **Assigning through a parameter or a loop variable now advises what actually
   works.** Both are immutable, and both correctly refuse a change — but the
   refusal reused the `let` note, "use `var` instead of `let`", pointing at syntax
