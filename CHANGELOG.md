@@ -4,12 +4,29 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.14.4] - 2026-08-01
+## [0.15.0] - 2026-08-01
 
-A sweep of transpiler edges found by writing a corpus of small programs — sorts,
-a BST, an expression evaluator, a state machine, Unix-style filters — and running
-each through `lux run` and its compiled Go, Rust, and Swift translations. The
-whole corpus now behaves identically on all four.
+The release that makes the three targets behave *identically* to `lux run` — not
+just compile, but produce the same output for the same program, value semantics
+and all. It was found by writing a corpus of small programs — sorts, a BST, an
+expression evaluator, a state machine, Unix-style filters — then playtesting
+realistic ones, running each through `lux run` and its compiled Go, Rust, and
+Swift translations and diffing every byte. Dozens of programs now match on all
+four. It also sharpens several diagnostics a learner meets early, turning raw
+parser errors into trails that name the cause and point at the fix.
+
+Most of this is bug fixes, but two things change behaviour a program could
+notice, which is why it's a minor release: `print` of a compound value now reads
+lux's way on every backend rather than each language's default, and `print` of a
+`Result` is refused where the interpreter used to allow it.
+
+### Changed
+
+- **Printing a `Result` is refused.** The interpreter let `print(ok(5))` render
+  `ok(5)`, but a Result is Go's `(value, error)` pair, not a single value to hand
+  to `print`, and lux's own rule is to match a Result where it's produced. It's now
+  refused with a trail that points at matching it and printing each side — the same
+  rule that already keeps a Result out of a `let`.
 
 ### Fixed
 
@@ -22,16 +39,22 @@ whole corpus now behaves identically on all four.
   recursive tree all read lux's way and compose all the way down. A bare
   `some`/`none` in print position, which had no type to infer from, is pinned at
   the site: `print(some("north"))` compiled nowhere before and now prints
-  `some(north)` everywhere. Printing a `Result` is now refused with a message that
-  points you to matching it — it's Go's `(value, error)` pair, not a value, and
-  the same rule that keeps a Result out of a `let` keeps it out of `print`
-  (the interpreter allowed it before, which was the inconsistency).
-- **Go: arrays keep lux's value semantics.** A Go slice is a reference, so
-  `var xs = input` aliased the caller's row and an in-place sort reached back
-  through it, mutating a source the program was told stays untouched. An array
-  bound from anything but a fresh literal is now copied, the same point Rust
-  clones at. (A slice inside a struct is still a shared reference underneath — a
-  deeper seam than a flat sort row.)
+  `some(north)` everywhere.
+- **Go: value semantics, through structs too.** A Go slice is a reference, so a
+  value that holds one — an array bound from a place, or a struct with an array
+  field — shared its backing, and mutating a copy reached back into the original: a
+  sort mutated the row it was handed, and `var copy = grid; copy.cells[0] = 9`
+  changed `grid`. A slice-bearing value is now deep-copied wherever it flows into a
+  new place — a binding, a call argument, a struct field, an array element, an
+  append — the same points Rust clones at, recursing so a board of grids two levels
+  deep stays independent and a value handed to a function and back can't alias the
+  caller.
+- **Go: a `_` arm covers the rest of a match.** An enum match dropped its wildcard
+  arm and `panic`ed on every case it didn't name (`match it { potion(let a) => …
+  _ => … }` crashed on the other items); an `Option` or `Result` match with a
+  wildcard compiled to a missing return. The `_` now lowers to the switch's
+  `default` and fills whichever side wasn't named. Everyday code the exhaustive
+  corpus missed.
 - **Go: an empty array literal is typed at an argument or a return.** `total([])`
   and `empty => []` (returning `[int]`) emitted Go's untyped `[]any{}`, which
   won't assign to a typed slice. Both positions now take the element type from the
@@ -40,7 +63,14 @@ whole corpus now behaves identically on all four.
   lowers to a Go interface; `:=` inferred the concrete case struct, so
   reassigning a different case wouldn't compile — the ordinary way to accumulate a
   value, `var out = List.nil` then `out = push(out, x)` in a loop. The binding now
-  pins the interface type.
+  pins the interface type. A bare `none` with a type annotation,
+  `var result: Option<int> = none`, is pinned the same way — `:=` on an untyped
+  `nil` couldn't be typed at all.
+- **Go: a match used as a value infers its type from a concrete arm.** When the
+  first arm reads a binding — `some(let v) => some(v)` — its type read as
+  `Option<?>`, because the binding isn't in scope for the inference pass. Since
+  every arm of a match yields the same type, inference now takes it from the first
+  arm that's fully known, so accumulating an `Option` across a loop compiles.
 - **Go: forwarding an error from a match arm returns the right shape.**
   `err(why) => err(why)` emitted one value where Go's `(value, error)` lowering
   wants two. A returning arm now takes the same return path a top-level
@@ -68,6 +98,16 @@ whole corpus now behaves identically on all four.
   natural for an in-place sort. A loop variable is named as the loop's, and pointed
   at a `var` declared outside the loop. A real `let` keeps its original note. This
   was the first wall anyone hit writing a first in-place sort after 0.14.3.
+- **An empty struct is refused where it's declared.** `struct Empty {}` could be
+  declared but never built — `Empty()` reads as a call, so the interpreter said
+  "unknown function" and the backends diverged. It's now refused at the
+  declaration ("a struct needs at least one field") and pointed at the enum, which
+  is how you name a value that carries no data.
+- **A construction field that forgot its label names the fix.**
+  `Color.named("teal")` gave "expected a field name", pointing at the value; it
+  now says "this value needs a label" and shows the `name: value` form. And a
+  `return` inside a match arm, which gave "expected a value", now explains that a
+  match arm is a value, not a statement, and shows returning the whole match.
 
 ## [0.14.3] - 2026-08-01
 
@@ -637,7 +677,7 @@ is a different bar from a learner meeting an ownership rule in code they wrote.
   `lux build` compiles the Rust translation to a native binary.
 - A `curl` installer and uninstaller.
 
-[0.14.4]: https://github.com/anderix/lux/releases/tag/v0.14.4
+[0.15.0]: https://github.com/anderix/lux/releases/tag/v0.15.0
 [0.14.3]: https://github.com/anderix/lux/releases/tag/v0.14.3
 [0.14.2]: https://github.com/anderix/lux/releases/tag/v0.14.2
 [0.14.1]: https://github.com/anderix/lux/releases/tag/v0.14.1
