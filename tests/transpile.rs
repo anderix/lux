@@ -927,6 +927,15 @@ match ok_val() {
         "a match binding that shadows the emitter's scratch name did not compile as Go:\n{}",
         String::from_utf8_lossy(&out.stderr)
     );
+    // Compiling isn't enough: the risk is a silent miscompile where the arm's
+    // `err` binding shadows the emitter's scratch and prints the wrong value. Run
+    // it and check the reason string and the ok value both come through.
+    let run = Command::new(tmp.join("bin")).output().expect("run go bin");
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "seven=7\nboom\n3\n",
+        "scratch-shadowing arm should still print the right values"
+    );
 }
 
 /// An empty array literal carries no element to infer from, so its type must come

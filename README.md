@@ -98,6 +98,17 @@ cargo build --release
 ./target/release/lux run examples/hello.lux
 ```
 
+## Testing
+
+The premise is "same source, same behaviour, three targets", so the suite proves
+it rather than assuming it. `./check.sh` builds lux and runs everything against
+that fresh binary: the Rust test suite, then the conformance and flex corpora,
+which transpile a body of programs and diff each compiled translation against the
+interpreter. `./check.sh fast` runs just the build and the Rust tests for a tight
+loop. A leg whose compiler (`go`, `rustc`, `swiftc`) isn't installed is skipped,
+so the suite runs on whatever toolchains you have; CI runs the full sweep on all
+three.
+
 ## Status
 
 Early, but the teaching surface is complete. `lux run` covers the core — `print`,
