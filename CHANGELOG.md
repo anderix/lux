@@ -13,6 +13,18 @@ whole corpus now behaves identically on all four.
 
 ### Fixed
 
+- **Printing a struct, enum, or option reads the same on every backend.** A
+  compound value deferred to each target's own formatting, so the same `print`
+  read four ways: a struct as `P(x: 1, y: 2)` (lux), `P { x: 1, y: 2 }` (Rust), or
+  `{1 2}` (Go); an enum case as `Shape.circle(radius: 5)`, `Circle(5)`, or `{5}`.
+  Each backend now renders through a generated `luxShow` — a Go type switch, a
+  Rust trait, a Swift protocol — so a struct, an enum case, an array of them, and a
+  recursive tree all read lux's way and compose all the way down. A bare
+  `some`/`none` in print position, which had no type to infer from, is pinned at
+  the site: `print(some("north"))` compiled nowhere before and now prints
+  `some(north)` everywhere. A `Result` stays off this path — it's Go's `(value,
+  error)` pair, not a value, and lux's rule is to match a Result where it's
+  produced, not print it.
 - **Go: arrays keep lux's value semantics.** A Go slice is a reference, so
   `var xs = input` aliased the caller's row and an in-place sort reached back
   through it, mutating a source the program was told stays untouched. An array
