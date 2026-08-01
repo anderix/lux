@@ -74,6 +74,7 @@ build () { # <target> <program>
 PROGRAMS=(fizzbuzz fib gcd sieve collatz roman
           bubble selection mergesort quicksort
           binsearch list bst expr machine safe
+          pascal matrix lcs tictactoe queens maze
           catn head wcl uniqc hist)
 
 if [ $# -gt 0 ]; then

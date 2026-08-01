@@ -1,0 +1,143 @@
+// queens — put n queens on an n-by-n board so that none can take another.
+//
+//   lux run queens.lux
+//
+// The first program here that searches rather than computes. There is no formula;
+// the only way through is to try a placement, carry on as if it were right, and
+// come back if it isn't. That is backtracking, and it is the shape of every solver
+// from sudoku to a type checker.
+//
+// One queen per row, because two in a row is already lost — so the search is only
+// ever choosing a column, and it goes n levels deep and no further.
+//
+// Value semantics do the hardest part for free. Every other language's version of
+// this has to *undo* a placement on the way back out of the recursion — set the
+// square, recurse, unset the square — and forgetting the unset is the classic bug.
+// Here `var next = board` hands the deeper call its own copy, so there is nothing
+// to undo: the board this level is holding was never touched.
+
+struct Board {
+    n: int
+    cells: [[bool]]
+}
+
+func empty(n: int) -> Board {
+    var out: [[bool]] = []
+    for _ in 0..n {
+        var row: [bool] = []
+        for _ in 0..n {
+            row += false
+        }
+        out += row
+    }
+    return Board(n: n, cells: out)
+}
+
+func at(b: Board, r: int, c: int) -> bool {
+    let row = b.cells[r]
+    return row[c]
+}
+
+// Only the rows above matter, because the rows below are still empty.
+func safe(b: Board, row: int, col: int) -> bool {
+    for r in 0..row {
+        if at(b, r, col) {
+            return false
+        }
+    }
+    var r = row - 1
+    var c = col - 1
+    while r >= 0 && c >= 0 {
+        if at(b, r, c) {
+            return false
+        }
+        r -= 1
+        c -= 1
+    }
+    r = row - 1
+    c = col + 1
+    while r >= 0 && c < b.n {
+        if at(b, r, c) {
+            return false
+        }
+        r -= 1
+        c += 1
+    }
+    return true
+}
+
+func count(b: Board, row: int) -> int {
+    if row == b.n {
+        return 1
+    }
+    var found = 0
+    for col in 0..b.n {
+        if safe(b, row, col) {
+            var next = b
+            next.cells[row][col] = true
+            found += count(next, row + 1)
+        }
+    }
+    return found
+}
+
+func found(o: Option<Board>) -> bool {
+    return match o {
+        some(let b) => true
+        none => false
+    }
+}
+
+// The same walk, stopping at the first answer instead of counting them all. An
+// `Option` carries "there was a board" or "this branch is a dead end" without a
+// sentinel value standing in for failure — and it doubles as the loop's own answer
+// to "am I done?", which is the job `break` would be doing in another language.
+func solve(b: Board, row: int) -> Option<Board> {
+    if row == b.n {
+        return some(b)
+    }
+    var answer: Option<Board> = none
+    for col in 0..b.n {
+        if found(answer) == false && safe(b, row, col) {
+            var next = b
+            next.cells[row][col] = true
+            answer = solve(next, row + 1)
+        }
+    }
+    return answer
+}
+
+func draw(b: Board) {
+    for row in b.cells {
+        var line = "  "
+        for cell in row {
+            if cell {
+                line = line + "Q "
+            } else {
+                line = line + ". "
+            }
+        }
+        print(line)
+    }
+}
+
+print("solutions by board size:")
+for n in 1..9 {
+    print("  ", n, "x", n, "->", count(empty(n), 0))
+}
+
+print("")
+print("the first solution found on an 8x8:")
+match solve(empty(8), 0) {
+    some(let b) => draw(b)
+    none => print("  none")
+}
+
+print("")
+// Three and two have no answer at all, which the search discovers rather than
+// being told. A board too small to separate the queens is not an error case.
+print("a 3x3 has nowhere to put them:")
+match solve(empty(3), 0) {
+    some(let b) => draw(b)
+    none => print("  no arrangement exists")
+}

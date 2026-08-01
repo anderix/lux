@@ -1,0 +1,112 @@
+// matrix — multiply, transpose, and what a copy costs.
+//
+//   lux run matrix.lux
+//
+// The triple loop that multiplies two matrices is one of the few pieces of code
+// worth memorising, because the same shape turns up everywhere graphics, physics,
+// and neural networks do their arithmetic. Row of the left, column of the right,
+// multiply the pairs, add them up.
+//
+// It is also the clearest place to watch lux's value semantics on a nested value.
+// `transpose` copies its argument into a local and rearranges the copy; the caller's
+// matrix is untouched afterwards, and the last block proves it rather than asserting
+// it. In a language where an array is a reference — Go's slices, Python's lists —
+// the same code quietly edits the caller's data, and that bug is a rite of passage.
+
+func rows(m: [[int]]) -> int {
+    return length(m)
+}
+
+func cols(m: [[int]]) -> int {
+    if length(m) == 0 {
+        return 0
+    }
+    return length(m[0])
+}
+
+func filled(r: int, c: int, v: int) -> [[int]] {
+    var out: [[int]] = []
+    for _ in 0..r {
+        var row: [int] = []
+        for _ in 0..c {
+            row += v
+        }
+        out += row
+    }
+    return out
+}
+
+// The shape rule: the left's columns must match the right's rows, and the answer
+// takes the left's rows and the right's columns.
+func multiply(a: [[int]], b: [[int]]) -> [[int]] {
+    var out = filled(rows(a), cols(b), 0)
+    for i in 0..rows(a) {
+        for j in 0..cols(b) {
+            var sum = 0
+            for k in 0..cols(a) {
+                let left = a[i]
+                let right = b[k]
+                sum += left[k] * right[j]
+            }
+            out[i][j] = sum
+        }
+    }
+    return out
+}
+
+func transpose(m: [[int]]) -> [[int]] {
+    var out = filled(cols(m), rows(m), 0)
+    for i in 0..rows(m) {
+        for j in 0..cols(m) {
+            let row = m[i]
+            out[j][i] = row[j]
+        }
+    }
+    return out
+}
+
+// The matrix that leaves anything it multiplies unchanged — the 1 of matrices.
+func identity(n: int) -> [[int]] {
+    var out = filled(n, n, 0)
+    for i in 0..n {
+        out[i][i] = 1
+    }
+    return out
+}
+
+func draw(label: string, m: [[int]]) {
+    print(label)
+    for row in m {
+        var line = "  "
+        for n in row {
+            var cell = string(n)
+            while length(cell) < 4 {
+                cell = " " + cell
+            }
+            line = line + cell
+        }
+        print(line)
+    }
+}
+
+let a = [[1, 2, 3], [4, 5, 6]]
+let b = [[7, 8], [9, 10], [11, 12]]
+
+draw("a (2x3)", a)
+draw("b (3x2)", b)
+draw("a x b (2x2)", multiply(a, b))
+draw("b x a (3x3) — order matters", multiply(b, a))
+draw("a transposed (3x2)", transpose(a))
+draw("a x identity — unchanged", multiply(a, identity(3)))
+
+print("")
+print("value semantics: a is still a after all of that")
+draw("a", a)
+
+// Passing a matrix to a function that rearranges it hands over a copy, so the
+// original keeps its own numbers. Nothing above had to defend itself.
+var mine = [[1, 1], [1, 1]]
+let theirs = transpose(mine)
+mine[0][0] = 99
+draw("mine, changed after the call", mine)
+draw("theirs, untouched by that change", theirs)

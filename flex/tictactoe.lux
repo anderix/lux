@@ -1,0 +1,168 @@
+// tictactoe — a board, a scripted game, and every way it can end.
+//
+//   lux run tictactoe.lux
+//
+// A grid of strings this time rather than numbers, which is the same `[[T]]` shape
+// wearing different contents. The interesting part isn't placing the marks, it's
+// asking after every move whether the game is over — eight lines to check, and a
+// third answer, "nobody won and there is nowhere left to play," that beginners
+// almost always forget until a game ends in silence.
+//
+// The outcome is an enum, so `match` makes the program state what happens in all
+// four cases before it will run. There is no opponent here and no choosing: the
+// moves are a script, because lux has no randomness and this program would rather
+// be reproducible than clever.
+
+enum Outcome {
+    playing
+    won(mark: string)
+    drawn
+}
+
+struct Move {
+    row: int
+    col: int
+    mark: string
+}
+
+func blank() -> [[string]] {
+    var out: [[string]] = []
+    for _ in 0..3 {
+        var row: [string] = []
+        for _ in 0..3 {
+            row += "."
+        }
+        out += row
+    }
+    return out
+}
+
+func at(b: [[string]], r: int, c: int) -> string {
+    let row = b[r]
+    return row[c]
+}
+
+// Three cells agreeing on anything but "." is a win, so one function answers every
+// line on the board.
+func lineWins(b: [[string]], r1: int, c1: int, r2: int, c2: int, r3: int, c3: int) -> string {
+    let first = at(b, r1, c1)
+    if first == "." {
+        return "."
+    }
+    if first == at(b, r2, c2) && first == at(b, r3, c3) {
+        return first
+    }
+    return "."
+}
+
+func winner(b: [[string]]) -> string {
+    // Rows, then columns.
+    for i in 0..3 {
+        let across = lineWins(b, i, 0, i, 1, i, 2)
+        if across != "." {
+            return across
+        }
+        let down = lineWins(b, 0, i, 1, i, 2, i)
+        if down != "." {
+            return down
+        }
+    }
+    let falling = lineWins(b, 0, 0, 1, 1, 2, 2)
+    if falling != "." {
+        return falling
+    }
+    return lineWins(b, 0, 2, 1, 1, 2, 0)
+}
+
+func full(b: [[string]]) -> bool {
+    for row in b {
+        for cell in row {
+            if cell == "." {
+                return false
+            }
+        }
+    }
+    return true
+}
+
+func judge(b: [[string]]) -> Outcome {
+    let w = winner(b)
+    if w != "." {
+        return Outcome.won(mark: w)
+    }
+    if full(b) {
+        return Outcome.drawn
+    }
+    return Outcome.playing
+}
+
+func said(o: Outcome) -> string {
+    return match o {
+        playing => "still going"
+        won(let mark) => mark + " wins"
+        drawn => "a draw — the board filled with nobody ahead"
+    }
+}
+
+func over(o: Outcome) -> bool {
+    return match o {
+        playing => false
+        won(let mark) => true
+        drawn => true
+    }
+}
+
+func draw(b: [[string]]) {
+    for row in b {
+        var line = "  "
+        for cell in row {
+            line = line + cell + " "
+        }
+        print(line)
+    }
+}
+
+// A whole game, stopping the moment it is decided. Without `break`, the loop keeps
+// its own answer to "am I done?" and simply stops applying moves — which is what
+// `break` does anywhere, said out loud.
+func play(script: [Move]) -> Outcome {
+    var board = blank()
+    var state = Outcome.playing
+    for m in script {
+        if over(state) == false {
+            if at(board, m.row, m.col) == "." {
+                board[m.row][m.col] = m.mark
+                state = judge(board)
+            }
+        }
+    }
+    draw(board)
+    return state
+}
+
+print("a game X wins on the falling diagonal")
+let first = play([Move(row: 0, col: 0, mark: "X"), Move(row: 0, col: 1, mark: "O"),
+                  Move(row: 1, col: 1, mark: "X"), Move(row: 0, col: 2, mark: "O"),
+                  Move(row: 2, col: 2, mark: "X"), Move(row: 1, col: 0, mark: "O")])
+print(said(first))
+
+print("")
+print("a game O wins down the middle column")
+let second = play([Move(row: 0, col: 0, mark: "X"), Move(row: 0, col: 1, mark: "O"),
+                   Move(row: 1, col: 0, mark: "X"), Move(row: 1, col: 1, mark: "O"),
+                   Move(row: 2, col: 2, mark: "X"), Move(row: 2, col: 1, mark: "O")])
+print(said(second))
+
+print("")
+print("a game nobody wins")
+let third = play([Move(row: 0, col: 0, mark: "X"), Move(row: 0, col: 1, mark: "O"),
+                  Move(row: 0, col: 2, mark: "X"), Move(row: 1, col: 1, mark: "O"),
+                  Move(row: 1, col: 0, mark: "X"), Move(row: 1, col: 2, mark: "O"),
+                  Move(row: 2, col: 1, mark: "X"), Move(row: 2, col: 0, mark: "O"),
+                  Move(row: 2, col: 2, mark: "X")])
+print(said(third))
+
+print("")
+print("a game abandoned halfway")
+let fourth = play([Move(row: 1, col: 1, mark: "X"), Move(row: 0, col: 0, mark: "O")])
+print(said(fourth))

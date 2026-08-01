@@ -60,6 +60,11 @@ func contains(l: List, v: int) -> bool {
 
 let built = fromRow([1, 2, 3, 4, 5])
 print(show(built))
+// The same list without `show`, printed as the structure it is. Handing a
+// compound value straight to `print` reads the same on all four implementations
+// rather than each one's native formatting, so what you see below is lux's own
+// spelling of the value — and the nesting is the recursion made visible.
+print(built)
 print("size ", size(built))
 print("total", total(built))
 print("has 3?", contains(built, 3))

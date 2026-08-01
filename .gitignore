@@ -7,3 +7,7 @@
 # Written by the `save` spell (magic-lux.md); the test suite runs every spell, so
 # a copy lands here on `cargo test`.
 /save.txt
+
+# Written by flex/convert.sh — translations are generated on demand so they can't
+# drift from what the compilers are actually fed.
+/flex/translations/

@@ -1,0 +1,81 @@
+// pascal — Pascal's triangle, a row at a time.
+//
+//   lux run pascal.lux
+//
+// The first array of arrays in the corpus, and the reason to open the section with
+// it: these rows are all different lengths. A grid in lux is not a rectangle you
+// declare, it is a row of rows, and each row is its own size — `[[int]]` holds a
+// ragged shape as readily as a square one.
+//
+// The rule is one sentence. Every number is the sum of the two above it, and the
+// edges are 1 because there is only one number above them. That sentence builds the
+// binomial coefficients, the coin-flip distribution, and the answer to "how many
+// ways can I choose 3 things from 7" — all of which are the same question.
+
+func triangle(rows: int) -> [[int]] {
+    var out: [[int]] = []
+    for r in 0..rows {
+        var row: [int] = []
+        for c in 0..(r + 1) {
+            if c == 0 || c == r {
+                row += 1
+            } else {
+                // Reaching back into a row already finished. `out[r - 1]` is an
+                // array, and indexing it again gets the number.
+                let above = out[r - 1]
+                row += above[c - 1] + above[c]
+            }
+        }
+        out += row
+    }
+    return out
+}
+
+func pad(n: int, wide: int) -> string {
+    var s = string(n)
+    while length(s) < wide {
+        s = " " + s
+    }
+    return s
+}
+
+func spaces(n: int) -> string {
+    var s = ""
+    for _ in 0..n {
+        s = s + " "
+    }
+    return s
+}
+
+// Centred, so the shape is visible rather than just the numbers.
+func draw(rows: [[int]]) {
+    let widest = length(rows) - 1
+    for r in 0..length(rows) {
+        var line = spaces((widest - r) * 2)
+        for n in rows[r] {
+            line = line + pad(n, 3) + " "
+        }
+        print(line)
+    }
+}
+
+// "Choose k from n" is just a number already sitting in the triangle.
+func choose(rows: [[int]], n: int, k: int) -> int {
+    let row = rows[n]
+    return row[k]
+}
+
+let built = triangle(9)
+draw(built)
+
+print("")
+print("row 4 on its own:", built[4])
+print("3 from 7:", choose(built, 7, 3))
+print("every row sums to a power of two:")
+for r in 0..length(built) {
+    var sum = 0
+    for n in built[r] {
+        sum += n
+    }
+    print("  row", r, "sums to", sum)
+}

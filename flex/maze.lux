@@ -1,0 +1,215 @@
+// maze — the shortest way out, found by flooding.
+//
+//   lux run maze.lux
+//
+// Breadth-first search, which is worth knowing by that name because it is the same
+// algorithm behind a routing table, a chess engine's opening book, and "six degrees
+// of separation." Start at one square, mark every square one step away, then every
+// square one step from those, and stop when the exit is reached. The first time you
+// arrive anywhere is by the shortest route, and that single fact is why it works.
+//
+// The queue is an array with a moving read position rather than something you take
+// from the front, because lux can add to the end of an array but not remove from
+// its start. That turns out to be the honest version anyway — nothing is thrown
+// away, so the finished queue is a record of the order the maze was explored in.
+//
+// Three grids over the same coordinates: the maze as characters, the distances as
+// numbers, and the drawing that comes out at the end.
+
+struct Point {
+    r: int
+    c: int
+}
+
+func rows(g: [[string]]) -> int {
+    return length(g)
+}
+
+func cols(g: [[string]]) -> int {
+    return length(g[0])
+}
+
+func at(g: [[string]], r: int, c: int) -> string {
+    let row = g[r]
+    return row[c]
+}
+
+func distances(g: [[string]]) -> [[int]] {
+    var out: [[int]] = []
+    for _ in 0..rows(g) {
+        var row: [int] = []
+        for _ in 0..cols(g) {
+            row += -1
+        }
+        out += row
+    }
+    return out
+}
+
+func find(g: [[string]], mark: string) -> Point {
+    for r in 0..rows(g) {
+        for c in 0..cols(g) {
+            if at(g, r, c) == mark {
+                return Point(r: r, c: c)
+            }
+        }
+    }
+    return Point(r: -1, c: -1)
+}
+
+func inside(g: [[string]], r: int, c: int) -> bool {
+    return r >= 0 && c >= 0 && r < rows(g) && c < cols(g)
+}
+
+func open(g: [[string]], r: int, c: int) -> bool {
+    return inside(g, r, c) && at(g, r, c) != "#"
+}
+
+// The flood. Every square gets the number of steps it took to reach it, and -1
+// means the flood never got there — a wall, or a room sealed off from the start.
+func flood(g: [[string]], from: Point) -> [[int]] {
+    var dist = distances(g)
+    dist[from.r][from.c] = 0
+    var queue = [from]
+    var head = 0
+    let dr = [-1, 1, 0, 0]
+    let dc = [0, 0, -1, 1]
+    while head < length(queue) {
+        let here = queue[head]
+        head += 1
+        let row = dist[here.r]
+        let step = row[here.c] + 1
+        for d in 0..4 {
+            let r = here.r + dr[d]
+            let c = here.c + dc[d]
+            if open(g, r, c) {
+                let seen = dist[r]
+                if seen[c] == -1 {
+                    dist[r][c] = step
+                    queue += Point(r: r, c: c)
+                }
+            }
+        }
+    }
+    return dist
+}
+
+func reading(dist: [[int]], p: Point) -> int {
+    let row = dist[p.r]
+    return row[p.c]
+}
+
+// Walking home. From the exit, step to any neighbour holding one less, and repeat
+// until the numbers run out at zero. Any such neighbour will do — every one of them
+// is on some shortest path.
+func route(g: [[string]], dist: [[int]], to: Point) -> [Point] {
+    var back: [Point] = []
+    if reading(dist, to) == -1 {
+        return back
+    }
+    var here = to
+    let dr = [-1, 1, 0, 0]
+    let dc = [0, 0, -1, 1]
+    while reading(dist, here) > 0 {
+        let want = reading(dist, here) - 1
+        var next = here
+        for d in 0..4 {
+            let r = here.r + dr[d]
+            let c = here.c + dc[d]
+            if open(g, r, c) {
+                let seen = dist[r]
+                if seen[c] == want {
+                    next = Point(r: r, c: c)
+                }
+            }
+        }
+        back += here
+        here = next
+    }
+    back += here
+    return back
+}
+
+func mark(g: [[string]], path: [Point]) -> [[string]] {
+    var out = g
+    for p in path {
+        if at(out, p.r, p.c) == "." {
+            out[p.r][p.c] = "o"
+        }
+    }
+    return out
+}
+
+func touched(dist: [[int]]) -> int {
+    var seen = 0
+    for row in dist {
+        for n in row {
+            if n >= 0 {
+                seen += 1
+            }
+        }
+    }
+    return seen
+}
+
+func draw(g: [[string]]) {
+    for row in g {
+        var line = "  "
+        for cell in row {
+            line = line + cell
+        }
+        print(line)
+    }
+}
+
+func drawDistances(dist: [[int]]) {
+    for row in dist {
+        var line = "  "
+        for n in row {
+            var cell = string(n)
+            if n == -1 {
+                cell = "#"
+            }
+            while length(cell) < 3 {
+                cell = " " + cell
+            }
+            line = line + cell
+        }
+        print(line)
+    }
+}
+
+let maze = [
+    ["#", "#", "#", "#", "#", "#", "#", "#", "#", "#", "#", "#"],
+    ["#", "S", ".", ".", "#", ".", ".", ".", ".", ".", ".", "#"],
+    ["#", "#", "#", ".", "#", ".", "#", "#", "#", "#", ".", "#"],
+    ["#", ".", ".", ".", ".", ".", "#", ".", ".", ".", ".", "#"],
+    ["#", ".", "#", "#", "#", "#", "#", ".", "#", "#", "#", "#"],
+    ["#", ".", ".", ".", ".", ".", ".", ".", "#", "X", "X", "#"],
+    ["#", "#", "#", "#", "#", ".", "#", "#", "#", "X", "X", "#"],
+    ["#", ".", ".", ".", ".", ".", ".", ".", "E", "#", "#", "#"],
+    ["#", "#", "#", "#", "#", "#", "#", "#", "#", "#", "#", "#"]
+]
+
+let start = find(maze, "S")
+let exit = find(maze, "E")
+let dist = flood(maze, start)
+
+print("the maze — S start, E exit, X a sealed room")
+draw(maze)
+
+print("")
+print("steps from the start, # where the flood never reached")
+drawDistances(dist)
+
+print("")
+print("shortest way out:", reading(dist, exit), "steps")
+draw(mark(maze, route(maze, dist, exit)))
+
+print("")
+// The sealed room sits right beside the exit corridor and has no door. It reads as
+// part of the maze and isn't, which is the distinction the flood makes and the eye
+// does not — a wall is only a wall if it encloses.
+let sealed = Point(r: 5, c: 9)
+print("the room at 5,9 reads", reading(dist, sealed), "— the flood never got in")
+print("squares reached:", touched(dist), "of", rows(maze) * cols(maze))

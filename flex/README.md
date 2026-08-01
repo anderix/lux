@@ -60,6 +60,20 @@ are trying to decide whether it's a toy.
 | `machine` | a vending machine where every state must answer every event |
 | `safe` | chaining two things that might be missing, without a null anywhere |
 
+**Grids.** An array of arrays, which is the shape most of a first course's
+interesting problems arrive in. Nothing else in the repo uses one — `conformance`'s
+Life deliberately flattens its board to `y * w + x` — so this section is also the
+first real exercise of `[[T]]` across the four implementations.
+
+| program | what it shows |
+|---|---|
+| `pascal` | rows of different lengths — a grid is a row of rows, not a rectangle |
+| `matrix` | the triple loop worth memorising, and a copy that leaves the caller's matrix alone |
+| `lcs` | a table standing in for repeated work, which is all dynamic programming is |
+| `tictactoe` | eight lines to check, and the third ending beginners forget |
+| `queens` | backtracking, where value semantics remove the undo step and its classic bug |
+| `maze` | breadth-first search, a queue that never discards, and a room the eye reads wrong |
+
 **Programs that do work.** Small filters that run in a pipe, exercising `args`,
 `readLine`, stdout and stderr as separate channels, and the two different ways a
 line can come back empty.
@@ -71,6 +85,15 @@ line can come back empty.
 | `wcl` | two of `wc`'s three columns, and a plain statement about the third |
 | `uniqc` | `uniq -c`, writable precisely because the real one only collapses adjacent runs |
 | `hist` | a bar chart, scaling, and junk input counted rather than fatal |
+
+## What it becomes
+
+[CONVERT.md](CONVERT.md) puts a handful of these beside the Rust, Swift, and Go that
+`lux convert` makes of them — a recursive type, a value that might be missing, a
+value that might fail, and a copy that stays a copy. It is the graduation argument
+in the only form that actually carries it, which is four columns rather than a
+paragraph. `./convert.sh` regenerates the full translations if you would rather read
+whole files.
 
 ## Where lux stops
 
@@ -95,16 +118,17 @@ map. Each says so where it stops.
 
 **Smaller edges.** A function sees only its parameters and its own locals — there
 are no globals to reach up for, which is why `roman` keeps its tables inside the
-function that walks them. Enums can refer to themselves but two enums cannot refer
-to each other. There is no `break`, so a loop keeps its own answer to "am I done?",
-which is a fair description of what `break` does anywhere.
+function that walks them. There is no `break`, so a loop keeps its own answer to
+"am I done?", which is a fair description of what `break` does anywhere. `+=` on an
+array adds one element rather than joining two, so `bst` carries a four-line
+`joinRows` to stitch a walk back together.
 
 ## What this found
 
 The point of running every program on every target is that a program which only
-works interpreted proves nothing. Every program here now matches on all three
-targets — but it took writing them to get there. Run `./flex.sh` for the live
-state.
+works interpreted proves nothing. Every program here runs correctly under `lux run`;
+where a target disagrees or won't build, that is the finding. Run `./flex.sh` for
+the live state, which is the only account of it that can't go stale.
 
 The corpus is what surfaced the divergences, and each was a bug in a target, not a
 limit of the language: an empty array literal's type in Go, an enum `var` taking
@@ -114,6 +138,36 @@ semantics leaking through a Go slice, an enum match dropping its wildcard case. 
 was found by the smaller `conformance/` set; each was filed as an issue, fixed in
 the target, and closed. The [CHANGELOG](../CHANGELOG.md) carries the history — which
 is the argument for this directory existing.
+
+The grid section found three more the same way, on its first run. A loop that
+discards its variable with `for _ in` — the natural way to say "do this n times",
+and the spelling lux's own emitter now uses — lowers to invalid Go
+([#18](https://github.com/anderix/lux/issues/18)), which is why six of these fail
+that leg. Returning a string read out of an array won't compile on Rust, because an
+indexed `String` is the one element type that isn't `Copy` and doesn't get the clone
+the emitter already gives arrays and structs
+([#20](https://github.com/anderix/lux/issues/20)) — that is `tictactoe` and `maze`,
+and it is the accessor every grid program writes. A variable named `none` binds
+correctly and then reads as the empty `Option` at every use site on all three
+targets ([#19](https://github.com/anderix/lux/issues/19)).
+
+One more from the same section is about cost rather than correctness, and so is the
+kind a diff will never catch. Go's value-semantics copy lands inside a loop's
+condition when the bound is a function call, so `for i in 0..rows(m)` deep-copies the
+whole grid on every iteration and an ordinary O(n²) walk runs cubic
+([#21](https://github.com/anderix/lux/issues/21)). The output is identical, which is
+exactly the problem: a learner who writes the obvious loop has no way to see what it
+cost, and slow is much harder to notice than wrong.
+
+Two more came from probing the edges of what could be written rather than from a
+program here. Two enums that refer to each other run interpreted and compile on Go,
+but Rust wants a `Box` and Swift an `indirect` that neither gets
+([#17](https://github.com/anderix/lux/issues/17)) — which is why that one isn't
+listed as a wall above, despite reading like one. And recursion deeper than roughly
+1,500 frames aborts the interpreter with a stack overflow rather than a lux error,
+where all three compiled targets carry on
+([#16](https://github.com/anderix/lux/issues/16)) — so on that one axis the
+reference implementation is the weakest of the four.
 
 ## The rules
 
