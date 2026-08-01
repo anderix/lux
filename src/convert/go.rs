@@ -991,7 +991,7 @@ impl Gen {
         let mut name = base.to_string();
         while arm_bindings(arms).any(|b| b == name)
             || self.t.in_scope(&name)
-            || self.scratches.iter().any(|s| *s == name)
+            || self.scratches.contains(&name)
         {
             name.push('_');
         }

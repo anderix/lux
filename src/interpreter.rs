@@ -1067,17 +1067,17 @@ impl Interp {
     /// `Shape.dot`. The two look identical, so the enum table decides: if the
     /// thing before the dot is an enum name (and not a variable), it's a case.
     fn eval_field(&mut self, base: &Expr, field: &str, span: Span) -> Result<Value, LuxError> {
-        if let Expr::Ident(n, nspan) = base {
-            if self.lookup(n).is_none() {
-                if self.enums.contains_key(n) {
-                    return self.construct_enum(n, field, &[], span);
-                }
-                // `Name.field` where `Name` is neither a value nor an enum: most
-                // likely a misspelled type or variable. Point at both fixes.
-                return Err(LuxError::new(format!("`{}` is not defined", n), *nspan)
-                    .with_note("if it's an enum, declare it with `enum`; otherwise declare the value with let or var")
-                    .with_learn("variables", "a name has to be made before it's used"));
+        if let Expr::Ident(n, nspan) = base
+            && self.lookup(n).is_none()
+        {
+            if self.enums.contains_key(n) {
+                return self.construct_enum(n, field, &[], span);
             }
+            // `Name.field` where `Name` is neither a value nor an enum: most
+            // likely a misspelled type or variable. Point at both fixes.
+            return Err(LuxError::new(format!("`{}` is not defined", n), *nspan)
+                .with_note("if it's an enum, declare it with `enum`; otherwise declare the value with let or var")
+                .with_learn("variables", "a name has to be made before it's used"));
         }
         let v = self.eval(base)?;
         match v {
@@ -2111,18 +2111,18 @@ fn value_type(v: &Value) -> String {
 fn append_or_add(current: Value, new: Value, span: Span) -> Result<Value, LuxError> {
     match current {
         Value::Array(mut items) => {
-            if let Some(first) = items.first() {
-                if !same_type(first, &new) {
-                    return Err(LuxError::new(
-                        format!(
-                            "cannot add {} to an array of {}",
-                            value_type(&new),
-                            value_type(first)
-                        ),
-                        span,
-                    )
-                    .with_learn("arrays", "an array holds one type, so += has to match it"));
-                }
+            if let Some(first) = items.first()
+                && !same_type(first, &new)
+            {
+                return Err(LuxError::new(
+                    format!(
+                        "cannot add {} to an array of {}",
+                        value_type(&new),
+                        value_type(first)
+                    ),
+                    span,
+                )
+                .with_learn("arrays", "an array holds one type, so += has to match it"));
             }
             items.push(new);
             Ok(Value::Array(items))

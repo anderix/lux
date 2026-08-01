@@ -212,10 +212,12 @@ fn gofmt(src: String) -> String {
         Err(_) => return src,
     };
     if let Some(mut stdin) = child.stdin.take() {
-        if stdin.write_all(src.as_bytes()).is_err() {
+        let wrote = stdin.write_all(src.as_bytes());
+        // Close the pipe (drop the writer) before reading gofmt's output.
+        drop(stdin);
+        if wrote.is_err() {
             return src;
         }
-        // Drop stdin to close the pipe before reading gofmt's output.
     }
     match child.wait_with_output() {
         Ok(o) if o.status.success() => String::from_utf8(o.stdout).unwrap_or(src),
