@@ -1,0 +1,57 @@
+// head — print the first few lines and stop reading.
+//
+//   seq 1 100 | lux run head.lux
+//   seq 1 100 | lux run head.lux 3
+//
+// The count comes from the command line, which is where this meets `args()`. In
+// lux, as in Rust, Swift, and Go, `args()[0]` is the program itself and the first
+// real argument is `args()[1]` — a footgun kept rather than smoothed over,
+// because every one of those languages will hand a learner the same surprise.
+//
+// A bad count is not a crash: `parseInt` returns an `Option`, so "head banana"
+// falls back to the default and says so on stderr, leaving stdout clean for the
+// lines themselves.
+
+func more(o: Option<string>) -> bool {
+    return match o {
+        some(let s) => true
+        none        => false
+    }
+}
+
+func text(o: Option<string>) -> string {
+    return match o {
+        some(let s) => s
+        none        => ""
+    }
+}
+
+func wanted(argv: [string]) -> int {
+    if length(argv) < 2 {
+        return 10
+    }
+    return match parseInt(argv[1]) {
+        some(let n) => n
+        none        => complain(argv[1])
+    }
+}
+
+func complain(bad: string) -> int {
+    eprint("head: \"" + bad + "\" is not a number, showing 10")
+    return 10
+}
+
+let limit = wanted(args())
+var shown = 0
+var reading = true
+
+// No `break`, so the loop keeps its own answer to "am I done?" — which is also
+// the honest description of what break does anywhere.
+while reading && shown < limit {
+    let line = readLine()
+    reading = more(line)
+    if reading {
+        print(text(line))
+        shown += 1
+    }
+}

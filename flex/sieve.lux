@@ -1,0 +1,45 @@
+// sieve — the Sieve of Eratosthenes: cross out multiples, keep what survives.
+//
+//   lux run sieve.lux
+//
+// This is the program that needs to *change* a value in place. Start with every
+// number marked prime, walk up from 2, and for each survivor cross out its
+// multiples — each crossing-out is an assignment into the middle of a row. The
+// inner loop starts at p * p because everything smaller was already crossed out
+// by a smaller prime, which is the one optimisation worth knowing here.
+
+func sieve(limit: int) -> [int] {
+    var isPrime: [bool] = []
+    for i in 0..(limit + 1) {
+        isPrime += i >= 2
+    }
+
+    var p = 2
+    while p * p <= limit {
+        if isPrime[p] {
+            var m = p * p
+            while m <= limit {
+                isPrime[m] = false
+                m += p
+            }
+        }
+        p += 1
+    }
+
+    var found: [int] = []
+    for i in 0..(limit + 1) {
+        if isPrime[i] {
+            found += i
+        }
+    }
+    return found
+}
+
+let primes = sieve(100)
+print("primes to 100 —", length(primes), "of them")
+var line = ""
+for n in primes {
+    line = line + string(n) + " "
+}
+print(line)
+print("primes to 1000 —", length(sieve(1000)))

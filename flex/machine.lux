@@ -1,0 +1,142 @@
+// machine — a vending machine as a state machine.
+//
+//   lux run machine.lux
+//
+// Three states, four events, and one function that says what each pairing does.
+// Written as a `match` on the state inside a `match` on the event, the table is
+// exhaustive: lux refuses to run until every state has an answer for every event,
+// so "what happens if a coin arrives while it's dispensing?" is a question the
+// language forces you to answer rather than one you discover in production.
+//
+// The machine itself is a value. Each event produces the next machine rather than
+// editing this one, which is the same shape `lux crawl` uses for its world — and
+// the reason the whole run can be replayed by folding the events again.
+
+enum State {
+    idle
+    paid
+    empty
+}
+
+enum Event {
+    coin
+    choose
+    refund
+    restock
+}
+
+struct Machine {
+    state: State
+    credit: int
+    stock: int
+    note: string
+}
+
+func priced() -> int {
+    return 75
+}
+
+func onCoin(m: Machine) -> Machine {
+    let credit = m.credit + 25
+    if m.stock == 0 {
+        return Machine(state: State.empty, credit: credit, stock: 0, note: "sold out, keeping your " + string(credit) + "c for now")
+    } else if credit >= priced() {
+        return Machine(state: State.paid, credit: credit, stock: m.stock, note: "credit " + string(credit) + "c — make a choice")
+    }
+    return Machine(state: State.idle, credit: credit, stock: m.stock, note: "credit " + string(credit) + "c, need " + string(priced()) + "c")
+}
+
+func onChoose(m: Machine) -> Machine {
+    let left = m.stock - 1
+    var state = State.idle
+    if left == 0 {
+        state = State.empty
+    }
+    return Machine(state: state, credit: m.credit - priced(), stock: left, note: "clunk — one item, " + string(m.credit - priced()) + "c change")
+}
+
+func onRefund(m: Machine) -> Machine {
+    var state = State.idle
+    if m.stock == 0 {
+        state = State.empty
+    }
+    return Machine(state: state, credit: 0, stock: m.stock, note: "returned " + string(m.credit) + "c")
+}
+
+func onRestock(m: Machine) -> Machine {
+    return Machine(state: State.idle, credit: m.credit, stock: 6, note: "refilled to 6")
+}
+
+func refuse(m: Machine, why: string) -> Machine {
+    return Machine(state: m.state, credit: m.credit, stock: m.stock, note: why)
+}
+
+// The whole table. Every state answers every event.
+func step(m: Machine, e: Event) -> Machine {
+    return match m.state {
+        idle => match e {
+            coin    => onCoin(m)
+            choose  => refuse(m, "nothing paid yet")
+            refund  => onRefund(m)
+            restock => onRestock(m)
+        }
+        paid => match e {
+            coin    => onCoin(m)
+            choose  => onChoose(m)
+            refund  => onRefund(m)
+            restock => onRestock(m)
+        }
+        empty => match e {
+            coin    => onCoin(m)
+            choose  => refuse(m, "sold out")
+            refund  => onRefund(m)
+            restock => onRestock(m)
+        }
+    }
+}
+
+func name(s: State) -> string {
+    return match s {
+        idle  => "idle"
+        paid  => "paid"
+        empty => "empty"
+    }
+}
+
+func label(e: Event) -> string {
+    return match e {
+        coin    => "coin"
+        choose  => "choose"
+        refund  => "refund"
+        restock => "restock"
+    }
+}
+
+// A tally kept the other way — changed in place, now that lux allows it.
+struct Tally {
+    vends: int
+    refusals: int
+}
+
+var machine = Machine(state: State.idle, credit: 0, stock: 2, note: "ready")
+var tally = Tally(vends: 0, refusals: 0)
+
+let script = [Event.choose, Event.coin, Event.coin, Event.choose, Event.coin, Event.coin, Event.coin, Event.choose, Event.choose, Event.coin, Event.refund, Event.restock]
+
+for e in script {
+    let before = name(machine.state)
+    let stocked = machine.stock
+    machine = step(machine, e)
+    if machine.stock < stocked {
+        tally.vends += 1
+    } else if machine.note == "nothing paid yet" || machine.note == "sold out" {
+        tally.refusals += 1
+    }
+    print(before + " --" + label(e) + "--> " + name(machine.state) + "   " + machine.note)
+}
+
+print("")
+print("vends   ", tally.vends)
+print("refusals", tally.refusals)
+print("stock   ", machine.stock)
+print("credit  ", machine.credit)

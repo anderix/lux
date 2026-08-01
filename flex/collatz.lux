@@ -1,0 +1,52 @@
+// collatz — halve it if it's even, triple it and add one if it's odd.
+//
+//   lux run collatz.lux
+//
+// Every number anyone has ever tried eventually reaches 1, and nobody has proved
+// it must. That makes this the rare loop whose termination is an open problem —
+// worth saying out loud to a learner who has just been told to check that loops
+// finish. The program takes it on faith, counts the steps, and reports the
+// longest chain it found.
+
+func steps(start: int) -> int {
+    var n = start
+    var count = 0
+    while n != 1 {
+        if n % 2 == 0 {
+            n = n / 2
+        } else {
+            n = 3 * n + 1
+        }
+        count += 1
+    }
+    return count
+}
+
+func chain(start: int) -> string {
+    var n = start
+    var out = string(n)
+    while n != 1 {
+        if n % 2 == 0 {
+            n = n / 2
+        } else {
+            n = 3 * n + 1
+        }
+        out = out + " -> " + string(n)
+    }
+    return out
+}
+
+print("27 takes", steps(27), "steps")
+print(chain(27))
+print("")
+
+var best = 1
+var bestSteps = 0
+for n in 1..1000 {
+    let s = steps(n)
+    if s > bestSteps {
+        best = n
+        bestSteps = s
+    }
+}
+print("longest chain under 1000: " + string(best) + " at " + string(bestSteps) + " steps")

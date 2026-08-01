@@ -1,0 +1,39 @@
+// fib — the same sequence computed two ways, and a check that they agree.
+//
+//   lux run fib.lux
+//
+// The recursive version is the definition typed out: fib(n) is fib(n-1) plus
+// fib(n-2), and the two base cases stop it. The loop version keeps two numbers
+// and walks forward. They compute the same thing at wildly different cost — the
+// recursion re-derives every earlier value on every call — which is the first
+// place a learner meets the idea that correct and fast are separate questions.
+
+func slow(n: int) -> int {
+    if n < 2 {
+        return n
+    }
+    return slow(n - 1) + slow(n - 2)
+}
+
+func fast(n: int) -> int {
+    var a = 0
+    var b = 1
+    for i in 0..n {
+        let next = a + b
+        a = b
+        b = next
+    }
+    return a
+}
+
+print("n   slow   fast   agree")
+for n in 0..16 {
+    let s = slow(n)
+    let f = fast(n)
+    print(string(n) + "\t" + string(s) + "\t" + string(f) + "\t" + string(s == f))
+}
+
+// Only the loop version can go this far in a reasonable time.
+print("")
+print("fast(40) =", fast(40))
+print("fast(70) =", fast(70))

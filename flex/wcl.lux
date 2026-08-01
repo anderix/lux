@@ -1,0 +1,48 @@
+// wcl — wc -l, and a note about the two columns it can't do.
+//
+//   printf 'one\ntwo\nthree\n' | lux run wcl.lux
+//
+// Counting lines is a counter and a loop. Counting *characters* is `length` on
+// each line plus one for the newline. Counting *words* is where this stops: it
+// needs the text split on whitespace, and lux has no way to take a string apart.
+//
+// So this reports two of `wc`'s three columns and says plainly that the third is
+// out of reach. That is the honest shape of the gap — not a bug, and not a
+// permanent rule either; splitting is wanted and hasn't been built.
+
+func more(o: Option<string>) -> bool {
+    return match o {
+        some(let s) => true
+        none        => false
+    }
+}
+
+func width(o: Option<string>) -> int {
+    return match o {
+        some(let s) => length(s)
+        none        => 0
+    }
+}
+
+var lines = 0
+var characters = 0
+var longest = 0
+var reading = true
+
+while reading {
+    let line = readLine()
+    reading = more(line)
+    if reading {
+        lines += 1
+        let w = width(line)
+        characters += w + 1
+        if w > longest {
+            longest = w
+        }
+    }
+}
+
+print("lines      ", lines)
+print("characters ", characters)
+print("longest    ", longest)
+print("words       — needs splitting a string, which lux cannot do")

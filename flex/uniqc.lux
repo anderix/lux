@@ -1,0 +1,58 @@
+// uniqc — uniq -c: collapse runs of identical lines and count them.
+//
+//   printf 'a\na\nb\na\n' | lux run uniqc.lux
+//
+// The real `uniq` only collapses *adjacent* duplicates, which is why it is
+// almost always seen after `sort`. That restriction is what makes it writable
+// here: it needs to remember one line, not all of them. Counting every distinct
+// line regardless of position would need a map, and lux has none — so the tool
+// that fits the language is the same one Unix actually shipped.
+
+func more(o: Option<string>) -> bool {
+    return match o {
+        some(let s) => true
+        none        => false
+    }
+}
+
+func text(o: Option<string>) -> string {
+    return match o {
+        some(let s) => s
+        none        => ""
+    }
+}
+
+func emit(n: int, s: string) -> string {
+    var count = string(n)
+    while length(count) < 4 {
+        count = " " + count
+    }
+    return count + " " + s
+}
+
+var current = ""
+var run = 0
+var started = false
+var reading = true
+
+while reading {
+    let line = readLine()
+    reading = more(line)
+    if reading {
+        let s = text(line)
+        if started && s == current {
+            run += 1
+        } else {
+            if started {
+                print(emit(run, current))
+            }
+            current = s
+            run = 1
+            started = true
+        }
+    }
+}
+
+if started {
+    print(emit(run, current))
+}

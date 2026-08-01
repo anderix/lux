@@ -1,0 +1,43 @@
+// catn — cat -n: copy stdin to stdout with every line numbered.
+//
+//   printf 'alpha\nbeta\ngamma\n' | lux run catn.lux
+//
+// The smallest useful filter there is, and the shape every one of them has: read
+// until the input runs out, do one thing per line, write it out. `readLine`
+// hands back an `Option<string>` — `none` is end of input, not an error and not
+// an empty line — so the loop condition and the work both fall out of the same
+// match.
+
+func more(o: Option<string>) -> bool {
+    return match o {
+        some(let s) => true
+        none        => false
+    }
+}
+
+func numbered(n: int, o: Option<string>) -> string {
+    return match o {
+        some(let s) => pad(n) + "  " + s
+        none        => ""
+    }
+}
+
+// Right-align the number in a six-wide column without any formatting machinery.
+func pad(n: int) -> string {
+    var out = string(n)
+    while length(out) < 6 {
+        out = " " + out
+    }
+    return out
+}
+
+var count = 0
+var reading = true
+while reading {
+    let line = readLine()
+    reading = more(line)
+    if reading {
+        count += 1
+        print(numbered(count, line))
+    }
+}

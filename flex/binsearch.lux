@@ -1,0 +1,42 @@
+// binsearch — halve the range until the value is found or the range is empty.
+//
+//   lux run binsearch.lux
+//
+// The answer is "the position, or nothing," and lux makes you say the second
+// part out loud: the return type is `Option<int>`, so a caller cannot read a
+// position that was never found. In a language that returns -1 for "missing",
+// forgetting to check is a silent bug; here it is a match you have to write.
+//
+// There is no `break` in lux, so the loop ends the way a search naturally does —
+// by returning the moment it lands, and falling out of the bottom when the range
+// closes on nothing.
+
+func find(xs: [int], target: int) -> Option<int> {
+    var lo = 0
+    var hi = length(xs) - 1
+    while lo <= hi {
+        let mid = lo + (hi - lo) / 2
+        if xs[mid] == target {
+            return some(mid)
+        } else if xs[mid] < target {
+            lo = mid + 1
+        } else {
+            hi = mid - 1
+        }
+    }
+    return none
+}
+
+func report(xs: [int], target: int) -> string {
+    return match find(xs, target) {
+        some(let at) => string(target) + " is at index " + string(at)
+        none         => string(target) + " is not in the row"
+    }
+}
+
+let row = [1, 3, 5, 7, 9, 11, 13]
+print(row)
+for target in [1, 7, 13, 4, 20] {
+    print(report(row, target))
+}
+print(report([], 1), "— an empty row finds nothing without a special case")

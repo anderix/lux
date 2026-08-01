@@ -1,0 +1,101 @@
+// hist — a bar chart of numbers arriving on stdin.
+//
+//   seq 1 12 | lux run hist.lux
+//   printf '3\n9\nnope\n14\n' | lux run hist.lux
+//
+// Reading is the same filter loop as the others, with the same two ways to come
+// up empty kept apart: `readLine` returning `none` means the input ended, and
+// `parseInt` returning `none` means that line wasn't a number. Neither is an
+// error worth stopping for, so bad lines are counted and mentioned at the end.
+//
+// The scaling is the only arithmetic worth reading twice — bars are drawn
+// relative to the largest value, so the chart fills the width whatever the
+// numbers happen to be.
+
+func more(o: Option<string>) -> bool {
+    return match o {
+        some(let s) => true
+        none        => false
+    }
+}
+
+func absorb(seen: [int], o: Option<string>) -> [int] {
+    return match o {
+        none => seen
+        some(let line) => match parseInt(line) {
+            some(let n) => grow(seen, n)
+            none        => seen
+        }
+    }
+}
+
+func grow(seen: [int], n: int) -> [int] {
+    var out = seen
+    out += n
+    return out
+}
+
+func junk(o: Option<string>) -> int {
+    return match o {
+        none => 0
+        some(let line) => match parseInt(line) {
+            some(let n) => 0
+            none        => 1
+        }
+    }
+}
+
+func bar(n: int, biggest: int, width: int) -> string {
+    if biggest <= 0 {
+        return ""
+    }
+    var blocks = n * width / biggest
+    if blocks < 1 && n > 0 {
+        blocks = 1
+    }
+    var out = ""
+    for i in 0..blocks {
+        out = out + "#"
+    }
+    return out
+}
+
+func pad(n: int, wide: int) -> string {
+    var out = string(n)
+    while length(out) < wide {
+        out = " " + out
+    }
+    return out
+}
+
+var numbers: [int] = []
+var skipped = 0
+var reading = true
+
+while reading {
+    let line = readLine()
+    reading = more(line)
+    numbers = absorb(numbers, line)
+    skipped += junk(line)
+}
+
+if length(numbers) == 0 {
+    eprint("hist: no numbers on stdin")
+    print("nothing to chart")
+}
+
+if length(numbers) > 0 {
+    var biggest = numbers[0]
+    for n in numbers {
+        if n > biggest {
+            biggest = n
+        }
+    }
+    for n in numbers {
+        print(pad(n, 6) + " " + bar(n, biggest, 40))
+    }
+    if skipped > 0 {
+        print("")
+        print("skipped", skipped, "line(s) that weren't numbers")
+    }
+}

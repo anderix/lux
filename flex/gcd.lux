@@ -1,0 +1,40 @@
+// gcd — Euclid's algorithm, two thousand years old and still three lines.
+//
+//   lux run gcd.lux
+//
+// The whole idea is that the greatest common divisor of a and b is also the
+// greatest common divisor of b and the remainder of a divided by b, and that
+// shrinking pair has to reach zero. Written recursively it is the proof; written
+// as a loop it is the same steps with the recursion unrolled by hand.
+
+func gcd(a: int, b: int) -> int {
+    if b == 0 {
+        return a
+    }
+    return gcd(b, a % b)
+}
+
+func gcdLoop(a: int, b: int) -> int {
+    var x = a
+    var y = b
+    while y != 0 {
+        let r = x % y
+        x = y
+        y = r
+    }
+    return x
+}
+
+// The least common multiple falls straight out of it.
+func lcm(a: int, b: int) -> int {
+    return a / gcd(a, b) * b
+}
+
+let pairs = [[12, 18], [270, 192], [17, 5], [48, 180], [7, 7]]
+for p in pairs {
+    let a = p[0]
+    let b = p[1]
+    print("gcd(" + string(a) + ", " + string(b) + ") = " + string(gcd(a, b)) +
+          "   loop " + string(gcdLoop(a, b)) +
+          "   lcm " + string(lcm(a, b)))
+}

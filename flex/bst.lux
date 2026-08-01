@@ -1,0 +1,95 @@
+// bst — a binary search tree that builds itself from a row of numbers.
+//
+//   lux run bst.lux
+//
+// The rule is one sentence: everything left of a node is smaller, everything
+// right is bigger. Insert follows that rule down to an empty spot and rebuilds
+// the path on the way back up, because a tree here is a value rather than a web
+// of pointers to edit. Walking it left-node-right visits the values in order,
+// which is the payoff — the sorting fell out of the shape of the structure.
+//
+// The order values arrive in decides the shape. Insert an already-sorted row and
+// every node hangs off the right, and the tree degenerates into a linked list
+// with extra steps — which is why the balanced versions exist.
+
+enum Tree {
+    empty
+    node(left: Tree, value: int, right: Tree)
+}
+
+func insert(t: Tree, v: int) -> Tree {
+    return match t {
+        empty => Tree.node(left: Tree.empty, value: v, right: Tree.empty)
+        node(let l, let x, let r) => branch(l, x, r, v)
+    }
+}
+
+func branch(l: Tree, x: int, r: Tree, v: int) -> Tree {
+    if v < x {
+        return Tree.node(left: insert(l, v), value: x, right: r)
+    } else if v > x {
+        return Tree.node(left: l, value: x, right: insert(r, v))
+    }
+    return Tree.node(left: l, value: x, right: r)
+}
+
+func fromRow(xs: [int]) -> Tree {
+    var t = Tree.empty
+    for x in xs {
+        t = insert(t, x)
+    }
+    return t
+}
+
+func inorder(t: Tree) -> [int] {
+    return match t {
+        empty => []
+        node(let l, let x, let r) => joinRows(append(inorder(l), x), inorder(r))
+    }
+}
+
+func append(xs: [int], v: int) -> [int] {
+    var out = xs
+    out += v
+    return out
+}
+
+func joinRows(a: [int], b: [int]) -> [int] {
+    var out = a
+    for x in b {
+        out += x
+    }
+    return out
+}
+
+func height(t: Tree) -> int {
+    return match t {
+        empty => 0
+        node(let l, let x, let r) => 1 + taller(height(l), height(r))
+    }
+}
+
+func taller(a: int, b: int) -> int {
+    if a > b {
+        return a
+    }
+    return b
+}
+
+func has(t: Tree, v: int) -> bool {
+    return match t {
+        empty => false
+        node(let l, let x, let r) => v == x || has(l, v) || has(r, v)
+    }
+}
+
+let jumbled = fromRow([50, 30, 70, 20, 40, 60, 80])
+print("in order", inorder(jumbled))
+print("height  ", height(jumbled))
+print("has 40? ", has(jumbled, 40))
+print("has 45? ", has(jumbled, 45))
+print("")
+let sorted = fromRow([1, 2, 3, 4, 5, 6, 7])
+print("same values arriving sorted:")
+print("in order", inorder(sorted))
+print("height  ", height(sorted), "— every node hung off the right")

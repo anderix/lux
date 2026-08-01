@@ -1,0 +1,97 @@
+// expr — an expression tree, evaluated, where the arithmetic can fail.
+//
+//   lux run expr.lux
+//
+// Two recursive enums meet here: an expression is a number or an operation on
+// two smaller expressions, and evaluating one means evaluating both sides first.
+// Division is the case that can fail, so `eval` hands back a `Result` rather than
+// an int, and a failure anywhere below has to travel all the way up.
+//
+// That travelling is why the binary case is a match inside a match. lux won't let
+// a `Result` be stashed in a variable and dealt with later — it is handled where
+// it is produced — so evaluating the left side, then the right, then combining
+// them is written as nesting rather than three statements in a row. It reads
+// almost exactly like Go's `if err != nil` after every call, which is the point:
+// the ceremony is the error path being impossible to skip.
+
+enum Op {
+    add
+    sub
+    mul
+    div
+}
+
+enum Expr {
+    num(value: int)
+    binary(op: Op, left: Expr, right: Expr)
+}
+
+func divide(a: int, b: int) -> Result<int, string> {
+    if b == 0 {
+        return err("divided " + string(a) + " by zero")
+    }
+    return ok(a / b)
+}
+
+func apply(op: Op, a: int, b: int) -> Result<int, string> {
+    return match op {
+        add => ok(a + b)
+        sub => ok(a - b)
+        mul => ok(a * b)
+        div => divide(a, b)
+    }
+}
+
+func eval(e: Expr) -> Result<int, string> {
+    return match e {
+        num(let value) => ok(value)
+        binary(let op, let left, let right) => match eval(left) {
+            err(let reason) => err(reason)
+            ok(let a) => match eval(right) {
+                err(let reason) => err(reason)
+                ok(let b) => apply(op, a, b)
+            }
+        }
+    }
+}
+
+func sign(op: Op) -> string {
+    return match op {
+        add => " + "
+        sub => " - "
+        mul => " * "
+        div => " / "
+    }
+}
+
+func show(e: Expr) -> string {
+    return match e {
+        num(let value) => string(value)
+        binary(let op, let left, let right) => "(" + show(left) + sign(op) + show(right) + ")"
+    }
+}
+
+func report(e: Expr) -> string {
+    return match eval(e) {
+        ok(let v)       => show(e) + " = " + string(v)
+        err(let reason) => show(e) + " failed: " + reason
+    }
+}
+
+func lit(n: int) -> Expr {
+    return Expr.num(value: n)
+}
+
+// (2 + 3) * 4
+let good = Expr.binary(op: Op.mul, left: Expr.binary(op: Op.add, left: lit(2), right: lit(3)), right: lit(4))
+
+// 100 / (7 - 7), where the failure is buried two levels down
+let bad = Expr.binary(op: Op.div, left: lit(100), right: Expr.binary(op: Op.sub, left: lit(7), right: lit(7)))
+
+// 1 + (100 / (7 - 7)), to show the failure still reaching the top
+let deeper = Expr.binary(op: Op.add, left: lit(1), right: bad)
+
+print(report(good))
+print(report(bad))
+print(report(deeper))
+print(report(lit(42)))

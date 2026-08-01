@@ -1,0 +1,49 @@
+// roman — numbers to Roman numerals.
+//
+//   lux run roman.lux
+//
+// The trick is the table. Put the subtractive pairs (CM, CD, XL, IV) in the list
+// alongside the plain symbols, largest first, and the algorithm is: take the
+// biggest value that still fits, write its symbol, subtract, repeat.
+//
+// The two tables live inside the function that uses them because a function in
+// lux sees only its own parameters and its own locals — there are no globals to
+// reach up for, so anything a function needs is either passed in or made there.
+
+func toRoman(n: int) -> string {
+    let values  = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1]
+    let symbols = ["M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I"]
+
+    var left = n
+    var out = ""
+    for i in 0..length(values) {
+        while left >= values[i] {
+            out = out + symbols[i]
+            left = left - values[i]
+        }
+    }
+    return out
+}
+
+// One symbol's worth, by name. lux has no string indexing, so a numeral is
+// matched whole rather than picked apart character by character — which is why
+// this reads a symbol and not a numeral.
+func worth(s: string) -> int {
+    return match s {
+        "M" => 1000
+        "D" => 500
+        "C" => 100
+        "L" => 50
+        "X" => 10
+        "V" => 5
+        "I" => 1
+        _   => 0
+    }
+}
+
+let checks = [1, 4, 9, 14, 40, 90, 400, 1987, 2024, 3999]
+for n in checks {
+    print(string(n) + "\t" + toRoman(n))
+}
+print("")
+print("a symbol's worth: X is", worth("X"), "and C is", worth("C"))

@@ -1,0 +1,60 @@
+// safe — looking things up when the answer might not be there.
+//
+//   lux run safe.lux
+//
+// Two things can go wrong reading a setting: the name might not be there, and
+// what's there might not be a number. Both come back as `Option`, and neither can
+// be ignored — there is no null to forget to check and no -1 standing in for
+// "missing". Chaining them is a match inside a match, which is what "this depends
+// on that having worked" looks like when the language makes it explicit.
+//
+// The store is two rows kept in step, searched from the front. A real one would
+// be a map, which lux does not have yet — so this is the honest small version,
+// and it is worth noticing that it works fine at this size and would not at any
+// real one.
+
+func lookup(names: [string], values: [string], want: string) -> Option<string> {
+    for i in 0..length(names) {
+        if names[i] == want {
+            return some(values[i])
+        }
+    }
+    return none
+}
+
+func number(names: [string], values: [string], want: string) -> Option<int> {
+    return match lookup(names, values, want) {
+        none => none
+        some(let text) => parseInt(text)
+    }
+}
+
+// A default is just the other arm of the match, which is why nothing here needs
+// a special "or else" operator.
+func numberOr(names: [string], values: [string], want: string, fallback: int) -> int {
+    return match number(names, values, want) {
+        some(let n) => n
+        none        => fallback
+    }
+}
+
+func describe(names: [string], values: [string], want: string) -> string {
+    return match lookup(names, values, want) {
+        none => want + ": not set"
+        some(let text) => match parseInt(text) {
+            some(let n) => want + ": " + string(n)
+            none        => want + ": set to \"" + text + "\", which is not a number"
+        }
+    }
+}
+
+let names  = ["width", "height", "title", "depth"]
+let values = ["80", "24", "untitled", "deep"]
+
+for want in ["width", "height", "title", "depth", "colour"] {
+    print(describe(names, values, want))
+}
+
+print("")
+print("area from settings:", numberOr(names, values, "width", 1) * numberOr(names, values, "height", 1))
+print("missing falls back:", numberOr(names, values, "colour", 7))

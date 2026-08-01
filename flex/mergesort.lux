@@ -1,0 +1,58 @@
+// mergesort — split the row in half, sort both halves, then zip them together.
+//
+//   lux run mergesort.lux
+//
+// This is the first sort here that is genuinely fast, and the reason is the
+// merge: two already-sorted rows combine in one pass, because the next smallest
+// value is always at the front of one of them. Splitting costs nothing and the
+// merging is where the work happens, which is the shape of every divide-and-
+// conquer algorithm.
+//
+// Nothing is changed in place. Merge sort allocates by nature — it builds a new
+// row on the way back up — so it reads the same here as it does anywhere.
+
+func slice(xs: [int], from: int, upto: int) -> [int] {
+    var out: [int] = []
+    for i in from..upto {
+        out += xs[i]
+    }
+    return out
+}
+
+func merge(a: [int], b: [int]) -> [int] {
+    var out: [int] = []
+    var i = 0
+    var j = 0
+    while i < length(a) && j < length(b) {
+        if a[i] <= b[j] {
+            out += a[i]
+            i += 1
+        } else {
+            out += b[j]
+            j += 1
+        }
+    }
+    while i < length(a) {
+        out += a[i]
+        i += 1
+    }
+    while j < length(b) {
+        out += b[j]
+        j += 1
+    }
+    return out
+}
+
+func mergesort(xs: [int]) -> [int] {
+    let n = length(xs)
+    if n < 2 {
+        return xs
+    }
+    let mid = n / 2
+    return merge(mergesort(slice(xs, 0, mid)), mergesort(slice(xs, mid, n)))
+}
+
+print("before", [38, 27, 43, 3, 9, 82, 10])
+print("after ", mergesort([38, 27, 43, 3, 9, 82, 10]))
+print("merge ", merge([1, 4, 9], [2, 3, 10]), "— two sorted rows, one pass")
+print("empty ", mergesort([]))

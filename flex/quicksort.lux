@@ -1,0 +1,58 @@
+// quicksort — pick a pivot, push everything smaller left of it, recurse.
+//
+//   lux run quicksort.lux
+//
+// Lomuto's partition, the version worth reading first: walk the range keeping a
+// boundary, swap anything that belongs on the low side across it, and finish by
+// dropping the pivot at the boundary. After one partition the pivot is in its
+// final place forever, which is the claim that makes the recursion terminate.
+//
+// It is the textbook *in-place* sort, and lux makes the limit of that visible.
+// A row handed to a function is a copy, so a partition can only rearrange its
+// own copy and hand it back — `partition` returns the row alongside the pivot's
+// index in a struct. The swapping is genuinely in place; the handing-back is
+// what value semantics cost, and Go and Swift would charge the same unless you
+// reached for a pointer or `inout`.
+
+struct Split {
+    row: [int]
+    at: int
+}
+
+func partition(input: [int], lo: int, hi: int) -> Split {
+    var xs = input
+    let pivot = xs[hi]
+    var boundary = lo
+    for j in lo..hi {
+        if xs[j] <= pivot {
+            let hold = xs[boundary]
+            xs[boundary] = xs[j]
+            xs[j] = hold
+            boundary += 1
+        }
+    }
+    let hold = xs[boundary]
+    xs[boundary] = xs[hi]
+    xs[hi] = hold
+    return Split(row: xs, at: boundary)
+}
+
+func sortRange(input: [int], lo: int, hi: int) -> [int] {
+    if lo >= hi {
+        return input
+    }
+    let split = partition(input, lo, hi)
+    var xs = sortRange(split.row, lo, split.at - 1)
+    xs = sortRange(xs, split.at + 1, hi)
+    return xs
+}
+
+func quicksort(xs: [int]) -> [int] {
+    return sortRange(xs, 0, length(xs) - 1)
+}
+
+print("before  ", [10, 7, 8, 9, 1, 5])
+print("after   ", quicksort([10, 7, 8, 9, 1, 5]))
+print("reversed", quicksort([9, 8, 7, 6, 5, 4]), "— the worst case for this pivot choice")
+print("dupes   ", quicksort([4, 1, 4, 1, 4]))
+print("empty   ", quicksort([]))

@@ -1,0 +1,67 @@
+// list — a singly linked list, the first recursive data structure.
+//
+//   lux run list.lux
+//
+// A list is either nothing or a value followed by another list. That sentence is
+// the enum, and every function below is written by asking which of the two it
+// has. Each target spells the indirection its own way — a box in Rust, an
+// `indirect` enum in Swift, an interface in Go — and none of that shows up here.
+//
+// The empty case is called `nil` on purpose: it is what the textbook calls it,
+// and it is a reserved word in one of the three targets, so keeping it here
+// holds that translation honest.
+
+enum List {
+    nil
+    cons(head: int, tail: List)
+}
+
+func size(l: List) -> int {
+    return match l {
+        nil => 0
+        cons(let h, let rest) => 1 + size(rest)
+    }
+}
+
+func total(l: List) -> int {
+    return match l {
+        nil => 0
+        cons(let h, let rest) => h + total(rest)
+    }
+}
+
+func push(l: List, v: int) -> List {
+    return List.cons(head: v, tail: l)
+}
+
+// Building the reverse is the natural direction for a list, because pushing puts
+// the new value at the front.
+func fromRow(xs: [int]) -> List {
+    var out = List.nil
+    for x in xs {
+        out = push(out, x)
+    }
+    return out
+}
+
+func show(l: List) -> string {
+    return match l {
+        nil => "nil"
+        cons(let h, let rest) => string(h) + " -> " + show(rest)
+    }
+}
+
+func contains(l: List, v: int) -> bool {
+    return match l {
+        nil => false
+        cons(let h, let rest) => h == v || contains(rest, v)
+    }
+}
+
+let built = fromRow([1, 2, 3, 4, 5])
+print(show(built))
+print("size ", size(built))
+print("total", total(built))
+print("has 3?", contains(built, 3))
+print("has 9?", contains(built, 9))
+print("empty:", show(List.nil), "with size", size(List.nil))

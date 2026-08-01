@@ -1,0 +1,39 @@
+// bubble — the first sort anyone is taught, and the one to stop using.
+//
+//   lux run bubble.lux
+//
+// Walk the row comparing neighbours, swap them when they're out of order, and
+// repeat until a pass makes no swaps. Each pass drags the largest remaining
+// value to the end — that's the bubble — so the tail is finished early and the
+// inner loop can stop short of it.
+//
+// A parameter can't be changed, so the row is copied into a local `var` first
+// and the copy is what gets sorted. That copy is the idiom for every sort here:
+// the caller's row is never touched, and the sorted one comes back as a value.
+
+func bubble(input: [int]) -> [int] {
+    var xs = input
+    let n = length(xs)
+    var pass = 0
+    var swapped = true
+    while swapped {
+        swapped = false
+        for j in 0..(n - 1 - pass) {
+            if xs[j] > xs[j + 1] {
+                let hold = xs[j]
+                xs[j] = xs[j + 1]
+                xs[j + 1] = hold
+                swapped = true
+            }
+        }
+        pass += 1
+    }
+    return xs
+}
+
+let row = [5, 2, 9, 1, 5, 6, 0, 3]
+print("before ", row)
+print("after  ", bubble(row))
+print("source ", row, "— untouched, because the sort worked on a copy")
+print("sorted ", bubble([1, 2, 3, 4]), "— an already sorted row costs one pass")
+print("empty  ", bubble([]))

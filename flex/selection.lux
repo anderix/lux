@@ -1,0 +1,37 @@
+// selection — find the smallest, put it in front, repeat.
+//
+//   lux run selection.lux
+//
+// Selection sort makes the fewest swaps of any of these: exactly one per
+// position, however jumbled the row started. It still compares everything
+// against everything, so it is no faster overall — a useful early lesson that
+// "fewer of one operation" and "faster" are different claims.
+
+func smallestFrom(xs: [int], start: int) -> int {
+    var best = start
+    for i in start..length(xs) {
+        if xs[i] < xs[best] {
+            best = i
+        }
+    }
+    return best
+}
+
+func selection(input: [int]) -> [int] {
+    var xs = input
+    for i in 0..length(xs) {
+        let pick = smallestFrom(xs, i)
+        if pick != i {
+            let hold = xs[i]
+            xs[i] = xs[pick]
+            xs[pick] = hold
+        }
+    }
+    return xs
+}
+
+let row = [64, 25, 12, 22, 11]
+print("before", row)
+print("after ", selection(row))
+print("one   ", selection([7]))
+print("same  ", selection([3, 3, 3]))

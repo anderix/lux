@@ -1,0 +1,40 @@
+// fizzbuzz — the interview question, written the way lux wants it.
+//
+//   lux run fizzbuzz.lux
+//
+// The usual version is a ladder of ifs that prints as it goes. Here the decision
+// and the printing are separate: `classify` says what a number *is*, and `word`
+// says how to spell it. That split costs one enum and buys an exhaustive match —
+// add a case to `Say` and lux refuses to run until `word` handles it, which a
+// chain of ifs would never have told you.
+
+enum Say {
+    plain
+    fizz
+    buzz
+    fizzbuzz
+}
+
+func classify(n: int) -> Say {
+    if n % 15 == 0 {
+        return Say.fizzbuzz
+    } else if n % 3 == 0 {
+        return Say.fizz
+    } else if n % 5 == 0 {
+        return Say.buzz
+    }
+    return Say.plain
+}
+
+func word(n: int, s: Say) -> string {
+    return match s {
+        fizzbuzz => "FizzBuzz"
+        fizz     => "Fizz"
+        buzz     => "Buzz"
+        plain    => string(n)
+    }
+}
+
+for i in 1..21 {
+    print(word(i, classify(i)))
+}
