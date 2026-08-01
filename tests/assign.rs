@@ -87,6 +87,67 @@ fn the_left_of_an_assignment_must_be_a_place() {
 }
 
 #[test]
+fn a_parameter_is_refused_without_pointing_at_var() {
+    // A parameter is immutable, but it can't be made a `var` — the syntax isn't
+    // there — so the refusal must name it as a parameter and point at the
+    // copy-into-a-local idiom, not at `let`/`var`.
+    let src = "\
+func firstToZero(xs: [int]) -> [int] {
+    xs[0] = 0
+    return xs
+}
+print(firstToZero([1, 2, 3]))
+";
+    let (ok, _out, err) = run("param", src);
+    assert!(!ok, "assigning through a parameter must be refused");
+    assert!(
+        err.contains("`xs` is a parameter") && err.contains("copy it into a local var"),
+        "a parameter refusal must name it and point at the copy idiom, got:\n{err}"
+    );
+    assert!(
+        !err.contains("declared with let"),
+        "a parameter is not a let, so the let wording must not appear:\n{err}"
+    );
+}
+
+#[test]
+fn a_loop_variable_is_refused_without_pointing_at_var() {
+    let src = "\
+struct Counter { n: int }
+var cs = [Counter(n: 0)]
+for c in cs {
+    c.n = 1
+}
+";
+    let (ok, _out, err) = run("loopvar", src);
+    assert!(!ok, "assigning through a loop variable must be refused");
+    assert!(
+        err.contains("`c` is the loop's variable"),
+        "a loop-variable refusal must name it as the loop's, got:\n{err}"
+    );
+    assert!(
+        !err.contains("declared with let"),
+        "a loop variable is not a let, so the let wording must not appear:\n{err}"
+    );
+}
+
+#[test]
+fn copying_a_parameter_into_a_local_var_works() {
+    // The idiom the parameter refusal points at must actually run.
+    let src = "\
+func firstToZero(input: [int]) -> [int] {
+    var xs = input
+    xs[0] = 0
+    return xs
+}
+print(firstToZero([1, 2, 3]))
+";
+    let (ok, out, err) = run("paramcopy", src);
+    assert!(ok, "the copy-into-a-local idiom should run:\n{err}");
+    assert_eq!(out, "[0, 2, 3]\n");
+}
+
+#[test]
 fn a_field_keeps_its_type() {
     let (ok, _out, err) = run(
         "fieldty",

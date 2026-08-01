@@ -55,9 +55,29 @@ impl Value {
     }
 }
 
+/// Where a binding came from. Only a `var` can be assigned to; the rest hold
+/// still, but each refuses a change in its own words. A parameter and a loop
+/// variable have no `var` to reach for, so the note that fits a `let` — "use
+/// var instead" — would send a learner into a wall, chasing syntax that isn't
+/// there. Match keeps the `let` wording because the learner literally typed it.
+#[derive(Clone, Copy, PartialEq)]
+enum BindKind {
+    Let,
+    Var,
+    Param,
+    Loop,
+    Match,
+}
+
+impl BindKind {
+    fn mutable(self) -> bool {
+        matches!(self, BindKind::Var)
+    }
+}
+
 struct Binding {
     value: Value,
-    mutable: bool,
+    kind: BindKind,
 }
 
 /// A user-defined function, stored once and shared (via `Rc`) so a call can
@@ -357,11 +377,11 @@ impl Interp {
         self.scopes.iter_mut().rev().find_map(|s| s.get_mut(name))
     }
 
-    fn declare(&mut self, name: String, value: Value, mutable: bool) {
+    fn declare(&mut self, name: String, value: Value, kind: BindKind) {
         self.scopes
             .last_mut()
             .unwrap()
-            .insert(name, Binding { value, mutable });
+            .insert(name, Binding { value, kind });
     }
 
     // ----- statements -------------------------------------------------------
@@ -457,7 +477,7 @@ impl Interp {
                         *span,
                     ));
                 }
-                self.declare(name.clone(), v, false);
+                self.declare(name.clone(), v, BindKind::Let);
                 Ok(Flow::Normal)
             }
 
@@ -498,7 +518,7 @@ impl Interp {
                         *span,
                     ));
                 }
-                self.declare(name.clone(), v, true);
+                self.declare(name.clone(), v, BindKind::Var);
                 Ok(Flow::Normal)
             }
 
@@ -517,20 +537,47 @@ impl Interp {
                         .with_note("declare it first with let or var")
                         .with_learn("variables", "a name has to be made before it's used")
                 })?;
-                if !binding.mutable {
-                    return Err(LuxError::new(
-                        format!(
-                            "cannot change `{}` — `{}` was declared with let",
-                            describe_place(target),
-                            root
+                let kind = binding.kind;
+                if !kind.mutable() {
+                    let place = describe_place(target);
+                    // The reason a place won't change depends on where its root came
+                    // from. A `let` can become a `var`; a parameter and a loop
+                    // variable can't, so pointing them at `var` would send a learner
+                    // chasing syntax that doesn't exist. Each says the true thing.
+                    let err = match kind {
+                        BindKind::Param => LuxError::new(
+                            format!("cannot change `{place}` — `{root}` is a parameter, and a parameter never changes"),
+                            *span,
+                        )
+                        .with_note(format!(
+                            "a parameter can't be a var; copy it into a local var first — `var copy = {root}` — and change that"
+                        ))
+                        .with_learn(
+                            "variables",
+                            "a parameter is a value handed in to read, not a place to store into",
                         ),
-                        *span,
-                    )
-                    .with_note("use `var` instead of `let` if it needs to change")
-                    .with_learn(
-                        "variables",
-                        "a let holds still on purpose — that's what keeps it safe",
-                    ));
+                        BindKind::Loop => LuxError::new(
+                            format!("cannot change `{place}` — `{root}` is the loop's variable, and it holds still through each turn"),
+                            *span,
+                        )
+                        .with_note(
+                            "to build something up across a loop, change a var declared outside it instead",
+                        )
+                        .with_learn(
+                            "variables",
+                            "the loop hands you each item to read, not a place to store into",
+                        ),
+                        _ => LuxError::new(
+                            format!("cannot change `{place}` — `{root}` was declared with let"),
+                            *span,
+                        )
+                        .with_note("use `var` instead of `let` if it needs to change")
+                        .with_learn(
+                            "variables",
+                            "a let holds still on purpose — that's what keeps it safe",
+                        ),
+                    };
+                    return Err(err);
                 }
                 // Resolve any index expressions to concrete positions before the
                 // mutable borrow, so evaluating them can't overlap the write.
@@ -663,7 +710,7 @@ impl Interp {
     /// run the body. The loop variable is immutable, like Rust's and Swift's.
     fn run_loop_body(&mut self, var: &str, item: Value, body: &[Stmt]) -> Result<Flow, LuxError> {
         self.push();
-        self.declare(var.to_string(), item, false);
+        self.declare(var.to_string(), item, BindKind::Loop);
         let r = self.exec_block(body);
         self.pop();
         r
@@ -1163,7 +1210,7 @@ impl Interp {
                             }
                             self.push();
                             for (b, (_, val)) in bindings.iter().zip(fields.iter()) {
-                                self.declare(b.clone(), val.clone(), false);
+                                self.declare(b.clone(), val.clone(), BindKind::Match);
                             }
                             let r = self.eval(&a.body);
                             self.pop();
@@ -1679,7 +1726,7 @@ impl Interp {
                 param.name.clone(),
                 Binding {
                     value: v,
-                    mutable: false,
+                    kind: BindKind::Param,
                 },
             );
         }

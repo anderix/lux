@@ -4,6 +4,21 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.4] - 2026-08-01
+
+### Fixed
+
+- **Assigning through a parameter or a loop variable now advises what actually
+  works.** Both are immutable, and both correctly refuse a change — but the
+  refusal reused the `let` note, "use `var` instead of `let`", pointing at syntax
+  that doesn't exist: a parameter can't be a `var` (`func f(var xs: ...)` is a
+  parse error), and neither can a loop's variable. A parameter is now named as one
+  and pointed at the idiom that does work — copy it into a local `var` first,
+  `var xs = input` — which is exactly what the new field/element assignment makes
+  natural for an in-place sort. A loop variable is named as the loop's, and pointed
+  at a `var` declared outside the loop. A real `let` keeps its original note. This
+  was the first wall anyone hit writing a first in-place sort after 0.14.3.
+
 ## [0.14.3] - 2026-08-01
 
 ### Added
@@ -572,6 +587,7 @@ is a different bar from a learner meeting an ownership rule in code they wrote.
   `lux build` compiles the Rust translation to a native binary.
 - A `curl` installer and uninstaller.
 
+[0.14.4]: https://github.com/anderix/lux/releases/tag/v0.14.4
 [0.14.3]: https://github.com/anderix/lux/releases/tag/v0.14.3
 [0.14.2]: https://github.com/anderix/lux/releases/tag/v0.14.2
 [0.14.1]: https://github.com/anderix/lux/releases/tag/v0.14.1

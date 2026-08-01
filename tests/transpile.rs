@@ -562,7 +562,7 @@ match enter("in") {
     let go = convert::to_go(&program);
     // The Option return is the bare interface, not a pointer to one.
     assert!(
-        go.contains("-> Option<Room>") == false && !go.contains("*Room"),
+        !go.contains("-> Option<Room>") && !go.contains("*Room"),
         "Option<enum> should drop the pointer:\n{}",
         go
     );
