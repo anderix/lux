@@ -680,12 +680,14 @@ impl Gen {
             .map(ty_from_ann)
             .unwrap_or_else(|| self.t.type_of(value));
         let expr = self.emit_copied(value, &vty);
-        // An enum lowers to an interface. Initialising with `:=` would infer the
-        // concrete case struct (`ColourRed`), so a later `c = Colour.blue` — a
-        // different case — wouldn't assign, and a `switch c.(type)` on the concrete
-        // value wouldn't even be a valid type switch. Pin the interface type, the
-        // way you'd accumulate any enum value: `var out List = List.nil`.
-        if self.is_enum_ty(&vty) {
+        // A `:=` infers the value's own type, which is wrong in two cases, so both
+        // pin the declared type instead. An enum lowers to an interface, and `:=`
+        // would infer the concrete case struct (`ColourRed`), so a later
+        // `c = Colour.blue` wouldn't assign and a `switch c.(type)` wouldn't be a
+        // valid type switch. And a bare `none` is an untyped `nil`, which `:=` can't
+        // type at all — `var result *int = nil` says what kind of none it is.
+        let bare_none = matches!(value, Expr::Ident(n, _) if n == "none");
+        if self.is_enum_ty(&vty) || bare_none {
             self.line(format!(
                 "var {} {} = {}",
                 go_ident(name),
@@ -912,9 +914,21 @@ impl Gen {
         if any_bind {
             self.scratches.push(subj.clone());
         }
+        // A `_` arm becomes the type switch's `default`, catching every case the
+        // match chose not to name — `match it { potion(let a) => …  _ => … }`.
+        let mut has_default = false;
         for arm in arms {
-            let Pattern::Variant { name, bindings, .. } = &arm.pattern else {
-                continue;
+            let (name, bindings) = match &arm.pattern {
+                Pattern::Variant { name, bindings, .. } => (name, bindings),
+                Pattern::Wildcard(_) => {
+                    has_default = true;
+                    self.line("default:".into());
+                    self.indent += 1;
+                    self.emit_arm_body(&arm.body, ret);
+                    self.indent -= 1;
+                    continue;
+                }
+                _ => continue,
             };
             let case = format!("{}{}", enum_name, to_pascal(name));
             self.line(format!("case {}:", case));
@@ -945,9 +959,9 @@ impl Gen {
             self.scratches.pop();
         }
         self.line("}".into());
-        // The type switch lists every case but Go can't see that, so a returning
-        // one needs an unreachable tail.
-        if ret {
+        // A returning switch that lists every case still needs an unreachable tail
+        // for Go — but not when a `default` already makes it exhaustive.
+        if ret && !has_default {
             self.line("panic(\"unreachable\")".into());
         }
     }

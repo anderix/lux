@@ -213,9 +213,15 @@ impl Types {
             Expr::StructLit { name, .. } => Ty::User(name.clone()),
             Expr::EnumLit { enum_name, .. } => Ty::User(enum_name.clone()),
             Expr::Field { base, field, .. } => self.field_type(base, field),
+            // Every arm of a match yields the same type, so prefer the first arm
+            // whose type is fully known: an arm like `some(let v) => some(v)` reads
+            // as `Option<?>` because the binding isn't in scope for this pass, while
+            // a sibling `none => findCoin(rest)` carries the concrete `Option<int>`.
             Expr::Match { arms, .. } => arms
-                .first()
+                .iter()
                 .map(|a| self.type_of(&a.body))
+                .find(|t| !t.has_unknown())
+                .or_else(|| arms.first().map(|a| self.type_of(&a.body)))
                 .unwrap_or(Ty::Unknown),
         }
     }

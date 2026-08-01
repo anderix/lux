@@ -1344,6 +1344,56 @@ print(none)
     assert_prints_everywhere(src, "options", "some(2)\nnone\nsome(7)\nsome(north)\nnone\n");
 }
 
+/// Matching one enum case and defaulting the rest — `match it { potion(let a) => …
+/// _ => … }` — reads the same on every backend. Go used to drop the `_` arm from
+/// its type switch and `panic("unreachable")` on every case the match didn't name;
+/// the wildcard now lowers to the switch's `default`. Everyday code the corpus
+/// missed by always matching exhaustively.
+#[test]
+fn an_enum_match_with_a_wildcard_covers_the_rest_on_every_backend() {
+    let src = r#"
+enum E { a  b  c }
+func name(e: E) -> string {
+    return match e {
+        a => "a"
+        _ => "other"
+    }
+}
+print(name(E.a))
+print(name(E.b))
+print(name(E.c))
+"#;
+    assert_prints_everywhere(src, "wildcard", "a\nother\nother\n");
+}
+
+/// Accumulating an `Option` across a loop — `var result: Option<int> = none` then
+/// `result = match … { some(let v) => some(v)  none => next }` — works on every
+/// backend. Two edges met here: a bare `none` with a type annotation (Go needs the
+/// declared type, not an untyped `nil`), and a match used as a value whose first
+/// arm reads a binding, so its type has to come from a sibling arm that's concrete.
+#[test]
+fn an_option_accumulated_across_a_loop_works_on_every_backend() {
+    let src = r#"
+enum Item { coin(value: int)  other }
+func coinValue(it: Item) -> Option<int> {
+    return match it { coin(let v) => some(v)  _ => none }
+}
+func firstCoin(bag: [Item]) -> Option<int> {
+    var result: Option<int> = none
+    for it in bag {
+        result = match result {
+            some(let v) => some(v)
+            none => coinValue(it)
+        }
+    }
+    return result
+}
+print(firstCoin([Item.other, Item.coin(value: 7), Item.coin(value: 9)]))
+print(firstCoin([Item.other]))
+"#;
+    assert_prints_everywhere(src, "optaccum", "some(7)\nnone\n");
+}
+
 // --- structure shared by all three ----------------------------------------
 
 #[test]
