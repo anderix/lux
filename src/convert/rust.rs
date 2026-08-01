@@ -801,6 +801,27 @@ impl Gen {
         }
     }
 
+    /// A compound `print` argument rendered through `LuxShow`. A bare `some`/`none`
+    /// in print position has no context to fix the `Option`'s element type, so pin
+    /// it with a typed binding — everything else (a variable, a call) already
+    /// carries its type. A bare `none` renders `none` whatever the element type, so
+    /// an unknown one defaults harmlessly.
+    fn print_show_arg(&mut self, a: &Expr) -> String {
+        let e = self.emit_expr(a);
+        let bare = matches!(a, Expr::Ident(n, _) if n == "none")
+            || matches!(a, Expr::Call { name, .. } if name == "some");
+        if bare
+            && let Ty::Option(inner) = self.t.type_of(a)
+        {
+            let inner_txt = match *inner {
+                Ty::Unknown => "i64".to_string(),
+                t => ty_text(&t),
+            };
+            return format!("{{ let __show: Option<{}> = {}; __show }}.lux_show()", inner_txt, e);
+        }
+        format!("({}).lux_show()", e)
+    }
+
     /// `print` and `eprint` differ only in the macro they reach for — one writes
     /// stdout, the other stderr — so they share how arguments become a format.
     fn println_call(&mut self, mac: &str, args: &[Expr]) -> String {
@@ -811,16 +832,15 @@ impl Gen {
                 fmt.push(' ');
             }
             let ty = self.t.type_of(a);
-            if matches!(
-                ty,
-                Ty::Array(_) | Ty::User(_) | Ty::Option(_) | Ty::Result(..)
-            ) {
+            // A `Result` is matched where it's produced, not printed — and Go can't
+            // render it as one value — so it's kept off the faithful path on every
+            // backend for consistency, staying on `{:?}` here.
+            if matches!(ty, Ty::Array(_) | Ty::User(_) | Ty::Option(_)) {
                 // A compound value renders lux's way through LuxShow, not Rust's
                 // `{:?}` — `P(x: 1, y: 2)` rather than `P { x: 1, y: 2 }`.
                 self.uses_lux_show = true;
                 fmt.push_str("{}");
-                let e = self.emit_expr(a);
-                parts.push(format!("({}).lux_show()", e));
+                parts.push(self.print_show_arg(a));
             } else {
                 // `{:?}` on an f64 keeps the decimal point (`9.0`), matching how lux
                 // prints floats; plain scalars use `{}`.

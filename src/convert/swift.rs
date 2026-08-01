@@ -762,16 +762,38 @@ impl Gen {
     /// Swift's default drops an enum case's type and leaks the module name into an
     /// array. A scalar prints as Swift already renders it.
     fn print_arg(&mut self, a: &Expr) -> String {
-        let e = self.emit_expr(a);
-        if matches!(
-            self.t.type_of(a),
-            Ty::Array(_) | Ty::User(_) | Ty::Option(_)
-        ) {
+        let ty = self.t.type_of(a);
+        if matches!(ty, Ty::Array(_) | Ty::User(_) | Ty::Option(_)) {
             self.uses_lux_show = true;
+            let e = self.print_show_expr(a, &ty);
             format!("({}).luxShow()", e)
         } else {
-            e
+            self.emit_expr(a)
         }
+    }
+
+    /// The Swift expression for a compound `print` argument. A bare `some`/`none`
+    /// in print position has no context to fix the `Optional`'s element type, so
+    /// name it explicitly (`Optional<Int>.some(7)`); everything else — a variable,
+    /// a call — already carries its type. A bare `none` renders `none` whatever the
+    /// element type, so an unknown one defaults harmlessly.
+    fn print_show_expr(&mut self, a: &Expr, ty: &Ty) -> String {
+        if let Ty::Option(inner) = ty {
+            let inner_txt = match inner.as_ref() {
+                Ty::Unknown => "Int".to_string(),
+                t => ty_text(t),
+            };
+            if matches!(a, Expr::Ident(n, _) if n == "none") {
+                return format!("Optional<{}>.none", inner_txt);
+            }
+            if let Expr::Call { name, args, .. } = a
+                && name == "some"
+            {
+                let inner_e = self.emit_expr(&args[0]);
+                return format!("Optional<{}>.some({})", inner_txt, inner_e);
+            }
+        }
+        self.emit_expr(a)
     }
 
     fn emit_call(&mut self, name: &str, args: &[Expr]) -> String {

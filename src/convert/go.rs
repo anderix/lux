@@ -1174,6 +1174,7 @@ impl Gen {
 
         format!(
             "func luxShow(v any) string {{\n\
+             \tif v == nil {{\n\t\treturn \"none\"\n\t}}\n\
              \tswitch x := v.(type) {{\n\
              \tcase string:\n\t\treturn x\n\
              {cases}\
@@ -1202,9 +1203,12 @@ impl Gen {
     /// than `fmt`'s default. A scalar prints as `fmt` already renders it.
     fn print_arg(&mut self, a: &Expr) -> String {
         let e = self.emit_expr(a);
+        // A `Result` is Go's `(value, error)` pair, not a single value, so it can't
+        // pass through `luxShow`; lux's rule is to match a Result where it's
+        // produced, not print it, so it stays on the native path here.
         if matches!(
             self.t.type_of(a),
-            Ty::Array(_) | Ty::User(_) | Ty::Option(_) | Ty::Result(..)
+            Ty::Array(_) | Ty::User(_) | Ty::Option(_)
         ) {
             self.uses_lux_show = true;
             format!("luxShow({})", e)

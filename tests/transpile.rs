@@ -1298,6 +1298,26 @@ print(Tree.node(left: Tree.leaf, value: 7, right: Tree.node(left: Tree.leaf, val
     assert_prints_everywhere(src, "compound", expected);
 }
 
+/// Printing an `Option` reads `some(v)` / `none` on every backend. A typed one —
+/// a variable or a call result — carries its element type; a bare `some`/`none`
+/// literal in print position does not, and used to be a compile error in Rust and
+/// Swift and `<nil>` in Go. The backend now pins the type at the print site.
+#[test]
+fn options_print_the_same_on_every_backend() {
+    let src = r#"
+func find(xs: [int], t: int) -> Option<int> {
+    for x in xs { if x == t { return some(x) } }
+    return none
+}
+print(find([1, 2, 3], 2))
+print(find([1, 2, 3], 9))
+print(some(7))
+print(some("north"))
+print(none)
+"#;
+    assert_prints_everywhere(src, "options", "some(2)\nnone\nsome(7)\nsome(north)\nnone\n");
+}
+
 // --- structure shared by all three ----------------------------------------
 
 #[test]
