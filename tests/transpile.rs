@@ -1341,7 +1341,11 @@ print(some(7))
 print(some("north"))
 print(none)
 "#;
-    assert_prints_everywhere(src, "options", "some(2)\nnone\nsome(7)\nsome(north)\nnone\n");
+    assert_prints_everywhere(
+        src,
+        "options",
+        "some(2)\nnone\nsome(7)\nsome(north)\nnone\n",
+    );
 }
 
 /// Matching one enum case and defaulting the rest — `match it { potion(let a) => …

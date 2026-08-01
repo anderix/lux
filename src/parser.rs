@@ -672,8 +672,13 @@ impl Parser {
                     "a match arm is a value, not a statement — it can't `return` from inside",
                     self.span(),
                 )
-                .with_note("let each arm be the value, and return the whole match: `return match … { … }`")
-                .with_learn("match", "every arm is an expression, and the match becomes their shared value"));
+                .with_note(
+                    "let each arm be the value, and return the whole match: `return match … { … }`",
+                )
+                .with_learn(
+                    "match",
+                    "every arm is an expression, and the match becomes their shared value",
+                ));
             }
             let body = self.expression()?;
             let span = pattern.span().to(body.span());

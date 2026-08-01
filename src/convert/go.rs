@@ -635,7 +635,10 @@ impl Gen {
             Ty::Array(elem) if self.needs_copy(elem) => {
                 let et = self.ty_text(elem);
                 let inner = self.deep_copy_expr(elem, "__e");
-                format!("copySlice({}, func(__e {}) {} {{ return {} }})", expr, et, et, inner)
+                format!(
+                    "copySlice({}, func(__e {}) {} {{ return {} }})",
+                    expr, et, et, inner
+                )
             }
             Ty::Array(elem) => format!("append([]{}{{}}, {}...)", self.ty_text(elem), expr),
             Ty::User(n) if self.needs_copy(ty) => format!("copy{}({})", n, expr),
@@ -976,7 +979,9 @@ impl Gen {
         let enum_inner = self.is_enum_ty(&inner);
         // A `_` arm stands in for whichever of some/none the match didn't name, so
         // `match o { some(let v) => …  _ => … }` fills its else branch.
-        let wild = arms.iter().find(|a| matches!(a.pattern, Pattern::Wildcard(_)));
+        let wild = arms
+            .iter()
+            .find(|a| matches!(a.pattern, Pattern::Wildcard(_)));
         let some_arm = arms.iter().find(|a| arm_name(a) == Some("some")).or(wild);
         let none_arm = arms.iter().find(|a| arm_name(a) == Some("none")).or(wild);
         let bind = some_arm.and_then(|a| match &a.pattern {
@@ -1025,7 +1030,9 @@ impl Gen {
             _ => (Ty::Unknown, Ty::Unknown),
         };
         // A `_` arm stands in for whichever of ok/err the match didn't name.
-        let wild = arms.iter().find(|a| matches!(a.pattern, Pattern::Wildcard(_)));
+        let wild = arms
+            .iter()
+            .find(|a| matches!(a.pattern, Pattern::Wildcard(_)));
         let ok_arm = arms.iter().find(|a| arm_name(a) == Some("ok")).or(wild);
         let err_arm = arms.iter().find(|a| arm_name(a) == Some("err")).or(wild);
         let ok_bind = ok_arm.and_then(|a| match &a.pattern {

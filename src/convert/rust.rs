@@ -251,7 +251,13 @@ fn lux_show_struct(name: &str, fields: &[FieldDef]) -> String {
     } else {
         let parts: Vec<String> = fields
             .iter()
-            .map(|f| format!("format!(\"{}: {{}}\", self.{}.lux_show())", f.name, to_snake(&f.name)))
+            .map(|f| {
+                format!(
+                    "format!(\"{}: {{}}\", self.{}.lux_show())",
+                    f.name,
+                    to_snake(&f.name)
+                )
+            })
             .collect();
         format!(
             "let fields = [{}];\n        format!(\"{}({{}})\", fields.join(\", \"))",
@@ -810,14 +816,15 @@ impl Gen {
         let e = self.emit_expr(a);
         let bare = matches!(a, Expr::Ident(n, _) if n == "none")
             || matches!(a, Expr::Call { name, .. } if name == "some");
-        if bare
-            && let Ty::Option(inner) = self.t.type_of(a)
-        {
+        if bare && let Ty::Option(inner) = self.t.type_of(a) {
             let inner_txt = match *inner {
                 Ty::Unknown => "i64".to_string(),
                 t => ty_text(&t),
             };
-            return format!("{{ let __show: Option<{}> = {}; __show }}.lux_show()", inner_txt, e);
+            return format!(
+                "{{ let __show: Option<{}> = {}; __show }}.lux_show()",
+                inner_txt, e
+            );
         }
         format!("({}).lux_show()", e)
     }

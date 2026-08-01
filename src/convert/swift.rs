@@ -979,11 +979,7 @@ fn lux_show_struct(name: &str, fields: &[FieldDef]) -> String {
             .iter()
             .map(|f| format!("\"{}: \" + self.{}.luxShow()", f.name, f.name))
             .collect();
-        format!(
-            "\"{}(\" + {} + \")\"",
-            name,
-            parts.join(" + \", \" + ")
-        )
+        format!("\"{}(\" + {} + \")\"", name, parts.join(" + \", \" + "))
     };
     format!(
         "extension {}: LuxShow {{\n    func luxShow() -> String {{\n        {}\n    }}\n}}\n\n",
