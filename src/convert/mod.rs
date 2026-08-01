@@ -596,6 +596,18 @@ fn mutated_roots(program: &[Stmt]) -> std::collections::HashSet<String> {
 /// deliberately conservative: a name shadowed by an inner binding still counts as
 /// "used", so at worst it keeps a binding that was safe to keep — it never drops
 /// one the body relies on.
+/// A "place" — a named value that could still be used after it's read, as opposed
+/// to a fresh temporary like a literal or a call result. Rust clones a place to
+/// avoid a move; Go deep-copies one whose type holds a slice, to keep lux's value
+/// semantics. A fresh temporary already owns its storage, so neither touches it.
+fn is_place(e: &Expr) -> bool {
+    match e {
+        Expr::Ident(n, _) => n != "none",
+        Expr::Field { .. } | Expr::Index { .. } => true,
+        _ => false,
+    }
+}
+
 fn expr_mentions(e: &Expr, name: &str) -> bool {
     match e {
         Expr::Ident(n, _) => n == name,

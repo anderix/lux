@@ -11,8 +11,8 @@
 use crate::ast::*;
 
 use super::{
-    Ty, Types, bin_prec, escape, expr_mentions, format_float, indent, mutated_roots, op_str,
-    rust_ident, stmts_mention, to_pascal, to_snake, ty_from_ann,
+    Ty, Types, bin_prec, escape, expr_mentions, format_float, indent, is_place, mutated_roots,
+    op_str, rust_ident, stmts_mention, to_pascal, to_snake, ty_from_ann,
 };
 
 struct Gen {
@@ -1150,14 +1150,4 @@ fn paren_or_empty(binds: &[String]) -> String {
 /// Types that copy on use in Rust, so passing them never moves the original.
 fn is_copy(t: &Ty) -> bool {
     matches!(t, Ty::Int | Ty::Float | Ty::Bool)
-}
-
-/// A "place" — a named value that could still be used after a call, as opposed
-/// to a fresh temporary like a literal or another call's result.
-fn is_place(e: &Expr) -> bool {
-    match e {
-        Expr::Ident(n, _) => n != "none",
-        Expr::Field { .. } | Expr::Index { .. } => true,
-        _ => false,
-    }
 }

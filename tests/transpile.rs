@@ -1269,6 +1269,32 @@ print(a)
     assert_prints_everywhere(src, "arraycopy", "[1, 2]\n[2, 1]\n[1, 2, 3]\n[99, 2, 3]\n");
 }
 
+/// Value semantics reach through a struct: a struct that holds an array, copied
+/// and then its array mutated, leaves the original untouched — and so does a
+/// board of grids two levels deep, and a value handed to a function and back. A Go
+/// struct copies by value but shares its slice fields underneath, so the backend
+/// deep-copies a slice-bearing value wherever it flows into a new place — the same
+/// points Rust clones at. Rust and Swift already had this; all three now agree.
+#[test]
+fn a_struct_holding_an_array_copies_deeply_on_every_backend() {
+    let src = r#"
+struct Grid { cells: [int] }
+struct Board { grids: [Grid] }
+func passthrough(g: Grid) -> Grid { return g }
+var g = Grid(cells: [1, 2])
+var h = passthrough(g)
+h.cells[0] = 99
+print(g.cells)
+print(h.cells)
+var board = Board(grids: [Grid(cells: [1]), Grid(cells: [2])])
+var b2 = board
+b2.grids[0].cells[0] = 77
+print(board.grids[0].cells)
+print(b2.grids[0].cells)
+"#;
+    assert_prints_everywhere(src, "structcopy", "[1, 2]\n[99, 2]\n[1]\n[77]\n");
+}
+
 /// Printing a struct, an enum case (with or without a payload), an array of
 /// structs, and a recursive tree reads the same on every backend and matches the
 /// interpreter — `P(x: 1, y: 2)`, `Shape.circle(radius: 5)`, `Shape.dot`,

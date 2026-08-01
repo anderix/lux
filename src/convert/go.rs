@@ -20,9 +20,11 @@
 use crate::ast::*;
 
 use super::{
-    Ty, Types, bin_prec, escape, expr_mentions, format_float, go_ident, op_str, to_pascal,
-    ty_from_ann,
+    Ty, Types, bin_prec, escape, expr_mentions, format_float, go_ident, is_place, op_str,
+    to_pascal, ty_from_ann,
 };
+
+use std::collections::HashSet;
 
 struct Gen {
     t: Types,
@@ -62,6 +64,13 @@ struct Gen {
     /// renders it — `[1, 2, 3]`, `P(x: 1, y: 2)`, `Shape.circle(radius: 5)` —
     /// rather than `fmt`'s `[1 2 3]`, `{1 2}`, `{5}`.
     uses_lux_show: bool,
+    /// Structs that need a generated deep-copy function, because they hold a slice
+    /// (directly or through another struct) that Go would otherwise share. Filled
+    /// as copies are emitted; the functions are generated in name order.
+    copy_structs: HashSet<String>,
+    /// Whether the generic `copySlice` helper is needed — for copying a slice whose
+    /// elements themselves need copying.
+    uses_copy_slice: bool,
 }
 
 /// Translate a whole program to Go source text.
@@ -87,6 +96,8 @@ pub fn to_go(program: &[Stmt]) -> String {
         uses_run: false,
         scratches: Vec::new(),
         uses_lux_show: false,
+        copy_structs: HashSet::new(),
+        uses_copy_slice: false,
     };
 
     for stmt in program {
@@ -256,6 +267,25 @@ impl Gen {
         }
         if self.uses_lux_show {
             head.push_str(&self.lux_show_fn());
+        }
+        if self.uses_copy_slice {
+            // Copy a slice element by element, so a slice of copyable things (a
+            // nested array, a struct with a slice) doesn't share its elements.
+            head.push_str(
+                "func copySlice[T any](xs []T, cp func(T) T) []T {\n\
+                 \tout := make([]T, len(xs))\n\
+                 \tfor i := range xs {\n\
+                 \t\tout[i] = cp(xs[i])\n\
+                 \t}\n\
+                 \treturn out\n\
+                 }\n\n",
+            );
+        }
+        // A deep-copy function per struct that holds a slice, in name order.
+        let mut copy_names: Vec<&String> = self.copy_structs.iter().collect();
+        copy_names.sort();
+        for n in copy_names {
+            head.push_str(&self.gen_struct_copy(n));
         }
         if self.uses_read_file {
             // os.ReadFile hands back bytes; lux reads a string, so decode here.
@@ -555,29 +585,101 @@ impl Gen {
         self.line(format!("return {}", e));
     }
 
-    /// A value bound to a name must become an independent copy where lux's value
-    /// semantics call for one but Go's don't. A Go slice is a reference, so
-    /// `xs := input` would alias the caller's row — and a later in-place sort would
-    /// reach back through it, mutating a row the program was told stays untouched.
-    /// Copy an array bound from anything but a fresh literal, which is already its
-    /// own. (A struct is a Go value type and copies on assignment on its own; a
-    /// slice *inside* a struct is the same reference underneath — a deeper seam
-    /// than the flat sort row this covers.)
-    fn copy_on_bind(&mut self, vty: &Ty, value: &Expr, expr: String) -> String {
-        match vty {
-            Ty::Array(elem) if !matches!(value, Expr::Array(..)) => {
-                format!("append([]{}{{}}, {}...)", self.ty_text(elem), expr)
-            }
-            _ => expr,
+    /// Does a value of this type share mutable backing in Go — i.e. hold a slice,
+    /// directly or inside a struct — so that lux's value semantics need a deep copy
+    /// when it flows into a new place? An array is a slice; a struct needs a copy if
+    /// any field does. Enums and options are never mutated in place, so they don't,
+    /// and lux structs can't be recursive, so this terminates.
+    fn needs_copy(&self, ty: &Ty) -> bool {
+        match ty {
+            Ty::Array(_) => true,
+            Ty::User(n) => self
+                .t
+                .env
+                .structs
+                .get(n)
+                .map(|fs| fs.iter().any(|f| self.needs_copy(&ty_from_ann(&f.ty))))
+                .unwrap_or(false),
+            _ => false,
         }
+    }
+
+    /// Record the copy helpers a type needs — the generic `copySlice` for a slice
+    /// of copyable elements, and a `copyName` for each struct reached — so
+    /// `assemble` can emit them. Walks the whole type so nested structs register too.
+    fn register_copy_deps(&mut self, ty: &Ty) {
+        match ty {
+            Ty::Array(elem) if self.needs_copy(elem) => {
+                self.uses_copy_slice = true;
+                self.register_copy_deps(elem);
+            }
+            Ty::User(n) if self.needs_copy(ty) => {
+                if !self.copy_structs.insert(n.clone()) {
+                    return; // already registered — and its fields with it
+                }
+                let fields = self.t.env.structs.get(n).cloned().unwrap_or_default();
+                for f in fields {
+                    self.register_copy_deps(&ty_from_ann(&f.ty));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// A Go expression that deep-copies `expr` of type `ty`. A slice of copy-free
+    /// elements is a plain `append`; a slice whose elements need copying goes
+    /// through `copySlice` with a per-element closure; a struct through its
+    /// generated `copyName`. Anything else is returned unchanged.
+    fn deep_copy_expr(&self, ty: &Ty, expr: &str) -> String {
+        match ty {
+            Ty::Array(elem) if self.needs_copy(elem) => {
+                let et = self.ty_text(elem);
+                let inner = self.deep_copy_expr(elem, "__e");
+                format!("copySlice({}, func(__e {}) {} {{ return {} }})", expr, et, et, inner)
+            }
+            Ty::Array(elem) => format!("append([]{}{{}}, {}...)", self.ty_text(elem), expr),
+            Ty::User(n) if self.needs_copy(ty) => format!("copy{}({})", n, expr),
+            _ => expr.to_string(),
+        }
+    }
+
+    /// Emit a value flowing into a new place — a binding, a call argument, a struct
+    /// field, an array element — deep-copying it when it's a place whose type holds
+    /// a slice, so mutating the destination can't reach back through shared backing.
+    /// A fresh temporary already owns its storage, so it's left alone. `expected` is
+    /// the type of the destination, so an empty array literal still lands typed.
+    fn emit_copied(&mut self, value: &Expr, expected: &Ty) -> String {
+        let base = self.emit_expr_typed(value, expected);
+        if is_place(value) && self.needs_copy(expected) {
+            self.register_copy_deps(expected);
+            self.deep_copy_expr(expected, &base)
+        } else {
+            base
+        }
+    }
+
+    /// The generated `copyName` for a struct: rebuild it, deep-copying the fields
+    /// that need it and passing the rest straight through.
+    fn gen_struct_copy(&self, name: &str) -> String {
+        let fields = self.t.env.structs.get(name).cloned().unwrap_or_default();
+        let mut body = String::new();
+        for f in &fields {
+            let fty = ty_from_ann(&f.ty);
+            let val = self.deep_copy_expr(&fty, &format!("x.{}", f.name));
+            body.push_str(&format!("\t\t{}: {},\n", f.name, val));
+        }
+        format!(
+            "func copy{n}(x {n}) {n} {{\n\treturn {n}{{\n{body}\t}}\n}}\n\n",
+            n = name,
+            body = body
+        )
     }
 
     fn emit_binding(&mut self, name: &str, ann: Option<&TypeAnn>, value: &Expr) {
         let vty = ann
             .map(ty_from_ann)
             .unwrap_or_else(|| self.t.type_of(value));
-        let typed = self.emit_expr_typed(value, &vty);
-        let expr = self.copy_on_bind(&vty, value, typed);
+        let expr = self.emit_copied(value, &vty);
         // An enum lowers to an interface. Initialising with `:=` would infer the
         // concrete case struct (`ColourRed`), so a later `c = Colour.blue` — a
         // different case — wouldn't assign, and a `switch c.(type)` on the concrete
@@ -629,13 +731,16 @@ impl Gen {
         let lty = self.t.type_of(target);
         match op {
             AssignOp::Set => {
-                let e = self.emit_expr(value);
+                // Reassigning the whole place copies a slice-bearing value in, so a
+                // later mutation can't reach the source it was assigned from.
+                let e = self.emit_copied(value, &lty);
                 self.line(format!("{} = {}", lhs, e));
             }
-            AssignOp::Add => match lty {
-                // lux `+=` on an array appends one element.
-                Ty::Array(_) => {
-                    let e = self.emit_expr(value);
+            AssignOp::Add => match &lty {
+                // lux `+=` on an array appends one element — deep-copied if it's a
+                // place, so the array owns it.
+                Ty::Array(elem) => {
+                    let e = self.emit_copied(value, elem);
                     self.line(format!("{} = append({}, {})", lhs, lhs, e));
                 }
                 // Strings and numbers both take Go's `+=` directly.
@@ -1013,11 +1118,20 @@ impl Gen {
                 }
             }
             Expr::Array(els, _) => {
-                let et = match els.first() {
-                    Some(first) => self.ty_text(&self.t.type_of(first)),
+                let elem_ty = els.first().map(|f| self.t.type_of(f));
+                let et = match &elem_ty {
+                    Some(t) => self.ty_text(t),
                     None => "any".to_string(),
                 };
-                let parts: Vec<String> = els.iter().map(|x| self.emit_expr(x)).collect();
+                // Deep-copy a place stored as an element, so the new array owns its
+                // contents rather than sharing a slice with the source.
+                let parts: Vec<String> = els
+                    .iter()
+                    .map(|x| match &elem_ty {
+                        Some(t) => self.emit_copied(x, t),
+                        None => self.emit_expr(x),
+                    })
+                    .collect();
                 format!("[]{}{{{}}}", et, parts.join(", "))
             }
             Expr::Unary { op, rhs, .. } => {
@@ -1057,10 +1171,12 @@ impl Gen {
                 let parts: Vec<String> = fields
                     .iter()
                     .map(|(k, v)| {
-                        // Type each field from the struct's declaration, so an
-                        // empty-array field lands as `[]int{}`, not `[]any{}`.
+                        // Type each field from the struct's declaration (so an
+                        // empty-array field lands as `[]int{}`, not `[]any{}`), and
+                        // deep-copy a place stored into it, so the struct owns its
+                        // own arrays.
                         let val = match self.field_ty(name, k) {
-                            Some(t) => self.emit_expr_typed(v, &t),
+                            Some(t) => self.emit_copied(v, &t),
                             None => self.emit_expr(v),
                         };
                         format!("{}: {}", k, val)
@@ -1339,9 +1455,11 @@ impl Gen {
             // ok/err in a return are handled there; reaching here is degenerate.
             "ok" | "err" => self.emit_expr(&args[0]),
             _ => {
-                // Type each argument against the parameter it fills, so an empty
+                // Type each argument against the parameter it fills (so an empty
                 // array literal passed straight in — `total([])` — takes the
-                // parameter's element type instead of Go's untyped `[]any{}`.
+                // parameter's element type, not Go's untyped `[]any{}`), and
+                // deep-copy a place argument, so a function that keeps or returns it
+                // can't reach back through a shared slice into the caller's value.
                 let param_tys: Option<Vec<Ty>> = self
                     .t
                     .env
@@ -1352,7 +1470,7 @@ impl Gen {
                     .iter()
                     .enumerate()
                     .map(|(i, a)| match &param_tys {
-                        Some(ts) if i < ts.len() => self.emit_expr_typed(a, &ts[i]),
+                        Some(ts) if i < ts.len() => self.emit_copied(a, &ts[i]),
                         _ => self.emit_expr(a),
                     })
                     .collect();
