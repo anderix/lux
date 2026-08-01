@@ -814,21 +814,16 @@ the kind worth meeting head-on instead of hiding.
   Swift emits the bare lowercase case name, so a case named `nil` is backtick-
   quoted there (`swift_case`); Go and Rust qualify a case (`TreeNil`, `Tree::Nil`)
   and can't collide with a lowercase keyword, so they leave it as written.
-- **Go, `Option<enum>`.** `Option<T>` lowers to `*T`, but a user enum is already
-  a Go interface (a nil interface is its empty), so `Option<Room>` wants the bare
-  interface, not a pointer to it. Until that special case exists, a program that
-  returns an `Option` of one of its own enums won't compile as Go — though it
-  runs under the interpreter and converts to Rust and Swift cleanly.
-- **Go, the empty array literal.** `[]` with no elements has no element type to
-  infer, so it emits `[]any{}`; assigned to a typed field, the types disagree. A
-  non-empty literal, or a future infer-from-context pass, sidesteps it.
-- **Rust, a value used after a move.** The Rust backend doesn't track ownership,
-  so a value pushed into an array and then read again emits a use-after-move. The
-  interpreter and the value-copy backends (Go, Swift) don't mind.
+- **Go, the empty array literal with no context.** A bare `[]` with no elements
+  and nothing to infer from — neither an annotation nor a field — emits `[]any{}`.
+  It compiles and prints the same empty list, just with the loosest element type;
+  an annotated binding or a struct field pins the real type.
 
-`examples/keep.lux`, the crawl world, hits the last three by virtue of being a
-real program, so it is exercised by the interpreter, not the transpile suite; the
-`crawl` learn topic's example stays inside the lines and converts to all three.
+`examples/keep.lux`, the crawl world, is the program every learner is handed, so
+it must build everywhere: as of 0.14.3 it converts and compiles on all three
+backends and plays identically. The moves it makes into arrays and struct fields,
+and the `Option` of a room enum its `exit` returns, are handled rather than left
+as seams — a handed program that won't compile teaches nothing but a broken tool.
 
 ### Settled syntax decisions
 

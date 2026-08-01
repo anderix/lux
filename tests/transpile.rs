@@ -18,6 +18,11 @@ const EXAMPLES: &[&str] = &[
     "tour",
     "io",
     "shell",
+    // The crawl starter world — the program every learner is handed, so it must
+    // convert and compile warning-clean on all three backends. It exercises a
+    // value moved into an array/struct field (Rust) and an `Option` of an enum
+    // (Go), the two seams closed in 0.14.3.
+    "keep",
 ];
 
 fn parse(name: &str) -> Vec<lux::ast::Stmt> {
@@ -420,6 +425,122 @@ print(rootvalue(t))
             String::from_utf8_lossy(&out.stderr)
         );
     }
+}
+
+/// An enum lowers to a Go interface, which is already nil-able, so `Option<enum>`
+/// must emit the bare interface (`nil` = none), not `*Interface` — a pointer to
+/// an interface that nothing satisfies. Covers the type, `some`/`none`
+/// construction, the match binding, and `Result` over an enum's error path.
+#[test]
+fn go_option_of_an_enum_compiles() {
+    if !tool_available("go", "version") {
+        eprintln!("skipping: go not on PATH");
+        return;
+    }
+    let src = r#"
+enum Room {
+    hall
+    cellar
+}
+func exit(r: Room, dir: string) -> Option<Room> {
+    return match r {
+        hall => match dir { "east" => some(Room.cellar)  _ => none }
+        cellar => none
+    }
+}
+func enter(dir: string) -> Result<Room, string> {
+    if dir == "in" { return ok(Room.hall) }
+    return err("no room")
+}
+match exit(Room.hall, "east") {
+    some(let dest) => match dest { hall => print("hall")  cellar => print("cellar") }
+    none => print("nowhere")
+}
+match enter("in") {
+    ok(let r) => print("entered")
+    err(let e) => print(e)
+}
+"#;
+    let program = parser::parse(lexer::lex(src).expect("lex")).expect("parse");
+    let go = convert::to_go(&program);
+    // The Option return is the bare interface, not a pointer to one.
+    assert!(
+        go.contains("-> Option<Room>") == false && !go.contains("*Room"),
+        "Option<enum> should drop the pointer:\n{}",
+        go
+    );
+    let dir = std::env::temp_dir().join("lux_go_opt_enum");
+    std::fs::create_dir_all(&dir).expect("mkdir");
+    std::fs::write(dir.join("go.mod"), "module luxtest\n\ngo 1.21\n").expect("write go.mod");
+    std::fs::write(dir.join("main.go"), &go).expect("write go");
+    let out = Command::new("go")
+        .arg("build")
+        .arg("-o")
+        .arg(dir.join("bin"))
+        .current_dir(&dir)
+        .env("GOCACHE", std::env::temp_dir().join("lux_go_cache"))
+        .output()
+        .expect("run go build");
+    assert!(
+        out.status.success(),
+        "Option/Result of an enum did not compile as Go:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// Rust moves a non-Copy value stored into a container, so a value pushed into an
+/// array, put in a struct field, or handed to an enum/`some`/`ok` constructor and
+/// then read again must be cloned at the move site — otherwise the later read is a
+/// use-after-move. Compiles warning-clean, since the clones are exactly needed.
+#[test]
+fn rust_value_moved_into_a_container_then_read_compiles() {
+    if !tool_available("rustc", "--version") {
+        eprintln!("skipping: rustc not on PATH");
+        return;
+    }
+    let src = r#"
+struct Boxed { label: string }
+enum Tagged { wrap(a: string, b: string) }
+func take(pack: [string], thing: string) -> [string] {
+    var p = pack
+    p += thing
+    print("You take the " + thing + ".")
+    return p
+}
+func viaStruct(s: string) -> string {
+    let b = Boxed(label: s)
+    print("made " + s)
+    return b.label
+}
+func viaEnum(s: string) -> string {
+    let t = Tagged.wrap(a: s, b: s)
+    print("wrapped " + s)
+    return match t { wrap(let x, let y) => x + y }
+}
+func viaSome(s: string) -> Option<string> {
+    let o = some(s)
+    print("wrapped " + s)
+    return o
+}
+print(take([], "key"))
+print(viaStruct("a"))
+print(viaEnum("b"))
+match viaSome("c") { some(let v) => print(v)  none => print("none") }
+"#;
+    let rust = convert::to_rust(&parser::parse(lexer::lex(src).expect("lex")).expect("parse"));
+    let rs = std::env::temp_dir().join("lux_rs_move_container.rs");
+    std::fs::write(&rs, &rust).expect("write rust");
+    let out = Command::new("rustc")
+        .arg(&rs)
+        .arg("-o")
+        .arg(std::env::temp_dir().join("lux_rs_move_container_bin"))
+        .output()
+        .expect("run rustc");
+    assert!(
+        out.status.success() && out.stderr.is_empty(),
+        "a value moved into a container then read should compile warning-clean as Rust:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 }
 
 /// A nested type switch must not reuse the scratch name an enclosing one holds.

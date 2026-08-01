@@ -4,8 +4,9 @@
 //! `Result`, exhaustive `match`, value semantics — so most of the work is
 //! cosmetic: `func` becomes `fn`, lux's lowercase enum cases become PascalCase
 //! variants, camelCase names become snake_case. The one real wrinkle is that
-//! Rust *moves* a non-`Copy` value when you pass it, while lux copies, so a
-//! named place argument is cloned at the call site to preserve lux's semantics.
+//! Rust *moves* a non-`Copy` value when you pass or store it, while lux copies,
+//! so a named place is cloned when it's moved into a call, an array, or a struct
+//! field, preserving lux's semantics (see `emit_moved`).
 
 use crate::ast::*;
 
@@ -386,8 +387,9 @@ impl Gen {
                     }
                 }
                 Ty::Array(_) => {
-                    // lux `+=` on an array appends one element.
-                    let e = self.emit_expr(value);
+                    // lux `+=` on an array appends one element. Moving a named
+                    // non-Copy value in would end its life, so it's cloned.
+                    let e = self.emit_moved(value);
                     self.line(format!("{}.push({});", snake, e));
                 }
                 _ => {
@@ -545,7 +547,9 @@ impl Gen {
                 let parts: Vec<String> = fields
                     .iter()
                     .map(|(k, v)| {
-                        let val = self.emit_expr(v);
+                        // A field takes ownership, so a named non-Copy value is
+                        // cloned — the source stays readable afterward.
+                        let val = self.emit_moved(v);
                         format!("{}: {}", to_snake(k), val)
                     })
                     .collect();
@@ -605,10 +609,13 @@ impl Gen {
         }
     }
 
-    /// A user-function argument. lux passes values by copy and the caller keeps
-    /// its own, so a named value of a non-`Copy` type is cloned at the call
-    /// site to preserve that — exactly what lux does under the hood.
-    fn emit_call_arg(&mut self, a: &Expr) -> String {
+    /// A value moved into a place the surrounding code still reads from — a call
+    /// argument, an array element, a struct field. lux passes and stores by copy
+    /// and the source keeps its own, so a named value of a non-`Copy` type is
+    /// cloned to preserve that; Rust would otherwise move it and reject the next
+    /// read. A temporary (a literal, a call result) is already owned, so it isn't
+    /// a place and isn't cloned.
+    fn emit_moved(&mut self, a: &Expr) -> String {
         let clone = !is_copy(&self.t.type_of(a)) && is_place(a);
         let s = self.emit_expr(a);
         if clone { format!("{}.clone()", s) } else { s }
@@ -657,12 +664,12 @@ impl Gen {
             // Each fallible call turns the target's native error into a string, so
             // the lux source stays `Result<_, string>` on this side too.
             "readFile" => {
-                let p = self.emit_call_arg(&args[0]);
+                let p = self.emit_moved(&args[0]);
                 format!("std::fs::read_to_string({}).map_err(|e| e.to_string())", p)
             }
             "writeFile" => {
-                let p = self.emit_call_arg(&args[0]);
-                let c = self.emit_call_arg(&args[1]);
+                let p = self.emit_moved(&args[0]);
+                let c = self.emit_moved(&args[1]);
                 format!("std::fs::write({}, {}).map_err(|e| e.to_string())", p, c)
             }
             "args" => "std::env::args().collect::<Vec<String>>()".to_string(),
@@ -674,15 +681,15 @@ impl Gen {
                 self.uses_input = true;
                 self.uses_read_line = true;
                 let p = match args.first() {
-                    Some(a) => self.emit_call_arg(a),
+                    Some(a) => self.emit_moved(a),
                     None => "String::new()".to_string(),
                 };
                 format!("input({})", p)
             }
             "run" => {
                 self.uses_run = true;
-                let p = self.emit_call_arg(&args[0]);
-                let a = self.emit_call_arg(&args[1]);
+                let p = self.emit_moved(&args[0]);
+                let a = self.emit_moved(&args[1]);
                 format!("run({}, {})", p, a)
             }
             "string" => {
@@ -714,11 +721,11 @@ impl Gen {
             }
             // `.ok()` turns parse's Result into the Option lux returns.
             "parseInt" => {
-                let e = self.emit_call_arg(&args[0]);
+                let e = self.emit_moved(&args[0]);
                 format!("{}.trim().parse::<i64>().ok()", e)
             }
             "parseFloat" => {
-                let e = self.emit_call_arg(&args[0]);
+                let e = self.emit_moved(&args[0]);
                 format!("{}.trim().parse::<f64>().ok()", e)
             }
             "length" => {
@@ -731,19 +738,19 @@ impl Gen {
                 }
             }
             "some" => {
-                let e = self.emit_expr(&args[0]);
+                let e = self.emit_moved(&args[0]);
                 format!("Some({})", e)
             }
             "ok" => {
-                let e = self.emit_expr(&args[0]);
+                let e = self.emit_moved(&args[0]);
                 format!("Ok({})", e)
             }
             "err" => {
-                let e = self.emit_expr(&args[0]);
+                let e = self.emit_moved(&args[0]);
                 format!("Err({})", e)
             }
             _ => {
-                let parts: Vec<String> = args.iter().map(|a| self.emit_call_arg(a)).collect();
+                let parts: Vec<String> = args.iter().map(|a| self.emit_moved(a)).collect();
                 format!("{}({})", rust_ident(&to_snake(name)), parts.join(", "))
             }
         }
@@ -777,8 +784,9 @@ impl Gen {
                 .iter()
                 .map(|(fname, rec)| {
                     let expr = fields.iter().find(|(k, _)| k == fname).map(|(_, e)| e);
+                    // A field takes ownership, so a named non-Copy value is cloned.
                     let s = match expr {
-                        Some(e) => self.emit_expr(e),
+                        Some(e) => self.emit_moved(e),
                         None => "()".to_string(),
                     };
                     // A recursive field is stored behind a Box, so wrap the value.

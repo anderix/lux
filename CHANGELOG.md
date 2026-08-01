@@ -4,6 +4,31 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.3] - 2026-08-01
+
+### Fixed
+
+The crawl starter world — the program `lux crawl` hands every learner — now
+converts, compiles, and plays identically on all three backends. It built only on
+Swift before; two seams stood in the way, and a handed program that won't compile
+is a different bar from a learner meeting an ownership rule in code they wrote.
+
+- **Go: `Option` of an enum compiles.** An enum lowers to a Go interface, which is
+  already nil-able, so `Option<Room>` was emitting `*Room` — a pointer to an
+  interface, which almost nothing satisfies. It now emits the bare interface with
+  `nil` for `none`: the type, `some`/`none` construction, the match binding (no
+  pointer deref), and `Result` over an enum's error slot all follow. `Option` of
+  an `int`/`string`/struct still uses the pointer. This is the natural shape of any
+  lookup that can fail — `exit(room, dir) -> Option<Room>`.
+- **Rust: a value moved into a container and read again compiles.** A non-Copy
+  value pushed into an array, put in a struct field, or handed to an enum /
+  `some` / `ok` / `err` constructor was moved, so a later read was a use-after-move
+  — picking something up and then naming what you picked up, the natural order.
+  Such a value is now cloned at the move site, matching the clone-on-pass the
+  backend already did for call arguments, preserving lux's value semantics. This
+  also closed the `rust`/`rpn` conformance seam, which is now actively checked
+  (32 matched, 0 differed).
+
 ## [0.14.2] - 2026-08-01
 
 ### Added
@@ -527,6 +552,7 @@ All notable changes to lux are recorded here. The format follows
   `lux build` compiles the Rust translation to a native binary.
 - A `curl` installer and uninstaller.
 
+[0.14.3]: https://github.com/anderix/lux/releases/tag/v0.14.3
 [0.14.2]: https://github.com/anderix/lux/releases/tag/v0.14.2
 [0.14.1]: https://github.com/anderix/lux/releases/tag/v0.14.1
 [0.14.0]: https://github.com/anderix/lux/releases/tag/v0.14.0

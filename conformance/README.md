@@ -58,12 +58,6 @@ trailing `.0` the interpreter, Rust, and Swift keep — `5` where they write `5.
 Same value, only Go's rendering differs, so the harness normalizes that one thing
 before comparing and every other byte still has to match.
 
-**`rust` / `rpn` (skipped).** `rpn` binds a value out of a struct in a match arm
-and then reads the whole struct afterward. lux's value-copy semantics allow it;
-Rust's borrow checker sees a partial move and rejects it. That ownership rule is
-exactly the lesson Rust exists to teach, so it stays documented rather than worked
-around in the emitter, and the suite skips the Rust comparison for `rpn`.
-
 **`swift` / `doctor` (skipped).** Swift launches subprocesses through
 `/usr/bin/env` — the same PATH lookup Rust and Go do — so a *missing* program
 returns env's exit 127, a status on the `ok` arm, rather than a launch failure on

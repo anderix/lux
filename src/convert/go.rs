@@ -7,8 +7,9 @@
 //! becomes an interface plus one struct per case, taken apart with a type
 //! switch. lux's `match` is an expression but Go's `switch` is a statement, so a
 //! returning match pushes its `return` into every arm. `Option<T>` becomes a
-//! pointer (`nil` is none) and `Result<T, E>` becomes Go's `(value, error)`
-//! pair, the way the standard library returns them.
+//! pointer with `nil` for none — except when `T` is an enum, already a nil-able
+//! interface, which stands on its own — and `Result<T, E>` becomes Go's
+//! `(value, error)` pair, the way the standard library returns them.
 //!
 //! Two seams are worth naming. lux is immutable by default; Go's `const` only
 //! holds compile-time constants, so that distinction is dropped here — `let` and
@@ -123,29 +124,6 @@ pub fn to_go(program: &[Stmt]) -> String {
     g.assemble()
 }
 
-/// A lux type as Go source text. `Result` only ever reaches here as a function
-/// return, where it expands to the `(value, error)` pair Go uses.
-fn ty_text(t: &Ty) -> String {
-    match t {
-        Ty::Int => "int".into(),
-        Ty::Float => "float64".into(),
-        Ty::Str => "string".into(),
-        Ty::Bool => "bool".into(),
-        Ty::Array(t) => format!("[]{}", ty_text(t)),
-        Ty::User(n) => n.clone(),
-        Ty::Option(t) => format!("*{}", ty_text(t)),
-        // A `Result` whose success carries nothing is an operation that can only
-        // fail, so Go returns just an `error`, the way the standard library does.
-        Ty::Result(a, _) => match a.as_ref() {
-            Ty::Unit => "error".into(),
-            _ => format!("({}, error)", ty_text(a)),
-        },
-        Ty::Range => "int".into(),
-        Ty::Unit => String::new(),
-        Ty::Unknown => "any".into(),
-    }
-}
-
 /// Go's zero value for a type, used to fill the value slot of a failing
 /// `(value, error)` return.
 fn zero(t: &Ty) -> String {
@@ -169,6 +147,55 @@ impl Gen {
 
     fn blank(&mut self) {
         self.out.push('\n');
+    }
+
+    /// Is this type one of the program's enums? An enum lowers to a Go interface,
+    /// which is already nil-able, so it needs no pointer wrapper for `Option`.
+    fn is_enum_ty(&self, t: &Ty) -> bool {
+        matches!(t, Ty::User(n) if self.t.env.enums.contains_key(n))
+    }
+
+    /// Go's zero value, aware that an enum is a nil-able interface: `zero`'s
+    /// `Room{}` would try to instantiate the interface, so an enum's zero is `nil`.
+    fn zero_value(&self, t: &Ty) -> String {
+        if self.is_enum_ty(t) {
+            "nil".to_string()
+        } else {
+            zero(t)
+        }
+    }
+
+    /// A lux type as Go source text. `Result` only ever reaches here as a function
+    /// return, where it expands to the `(value, error)` pair Go uses.
+    fn ty_text(&self, t: &Ty) -> String {
+        match t {
+            Ty::Int => "int".into(),
+            Ty::Float => "float64".into(),
+            Ty::Str => "string".into(),
+            Ty::Bool => "bool".into(),
+            Ty::Array(t) => format!("[]{}", self.ty_text(t)),
+            Ty::User(n) => n.clone(),
+            // `Option<T>` is `*T`, using nil for `none` — except when `T` is an
+            // enum, which is already a nil-able interface. Wrapping that in a
+            // pointer gives `*Interface`, which almost nothing satisfies, so the
+            // bare interface stands in and nil is still `none`.
+            Ty::Option(inner) => {
+                if self.is_enum_ty(inner) {
+                    self.ty_text(inner)
+                } else {
+                    format!("*{}", self.ty_text(inner))
+                }
+            }
+            // A `Result` whose success carries nothing is an operation that can
+            // only fail, so Go returns just an `error`, the way the stdlib does.
+            Ty::Result(a, _) => match a.as_ref() {
+                Ty::Unit => "error".into(),
+                _ => format!("({}, error)", self.ty_text(a)),
+            },
+            Ty::Range => "int".into(),
+            Ty::Unit => String::new(),
+            Ty::Unknown => "any".into(),
+        }
     }
 
     /// Wrap the emitted declarations in a package clause, the imports actually
@@ -334,7 +361,7 @@ impl Gen {
             self.line(format!(
                 "\t{:w$} {}",
                 f.name,
-                ty_text(&ty_from_ann(&f.ty)),
+                self.ty_text(&ty_from_ann(&f.ty)),
                 w = w
             ));
         }
@@ -364,12 +391,18 @@ impl Gen {
     fn emit_func(&mut self, name: &str, params: &[Param], ret: Option<&TypeAnn>, body: &[Stmt]) {
         let ps: Vec<String> = params
             .iter()
-            .map(|p| format!("{} {}", go_ident(&p.name), ty_text(&ty_from_ann(&p.ty))))
+            .map(|p| {
+                format!(
+                    "{} {}",
+                    go_ident(&p.name),
+                    self.ty_text(&ty_from_ann(&p.ty))
+                )
+            })
             .collect();
         let rty = ret.map(ty_from_ann);
         let rtext = match &rty {
             None | Some(Ty::Unit) => String::new(),
-            Some(t) => format!(" {}", ty_text(t)),
+            Some(t) => format!(" {}", self.ty_text(t)),
         };
         self.line(format!(
             "func {}({}){} {{",
@@ -416,7 +449,7 @@ impl Gen {
                 let vty = ty_from_ann(ann);
                 self.t.declare(name.clone(), vty.clone());
                 // Go zero-initialises a plain `var`, so no value is needed.
-                self.line(format!("var {} {}", name, ty_text(&vty)));
+                self.line(format!("var {} {}", name, self.ty_text(&vty)));
             }
             Stmt::Var { value: None, .. } => {}
             Stmt::Assign {
@@ -484,7 +517,7 @@ impl Gen {
                 "err" => {
                     let e = self.emit_expr(&args[0]);
                     self.uses_errors = true;
-                    self.line(format!("return {}, errors.New({})", zero(&t), e));
+                    self.line(format!("return {}, errors.New({})", self.zero_value(&t), e));
                     return;
                 }
                 _ => {}
@@ -519,7 +552,7 @@ impl Gen {
         if let (Expr::Array(els, _), Ty::Array(elem)) = (value, expected)
             && els.is_empty()
         {
-            return format!("[]{}{{}}", ty_text(elem));
+            return format!("[]{}{{}}", self.ty_text(elem));
         }
         self.emit_expr(value)
     }
@@ -755,6 +788,9 @@ impl Gen {
             Ty::Option(t) => *t,
             _ => Ty::Unknown,
         };
+        // An enum `Option` is the bare interface, so the scrutinee is the value
+        // itself — nil-tested directly and bound without a pointer deref.
+        let enum_inner = self.is_enum_ty(&inner);
         let some_arm = arms.iter().find(|a| arm_name(a) == Some("some"));
         let none_arm = arms.iter().find(|a| arm_name(a) == Some("none"));
         let bind = some_arm.and_then(|a| match &a.pattern {
@@ -775,8 +811,12 @@ impl Gen {
             // and the pointer is already used by the `!= nil` test above.
             let used = some_arm.is_some_and(|a| b != "_" && expr_mentions(&a.body, b));
             if used {
-                self.t.declare(b.clone(), inner);
-                self.line(format!("{} := *{}", b, ptr));
+                self.t.declare(b.clone(), inner.clone());
+                if enum_inner {
+                    self.line(format!("{} := {}", b, ptr));
+                } else {
+                    self.line(format!("{} := *{}", b, ptr));
+                }
             }
         }
         if let Some(a) = some_arm {
@@ -910,7 +950,7 @@ impl Gen {
             }
             Expr::Array(els, _) => {
                 let et = match els.first() {
-                    Some(first) => ty_text(&self.t.type_of(first)),
+                    Some(first) => self.ty_text(&self.t.type_of(first)),
                     None => "any".to_string(),
                 };
                 let parts: Vec<String> = els.iter().map(|x| self.emit_expr(x)).collect();
@@ -988,7 +1028,7 @@ impl Gen {
             Expr::Match {
                 scrutinee, arms, ..
             } => {
-                let rt = ty_text(&self.t.type_of(e));
+                let rt = self.ty_text(&self.t.type_of(e));
                 let body = self.match_to_string(scrutinee, arms);
                 let mut close = String::new();
                 for _ in 0..self.indent {
@@ -1127,9 +1167,16 @@ impl Gen {
                 }
             }
             "some" => {
-                self.uses_ptr = true;
+                let inner = self.t.type_of(&args[0]);
                 let e = self.emit_expr(&args[0]);
-                format!("ptr({})", e)
+                if self.is_enum_ty(&inner) {
+                    // `Option<enum>` is the bare interface, already nil-able, so
+                    // the value stands on its own with no pointer wrapper.
+                    e
+                } else {
+                    self.uses_ptr = true;
+                    format!("ptr({})", e)
+                }
             }
             // ok/err in a return are handled there; reaching here is degenerate.
             "ok" | "err" => self.emit_expr(&args[0]),

@@ -25,19 +25,15 @@ if [ ${#TARGETS[@]} -eq 0 ]; then
     exit 1
 fi
 
-# Two differences are declared seams, not conformance failures, so the comparison
+# One difference is a declared seam, not a conformance failure, so the comparison
 # is skipped for that one target+program (see README.md):
-#   rust/rpn     — rpn binds a payload out of a value and reads the whole value
-#                  after, which Rust's borrow checker rejects; that ownership
-#                  lesson is exactly what Rust exists to teach, so it's documented
-#                  rather than worked around in the emitter.
 #   swift/doctor — Swift launches programs via /usr/bin/env, so a *missing* one
 #                  comes back as env's exit 127 (a status, i.e. the ok arm) rather
 #                  than a launch failure; doctor deliberately probes one that
 #                  isn't there.
 declared_seam () { # <target> <program>
     case "$1/$2" in
-        rust/rpn | swift/doctor) return 0 ;;
+        swift/doctor) return 0 ;;
         *) return 1 ;;
     esac
 }
