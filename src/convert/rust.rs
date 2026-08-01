@@ -478,8 +478,11 @@ impl Gen {
                 } else {
                     let id = rust_ident(&to_snake(name));
                     // A boxed capture is a `Box<T>`; deref it so the arm reads a `T`.
+                    // Bare `*id`, not `(*id)`: as a match scrutinee the parens draw an
+                    // `unused_parens` warning, and a following `.clone()` binds tighter
+                    // than the deref anyway (`*id.clone()` is `*(id.clone())`).
                     if self.boxed.contains(&id) {
-                        format!("(*{})", id)
+                        format!("*{}", id)
                     } else {
                         id
                     }
