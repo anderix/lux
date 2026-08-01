@@ -265,7 +265,7 @@ impl Parser {
     fn struct_stmt(&mut self) -> Result<Stmt, LuxError> {
         let start = self.span();
         self.advance(); // struct
-        let (name, _) = self.ident("a struct name after 'struct'")?;
+        let (name, name_span) = self.ident("a struct name after 'struct'")?;
         self.expect(&Tok::LBrace, "'{' to start the struct body")?;
         let mut fields = Vec::new();
         while !matches!(self.peek_tok(), Tok::RBrace | Tok::Eof) {
@@ -276,6 +276,17 @@ impl Parser {
             }
         }
         self.expect(&Tok::RBrace, "'}' to close the struct")?;
+        // A struct groups fields; with none it holds nothing and can't be built —
+        // `Name()` reads as a call. Point at the enum, which is how you name a value
+        // that carries no data.
+        if fields.is_empty() {
+            return Err(LuxError::new(
+                format!("a struct needs at least one field, and `{}` has none", name),
+                name_span,
+            )
+            .with_note("if you want a name that carries no data, a payload-less enum case is the shape for it")
+            .with_learn("structs", "a struct is a group of named fields; give it at least one"));
+        }
         Ok(Stmt::Struct {
             name,
             fields,
@@ -615,6 +626,17 @@ impl Parser {
         let mut fields = Vec::new();
         if !matches!(self.peek_tok(), Tok::RParen) {
             loop {
+                // Each value goes in by name. A value where the label belongs means
+                // the label was left off — the commonest slip building an enum case,
+                // `Color.named("teal")` instead of `Color.named(label: "teal")`.
+                if !matches!(self.peek_tok(), Tok::Ident(_)) {
+                    return Err(LuxError::new(
+                        "this value needs a label — each field goes in by name",
+                        self.span(),
+                    )
+                    .with_note("write `name: value`, as in `Point(x: 1, y: 2)` or `Color.named(label: \"teal\")`")
+                    .with_learn("structs", "you build a struct or an enum case by naming each field"));
+                }
                 let (name, _) = self.ident("a field name")?;
                 self.expect(&Tok::Colon, "':' after the field name")?;
                 let value = self.expression()?;
@@ -642,6 +664,17 @@ impl Parser {
         while !matches!(self.peek_tok(), Tok::RBrace | Tok::Eof) {
             let pattern = self.pattern()?;
             self.expect(&Tok::FatArrow, "'=>' after the pattern")?;
+            // A match arm is a value, not a statement, so it can't `return` — a
+            // common reach when an arm wants to bail out of a function. Name that,
+            // rather than the bare "expected a value" the expression parser gives.
+            if matches!(self.peek_tok(), Tok::Return) {
+                return Err(LuxError::new(
+                    "a match arm is a value, not a statement — it can't `return` from inside",
+                    self.span(),
+                )
+                .with_note("let each arm be the value, and return the whole match: `return match … { … }`")
+                .with_learn("match", "every arm is an expression, and the match becomes their shared value"));
+            }
             let body = self.expression()?;
             let span = pattern.span().to(body.span());
             arms.push(MatchArm {
