@@ -199,10 +199,31 @@ fn gofmt(src: String) -> String {
     }
 }
 
+fn crawl_usage() {
+    println!("lux crawl — drop a small text-adventure world in front of you, as plain");
+    println!("lux you can open, play, and change");
+    println!();
+    println!("usage:");
+    println!("  lux crawl           scaffold a new crawl in ./crawl/");
+    println!("  lux crawl <name>    scaffold it in ./<name>/ instead");
+    println!();
+    println!("Then: `lux run <name>/world.lux` to play, or open world.lux to edit it.");
+    println!("New to building one? `lux learn crawl` walks through how a world is made.");
+}
+
 /// Scaffold a playable, editable text adventure into the current directory.
 /// The whole world is plain lux the player can open and change — `lux crawl` is
 /// just the thing that drops a fresh copy in front of them.
 fn crawl_cmd(rest: &[String]) {
+    // `--help` is a request to explain, not a folder to scaffold into — without
+    // this it would drop a crawl in ./--help/.
+    if matches!(
+        rest.first().map(String::as_str),
+        Some("--help") | Some("-h")
+    ) {
+        crawl_usage();
+        return;
+    }
     let dir = rest.first().map(String::as_str).unwrap_or("crawl");
     let path = Path::new(dir);
     let world = path.join("world.lux");

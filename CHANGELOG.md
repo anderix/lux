@@ -28,6 +28,10 @@ is a different bar from a learner meeting an ownership rule in code they wrote.
   backend already did for call arguments, preserving lux's value semantics. This
   also closed the `rust`/`rpn` conformance seam, which is now actively checked
   (32 matched, 0 differed).
+- **`lux crawl --help` explains instead of scaffolding a `--help` folder.** The
+  command treated any argument as the target directory name, so `--help` and `-h`
+  created a crawl in `./--help/`. They now print the command's usage and touch
+  nothing, the way every other flag does.
 
 ## [0.14.2] - 2026-08-01
 
