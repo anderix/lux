@@ -1146,6 +1146,43 @@ match quarter(6) { ok(let v) => print("ok", v)  err(let e) => print("err", e) }
     assert_prints_everywhere(src, "errforward", "ok 2\nerr 5 is odd\nerr 3 is odd\n");
 }
 
+/// A `var` initialised from one enum case must be typed as the enum, not that
+/// case. In Go the enum is an interface; `:=` would infer the concrete case
+/// struct, so reassigning a different case wouldn't compile — the ordinary way to
+/// accumulate an enum value, `var out = List.nil` then `out = push(out, x)` in a
+/// loop. The backend now pins the interface type. Rust and Swift never had the
+/// problem; this holds all three to the same behaviour.
+#[test]
+fn a_var_of_an_enum_case_takes_the_enum_type_on_every_backend() {
+    let src = r#"
+enum Colour { red  blue }
+enum List { nil  cons(head: int, tail: List) }
+func name(c: Colour) -> string {
+    return match c { red => "red"  blue => "blue" }
+}
+func push(l: List, x: int) -> List {
+    return List.cons(head: x, tail: l)
+}
+func size(l: List) -> int {
+    return match l { nil => 0  cons(let h, let t) => 1 + size(t) }
+}
+var c = Colour.red
+print(name(c))
+c = Colour.blue
+print(name(c))
+var out = List.nil
+for x in [1, 2, 3] { out = push(out, x) }
+print(size(out))
+"#;
+    // Go pins the interface type on the binding, not the case struct.
+    let go = convert::to_go(&parser::parse(lexer::lex(src).expect("lex")).expect("parse"));
+    assert!(
+        go.contains("var c Colour =") && go.contains("var out List ="),
+        "a Go enum binding should be typed as the enum interface, got:\n{go}"
+    );
+    assert_prints_everywhere(src, "enumvar", "red\nblue\n3\n");
+}
+
 // --- structure shared by all three ----------------------------------------
 
 #[test]

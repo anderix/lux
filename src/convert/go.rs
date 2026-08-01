@@ -575,7 +575,21 @@ impl Gen {
             .map(ty_from_ann)
             .unwrap_or_else(|| self.t.type_of(value));
         let expr = self.emit_expr_typed(value, &vty);
-        self.line(format!("{} := {}", go_ident(name), expr));
+        // An enum lowers to an interface. Initialising with `:=` would infer the
+        // concrete case struct (`ColourRed`), so a later `c = Colour.blue` — a
+        // different case — wouldn't assign, and a `switch c.(type)` on the concrete
+        // value wouldn't even be a valid type switch. Pin the interface type, the
+        // way you'd accumulate any enum value: `var out List = List.nil`.
+        if self.is_enum_ty(&vty) {
+            self.line(format!(
+                "var {} {} = {}",
+                go_ident(name),
+                self.ty_text(&vty),
+                expr
+            ));
+        } else {
+            self.line(format!("{} := {}", go_ident(name), expr));
+        }
         self.t.declare(name.to_string(), vty);
     }
 
