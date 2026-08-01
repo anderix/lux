@@ -1,6 +1,6 @@
-//! `lux crawl` scaffolds a world into a folder — but `--help`/`-h` must explain
-//! the command, never scaffold a folder literally named `--help`. These drive the
-//! built binary in a scratch directory so the filesystem effect is observable.
+//! `lux crawl` scaffolds a world into a folder. These drive the built binary in a
+//! scratch directory so the filesystem effect is observable. (That `--help` never
+//! scaffolds a folder is covered for every command in help.rs.)
 
 use std::process::Command;
 
@@ -14,33 +14,6 @@ fn scratch(tag: &str) -> std::path::PathBuf {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     dir
-}
-
-#[test]
-fn crawl_help_explains_and_scaffolds_nothing() {
-    for flag in ["--help", "-h"] {
-        let dir = scratch(flag.trim_start_matches('-'));
-        let out = lux()
-            .arg("crawl")
-            .arg(flag)
-            .current_dir(&dir)
-            .output()
-            .unwrap();
-        assert!(out.status.success(), "`lux crawl {flag}` should exit 0");
-        let stdout = String::from_utf8_lossy(&out.stdout);
-        assert!(
-            stdout.contains("usage:") && stdout.contains("lux crawl"),
-            "`lux crawl {flag}` should print usage, got:\n{stdout}"
-        );
-        // The bug was scaffolding into a folder named after the flag.
-        let entries: Vec<_> = std::fs::read_dir(&dir).unwrap().collect();
-        assert!(
-            entries.is_empty(),
-            "`lux crawl {flag}` must not create anything, found {} entries",
-            entries.len()
-        );
-        let _ = std::fs::remove_dir_all(&dir);
-    }
 }
 
 #[test]

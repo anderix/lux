@@ -58,6 +58,10 @@ fn main() {
 }
 
 fn run_cmd(rest: &[String]) {
+    if wants_help(rest) {
+        sub_usage("run");
+        return;
+    }
     let Some(path) = rest.first() else {
         eprintln!("usage: lux run <file.lux>");
         exit(1);
@@ -75,6 +79,10 @@ fn run_cmd(rest: &[String]) {
 /// streams can be watched together, or split with a redirect — play the crawl
 /// clean on screen and capture the trace with `2> trace.log` to read after.
 fn trace_cmd(rest: &[String]) {
+    if wants_help(rest) {
+        sub_usage("trace");
+        return;
+    }
     let Some(path) = rest.first() else {
         eprintln!("usage: lux trace <file.lux>");
         exit(1);
@@ -93,6 +101,10 @@ fn trace_cmd(rest: &[String]) {
 }
 
 fn convert_cmd(rest: &[String]) {
+    if wants_help(rest) {
+        sub_usage("convert");
+        return;
+    }
     let (lang, path) = match rest {
         [lang, path, ..] => (lang.as_str(), path.as_str()),
         _ => {
@@ -116,6 +128,10 @@ fn convert_cmd(rest: &[String]) {
 }
 
 fn learn_cmd(rest: &[String]) {
+    if wants_help(rest) {
+        sub_usage("learn");
+        return;
+    }
     let words: Vec<&str> = rest.iter().map(String::as_str).collect();
     // A trailing `more` — `lux learn enums more` — asks for the topic's deeper page.
     let (target, more) = match words.split_last() {
@@ -148,6 +164,10 @@ fn learn_cmd(rest: &[String]) {
 /// `lux magic`: with no argument, the spells on offer; with one, that spell —
 /// a working shape and its trail into `lux learn`.
 fn magic_cmd(rest: &[String]) {
+    if wants_help(rest) {
+        sub_usage("magic");
+        return;
+    }
     match rest.first().map(String::as_str) {
         None => print!("{}", magic::menu()),
         Some(name) => match magic::lookup(name) {
@@ -164,6 +184,10 @@ fn magic_cmd(rest: &[String]) {
 /// `lux editors`: with no argument, report which editors are here and whether
 /// lux highlighting is installed; `lux editors install` writes it for each.
 fn editors_cmd(rest: &[String]) {
+    if wants_help(rest) {
+        sub_usage("editors");
+        return;
+    }
     match rest.first().map(String::as_str) {
         None => println!("{}", editors::report()),
         Some("install") => println!("{}", editors::install()),
@@ -199,16 +223,88 @@ fn gofmt(src: String) -> String {
     }
 }
 
-fn crawl_usage() {
-    println!("lux crawl — drop a small text-adventure world in front of you, as plain");
-    println!("lux you can open, play, and change");
-    println!();
-    println!("usage:");
-    println!("  lux crawl           scaffold a new crawl in ./crawl/");
-    println!("  lux crawl <name>    scaffold it in ./<name>/ instead");
-    println!();
-    println!("Then: `lux run <name>/world.lux` to play, or open world.lux to edit it.");
-    println!("New to building one? `lux learn crawl` walks through how a world is made.");
+/// Did the user ask a command to explain itself — `lux <cmd> --help`? Every
+/// subcommand checks this first, so all of them answer `--help` the way the
+/// top-level `lux --help` does, rather than treating the flag as an argument.
+fn wants_help(rest: &[String]) -> bool {
+    matches!(
+        rest.first().map(String::as_str),
+        Some("--help") | Some("-h")
+    )
+}
+
+/// Per-command help, kept together so every command's `--help` reads the same.
+fn sub_usage(cmd: &str) {
+    match cmd {
+        "run" => {
+            println!("lux run — run a program");
+            println!();
+            println!("usage: lux run <file.lux>");
+        }
+        "trace" => {
+            println!("lux trace — run a program, narrating each line and the state it changes");
+            println!();
+            println!("usage: lux trace <file.lux>");
+            println!();
+            println!("The narration goes to stderr and the program's own output to stdout, so");
+            println!(
+                "`lux trace world.lux 2> trace.log` plays clean and saves the trace to read after."
+            );
+        }
+        "crawl" => {
+            println!("lux crawl — drop a small text-adventure world in front of you, as plain");
+            println!("lux you can open, play, and change");
+            println!();
+            println!("usage:");
+            println!("  lux crawl           scaffold a new crawl in ./crawl/");
+            println!("  lux crawl <name>    scaffold it in ./<name>/ instead");
+            println!();
+            println!("Then: `lux run <name>/world.lux` to play, or open world.lux to edit it.");
+            println!("New to building one? `lux learn crawl` walks through how a world is made.");
+        }
+        "build" => {
+            println!("lux build — compile a program to a native binary through Rust");
+            println!();
+            println!("usage: lux build <file.lux>");
+            println!();
+            println!("Writes ./<name> beside you; needs rustc installed.");
+        }
+        "convert" => {
+            println!("lux convert — translate a program to another language's source");
+            println!();
+            println!("usage: lux convert <rust|swift|go> <file.lux>");
+            println!();
+            println!("Prints the translation to stdout; redirect it to a file to keep it.");
+        }
+        "learn" => {
+            println!("lux learn — read the language, built in");
+            println!();
+            println!("usage:");
+            println!("  lux learn                list the lessons and topics");
+            println!("  lux learn <topic>        read one");
+            println!("  lux learn <topic> more   its deeper page");
+        }
+        "magic" => {
+            println!("lux magic — working shapes for what you want to do now");
+            println!();
+            println!("usage:");
+            println!("  lux magic            list the spells");
+            println!("  lux magic <spell>    show one");
+        }
+        "editors" => {
+            println!("lux editors — syntax highlighting for your editors");
+            println!();
+            println!("usage:");
+            println!("  lux editors          report which editors are here and what's installed");
+            println!("  lux editors install  write highlighting for each one found");
+        }
+        "update" => {
+            println!("lux update — update lux to the latest release");
+            println!();
+            println!("usage: lux update");
+        }
+        _ => print_usage(),
+    }
 }
 
 /// Scaffold a playable, editable text adventure into the current directory.
@@ -217,11 +313,8 @@ fn crawl_usage() {
 fn crawl_cmd(rest: &[String]) {
     // `--help` is a request to explain, not a folder to scaffold into — without
     // this it would drop a crawl in ./--help/.
-    if matches!(
-        rest.first().map(String::as_str),
-        Some("--help") | Some("-h")
-    ) {
-        crawl_usage();
+    if wants_help(rest) {
+        sub_usage("crawl");
         return;
     }
     let dir = rest.first().map(String::as_str).unwrap_or("crawl");
@@ -281,6 +374,10 @@ fn crawl_cmd(rest: &[String]) {
 }
 
 fn build_cmd(rest: &[String]) {
+    if wants_help(rest) {
+        sub_usage("build");
+        return;
+    }
     let Some(path) = rest.first() else {
         eprintln!("usage: lux build <file.lux>");
         exit(1);
@@ -324,6 +421,10 @@ fn build_cmd(rest: &[String]) {
 /// where the user's should be. On Unix a running binary can be replaced in place,
 /// so lux can update itself while it runs.
 fn update_cmd(rest: &[String]) {
+    if wants_help(rest) {
+        sub_usage("update");
+        return;
+    }
     if !rest.is_empty() {
         eprintln!("usage: lux update");
         exit(1);
