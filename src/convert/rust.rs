@@ -12,7 +12,7 @@ use crate::ast::*;
 
 use super::{
     Ty, Types, bin_prec, escape, expr_mentions, format_float, indent, mutated_roots, op_str,
-    rust_ident, to_pascal, to_snake, ty_from_ann,
+    rust_ident, stmts_mention, to_pascal, to_snake, ty_from_ann,
 };
 
 struct Gen {
@@ -470,7 +470,15 @@ impl Gen {
             }
             _ => (self.emit_expr(iter), Ty::Unknown),
         };
-        self.line(format!("for {} in {} {{", svar, iter_str));
+        // A loop variable the body never reads becomes `_`, so Rust doesn't warn
+        // about an unused variable in code the learner didn't write — the same
+        // elision the match arms already do.
+        let binder = if stmts_mention(body, var) {
+            svar
+        } else {
+            "_".to_string()
+        };
+        self.line(format!("for {} in {} {{", binder, iter_str));
         self.indent += 1;
         self.t.push_scope();
         self.t.declare(var.to_string(), elem_ty);

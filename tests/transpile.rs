@@ -40,6 +40,93 @@ fn tool_available(cmd: &str, version_arg: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Build `src` on every backend whose compiler is present, run the result, and
+/// assert it prints `expected`. Rust and Swift are held to warning-clean output
+/// (empty stderr) as well as a correct answer, since the backends' bar is source
+/// a learner can read without a warning about code they didn't write; Go has no
+/// warning tier for these cases (an unused local or a type mismatch is a hard
+/// error there), so success plus the right output is its bar. `tag` names the
+/// temp files, so parallel tests don't collide. This is the spine of a
+/// cross-backend behaviour test — a new case is a single call.
+fn assert_prints_everywhere(src: &str, tag: &str, expected: &str) {
+    let program = parser::parse(lexer::lex(src).expect("lex")).expect("parse");
+    let tmp = std::env::temp_dir();
+
+    if tool_available("rustc", "--version") {
+        let rust = convert::to_rust(&program);
+        let rs = tmp.join(format!("lux_{tag}.rs"));
+        std::fs::write(&rs, &rust).expect("write rust");
+        let bin = tmp.join(format!("lux_{tag}_rs"));
+        let out = Command::new("rustc")
+            .arg(&rs)
+            .arg("-o")
+            .arg(&bin)
+            .output()
+            .expect("run rustc");
+        assert!(
+            out.status.success() && out.stderr.is_empty(),
+            "{tag}: should compile warning-clean as Rust:\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let run = Command::new(&bin).output().expect("run rust bin");
+        assert_eq!(
+            String::from_utf8_lossy(&run.stdout),
+            expected,
+            "{tag}: rust output"
+        );
+    }
+    if tool_available("swiftc", "--version") {
+        let swift = convert::to_swift(&program);
+        let sw = tmp.join(format!("lux_{tag}.swift"));
+        std::fs::write(&sw, &swift).expect("write swift");
+        let bin = tmp.join(format!("lux_{tag}_sw"));
+        let out = Command::new("swiftc")
+            .arg(&sw)
+            .arg("-o")
+            .arg(&bin)
+            .output()
+            .expect("run swiftc");
+        assert!(
+            out.status.success() && out.stderr.is_empty(),
+            "{tag}: should compile warning-clean as Swift:\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let run = Command::new(&bin).output().expect("run swift bin");
+        assert_eq!(
+            String::from_utf8_lossy(&run.stdout),
+            expected,
+            "{tag}: swift output"
+        );
+    }
+    if tool_available("go", "version") {
+        let go = convert::to_go(&program);
+        let dir = tmp.join(format!("lux_go_{tag}"));
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        std::fs::write(dir.join("go.mod"), "module luxtest\n\ngo 1.21\n").expect("write go.mod");
+        std::fs::write(dir.join("main.go"), &go).expect("write go");
+        let bin = dir.join("bin");
+        let out = Command::new("go")
+            .arg("build")
+            .arg("-o")
+            .arg(&bin)
+            .current_dir(&dir)
+            .env("GOCACHE", tmp.join("lux_go_cache"))
+            .output()
+            .expect("run go build");
+        assert!(
+            out.status.success(),
+            "{tag}: did not compile as Go:\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let run = Command::new(&bin).output().expect("run go bin");
+        assert_eq!(
+            String::from_utf8_lossy(&run.stdout),
+            expected,
+            "{tag}: go output"
+        );
+    }
+}
+
 // --- Rust ------------------------------------------------------------------
 
 #[test]
@@ -893,6 +980,63 @@ print(length(b.tags))
         "empty annotated arrays did not compile as Go:\n{}",
         String::from_utf8_lossy(&out.stderr)
     );
+}
+
+/// A range whose end falls below its start is empty everywhere: the interpreter,
+/// Rust, and Go all iterate zero times. Swift's `..<` traps on out-of-order
+/// bounds, so the backend emits `stride(from:to:by:)`, which is empty instead of
+/// fatal. The bound here goes negative on the last call — exactly a shrinking
+/// inner loop over an emptying row — so a wrong emission crashes rather than
+/// misprints, which the run step catches.
+#[test]
+fn a_reversed_range_iterates_zero_times_on_every_backend() {
+    let src = r#"
+func count(upto: int) -> int {
+    var seen = 0
+    for i in 0..upto {
+        seen += 1
+    }
+    return seen
+}
+print(count(3))
+print(count(0))
+print(count(-1))
+"#;
+    // Swift stride yields an Int, so a body that reads the variable still works.
+    let swift = convert::to_swift(&parser::parse(lexer::lex(src).expect("lex")).expect("parse"));
+    assert!(
+        swift.contains("stride(from: 0, to: upto, by: 1)"),
+        "a Swift range loop should emit stride, got:\n{swift}"
+    );
+    assert_prints_everywhere(src, "revrange", "3\n0\n0\n");
+}
+
+/// A loop variable the body never reads is emitted as `_`, so Rust and Swift come
+/// out warning-clean — the same elision the match arms already do. Go is
+/// unaffected: its counted loop reads the variable in its own condition, so it
+/// never warned. `assert_prints_everywhere` enforces the warning-clean bar, and
+/// the structural check pins the elision itself.
+#[test]
+fn an_unread_loop_variable_is_dropped_on_rust_and_swift() {
+    let src = r#"
+var seen = 0
+for i in 0..3 {
+    seen += 1
+}
+print(seen)
+"#;
+    let program = parser::parse(lexer::lex(src).expect("lex")).expect("parse");
+    let rust = convert::to_rust(&program);
+    let swift = convert::to_swift(&program);
+    assert!(
+        rust.contains("for _ in 0..3"),
+        "Rust should drop the unread loop variable, got:\n{rust}"
+    );
+    assert!(
+        swift.contains("for _ in stride(from: 0, to: 3, by: 1)"),
+        "Swift should drop the unread loop variable, got:\n{swift}"
+    );
+    assert_prints_everywhere(src, "unusedloop", "3\n");
 }
 
 // --- structure shared by all three ----------------------------------------

@@ -605,8 +605,6 @@ fn expr_mentions(e: &Expr, name: &str) -> bool {
         Expr::Binary { lhs, rhs, .. } => expr_mentions(lhs, name) || expr_mentions(rhs, name),
         Expr::Index { base, index, .. } => expr_mentions(base, name) || expr_mentions(index, name),
         Expr::Range { start, end, .. } => expr_mentions(start, name) || expr_mentions(end, name),
-        // The callee is a function name, never a bound value, so only the
-        // arguments can read the binding.
         Expr::Call { args, .. } => args.iter().any(|a| expr_mentions(a, name)),
         Expr::StructLit { fields, .. } | Expr::EnumLit { fields, .. } => {
             fields.iter().any(|(_, v)| expr_mentions(v, name))
@@ -615,5 +613,41 @@ fn expr_mentions(e: &Expr, name: &str) -> bool {
         Expr::Match {
             scrutinee, arms, ..
         } => expr_mentions(scrutinee, name) || arms.iter().any(|a| expr_mentions(&a.body, name)),
+    }
+}
+
+/// Does `name` appear anywhere in this block of statements? The `for`-body
+/// analogue of `expr_mentions`, walking each statement's expressions and nested
+/// bodies. A loop variable the body never reads is emitted as `_` so Rust and
+/// Swift stay warning-clean; Go's counted loop already reads its variable in the
+/// loop's own condition, so it never warns. Conservative in the same way — a
+/// name shadowed by an inner binding still counts as used, so it never drops a
+/// binding the body relies on.
+fn stmts_mention(stmts: &[Stmt], name: &str) -> bool {
+    stmts.iter().any(|s| stmt_mentions(s, name))
+}
+
+fn stmt_mentions(s: &Stmt, name: &str) -> bool {
+    match s {
+        Stmt::Let { value, .. } => expr_mentions(value, name),
+        Stmt::Var { value, .. } => value.as_ref().is_some_and(|v| expr_mentions(v, name)),
+        Stmt::Assign { target, value, .. } => {
+            expr_mentions(target, name) || expr_mentions(value, name)
+        }
+        Stmt::Return { value, .. } => value.as_ref().is_some_and(|v| expr_mentions(v, name)),
+        Stmt::If {
+            cond,
+            then_body,
+            else_body,
+            ..
+        } => {
+            expr_mentions(cond, name)
+                || stmts_mention(then_body, name)
+                || else_body.as_deref().is_some_and(|e| stmts_mention(e, name))
+        }
+        Stmt::While { cond, body, .. } => expr_mentions(cond, name) || stmts_mention(body, name),
+        Stmt::For { iter, body, .. } => expr_mentions(iter, name) || stmts_mention(body, name),
+        Stmt::Expr(e) => expr_mentions(e, name),
+        Stmt::Func { .. } | Stmt::Struct { .. } | Stmt::Enum { .. } => false,
     }
 }

@@ -17,7 +17,7 @@ use crate::ast::*;
 
 use super::{
     Ty, Types, bin_prec, escape, expr_mentions, format_float, indent, mutated_roots, op_str,
-    swift_case, swift_ident, ty_from_ann,
+    stmts_mention, swift_case, swift_ident, ty_from_ann,
 };
 
 struct Gen {
@@ -499,8 +499,28 @@ impl Gen {
             Ty::Array(t) => *t,
             _ => Ty::Unknown,
         };
-        let it = self.emit_expr(iter);
-        self.line(format!("for {} in {} {{", var, it));
+        // A range whose end falls below its start is empty everywhere else — the
+        // interpreter, Rust, and Go all iterate zero times — but Swift's `..<`
+        // traps on out-of-order bounds. `stride(from:to:by:)` gives the same empty
+        // iteration without the crash, so a bound that goes negative from ordinary
+        // arithmetic (a shrinking inner loop over an emptying row) just doesn't run.
+        let it = match (self.t.type_of(iter), iter) {
+            (Ty::Range, Expr::Range { start, end, .. }) => {
+                let s = self.emit_expr(start);
+                let e = self.emit_expr(end);
+                format!("stride(from: {}, to: {}, by: 1)", s, e)
+            }
+            _ => self.emit_expr(iter),
+        };
+        // A loop variable the body never reads becomes `_`, so Swift doesn't warn
+        // about an unused immutable value in code the learner didn't write — the
+        // same elision the match arms already do.
+        let binder = if stmts_mention(body, var) {
+            swift_ident(var)
+        } else {
+            "_".to_string()
+        };
+        self.line(format!("for {} in {} {{", binder, it));
         self.indent += 1;
         self.t.push_scope();
         self.t.declare(var.to_string(), elem_ty);
