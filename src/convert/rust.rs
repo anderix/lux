@@ -457,8 +457,12 @@ impl Gen {
                 target, op, value, ..
             } => self.emit_assign(target, *op, value),
             Stmt::Return { value, .. } => match value {
+                // A returned value flows out of the function like any other value,
+                // so it copies a non-Copy place the same way a binding or a call
+                // argument does. Without this, `return row[c]` won't compile —
+                // Rust can't move a `String` out of a `Vec` index (#20).
                 Some(v) => {
-                    let e = self.emit_expr(v);
+                    let e = self.emit_moved(v);
                     self.line(format!("return {};", e));
                 }
                 None => self.line("return;".into()),
@@ -651,7 +655,7 @@ impl Gen {
             Expr::Str(s, _) => format!("\"{}\".to_string()", escape(s)),
             Expr::Bool(b, _) => b.to_string(),
             Expr::Ident(name, _) => {
-                if name == "none" {
+                if name == "none" && !self.t.in_scope("none") {
                     "None".to_string()
                 } else {
                     let id = rust_ident(&to_snake(name));
@@ -792,7 +796,7 @@ impl Gen {
     /// read. A temporary (a literal, a call result) is already owned, so it isn't
     /// a place and isn't cloned.
     fn emit_moved(&mut self, a: &Expr) -> String {
-        let clone = !is_copy(&self.t.type_of(a)) && is_place(a);
+        let clone = !is_copy(&self.t.type_of(a)) && is_place(a, &self.t);
         let s = self.emit_expr(a);
         if clone { format!("{}.clone()", s) } else { s }
     }

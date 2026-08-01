@@ -1048,6 +1048,109 @@ print(seen)
     assert_prints_everywhere(src, "unusedloop", "3\n");
 }
 
+/// A loop that discards its variable — `for _ in 0..n`, the natural "do this n
+/// times" — can't lower `_` into the three slots of Go's C-style `for`: `_ := 0`,
+/// `_ < n` and `_++` are each invalid. Go gets a throwaway name instead; Rust and
+/// Swift emit a plain `_`. It's the very spelling lux's own emitter now writes for
+/// an unread loop variable, so the Go backend has to accept it back. (#18)
+#[test]
+fn a_discarded_loop_variable_compiles_on_every_backend() {
+    let src = r#"
+var s = ""
+for _ in 0..3 {
+    s = s + "*"
+}
+print(s)
+"#;
+    let go = convert::to_go(&parser::parse(lexer::lex(src).expect("lex")).expect("parse"));
+    assert!(
+        !go.contains("for _ :="),
+        "Go can't read `_` in a C-for's condition; it needs a throwaway name, got:\n{go}"
+    );
+    assert_prints_everywhere(src, "discardloop", "***\n");
+}
+
+/// `none` names the empty `Option`, but a program that binds it as an ordinary
+/// variable means the local — the same shadowing every other built-in name already
+/// allows. The declaration always respected the scope; the use site used to reach
+/// the built-in first and emit `None`/`nil`, compiling nowhere. Both an int (the
+/// common case) and a non-Copy value (which also needs lux's value-semantics copy)
+/// are covered. (#19)
+#[test]
+fn a_variable_named_none_shadows_the_builtin_on_every_backend() {
+    assert_prints_everywhere("let none = 5\nprint(none + 1)\n", "noneint", "6\n");
+    let src = r#"
+var none = [1, 2, 3]
+let copy = none
+none += 4
+print(copy)
+print(none)
+"#;
+    assert_prints_everywhere(src, "nonearr", "[1, 2, 3]\n[1, 2, 3, 4]\n");
+}
+
+/// Reading one cell out of a grid of strings and handing it back is the accessor
+/// every grid program writes. Rust can't move a `String` out of a `Vec` index
+/// (E0507), so a returned index of a non-Copy element is cloned — the same copy a
+/// binding or a call argument already gets. Over `[[int]]` it compiled anyway,
+/// because an int element is Copy, which is what made it easy to miss. The
+/// behavioural check is the real guard: without the clone, Rust won't compile. (#20)
+#[test]
+fn returning_an_indexed_string_compiles_on_every_backend() {
+    let src = r#"
+func at(g: [[string]], r: int, c: int) -> string {
+    let row = g[r]
+    return row[c]
+}
+let board = [["a", "b"], ["c", "d"]]
+print(at(board, 1, 0))
+"#;
+    let rust = convert::to_rust(&parser::parse(lexer::lex(src).expect("lex")).expect("parse"));
+    assert!(
+        rust.contains("return row[(c) as usize].clone();"),
+        "Rust should clone an indexed String returned by value, got:\n{rust}"
+    );
+    assert_prints_everywhere(src, "indexret", "c\n");
+}
+
+/// Not a wrong answer — a cost, and so the kind a diff never catches. lux evaluates
+/// a range's bound once, but Go's C-for re-checks its condition every pass, so a
+/// bound that's a call landed inside the loop and re-ran each iteration — quietly
+/// turning an O(n²) grid walk cubic when the call deep-copies the grid. The bound
+/// is hoisted to a variable evaluated once; only a literal, which can't change,
+/// stays in the condition. (#21)
+#[test]
+fn go_hoists_a_computed_range_bound_out_of_the_loop() {
+    let src = r#"
+func rows(m: [[int]]) -> int {
+    return length(m)
+}
+func total(m: [[int]]) -> int {
+    var sum = 0
+    for i in 0..rows(m) {
+        let row = m[i]
+        for v in row {
+            sum += v
+        }
+    }
+    return sum
+}
+print(total([[1, 2], [3, 4]]))
+"#;
+    let go = convert::to_go(&parser::parse(lexer::lex(src).expect("lex")).expect("parse"));
+    // The bound is computed once, before the loop...
+    assert!(
+        go.contains("__end0 := rows("),
+        "Go should hoist the computed range bound, got:\n{go}"
+    );
+    // ...and the loop's condition just reads it, never re-calling rows().
+    assert!(
+        go.contains("; i < __end0;"),
+        "the loop condition should read the hoisted bound, got:\n{go}"
+    );
+    assert_prints_everywhere(src, "hoistbound", "10\n");
+}
+
 /// Printing an array of scalars reads the same on every backend — the common
 /// `print(xs)` line after a sort. Go used to defer to `fmt`, which prints a slice
 /// space-separated (`[1 2 3]`); it now renders lux's way, with commas.

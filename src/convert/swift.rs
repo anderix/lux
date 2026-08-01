@@ -655,7 +655,7 @@ impl Gen {
             Expr::Str(s, _) => format!("\"{}\"", escape(s)),
             Expr::Bool(b, _) => b.to_string(),
             Expr::Ident(name, _) => {
-                if name == "none" {
+                if name == "none" && !self.t.in_scope("none") {
                     "nil".to_string()
                 } else {
                     swift_ident(name)

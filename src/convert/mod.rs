@@ -179,7 +179,10 @@ impl Types {
             Expr::Str(..) => Ty::Str,
             Expr::Bool(..) => Ty::Bool,
             Expr::Ident(name, _) => {
-                if name == "none" {
+                // `none` names the empty `Option` — unless the program bound it as
+                // an ordinary variable, in which case the local wins, the same way
+                // it does for every other built-in name (#19).
+                if name == "none" && !self.in_scope("none") {
                     Ty::Option(Box::new(Ty::Unknown))
                 } else {
                     self.lookup(name)
@@ -606,9 +609,12 @@ fn mutated_roots(program: &[Stmt]) -> std::collections::HashSet<String> {
 /// to a fresh temporary like a literal or a call result. Rust clones a place to
 /// avoid a move; Go deep-copies one whose type holds a slice, to keep lux's value
 /// semantics. A fresh temporary already owns its storage, so neither touches it.
-fn is_place(e: &Expr) -> bool {
+fn is_place(e: &Expr, t: &Types) -> bool {
     match e {
-        Expr::Ident(n, _) => n != "none",
+        // A bare `none` is the empty `Option` literal — a fresh temporary, not a
+        // place — unless the program bound `none` as an ordinary variable, in which
+        // case it is one and carries value semantics like any other name (#19).
+        Expr::Ident(n, _) => n != "none" || t.in_scope("none"),
         Expr::Field { .. } | Expr::Index { .. } => true,
         _ => false,
     }

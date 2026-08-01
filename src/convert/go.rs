@@ -71,6 +71,10 @@ struct Gen {
     /// Whether the generic `copySlice` helper is needed — for copying a slice whose
     /// elements themselves need copying.
     uses_copy_slice: bool,
+    /// Monotonic counter for the hoisted range-bound variable. Two range loops in
+    /// one block would both declare `__end` and collide on Go's `:=`, so each gets
+    /// its own `__end0`, `__end1`, ...
+    bound_id: usize,
 }
 
 /// Translate a whole program to Go source text.
@@ -98,6 +102,7 @@ pub fn to_go(program: &[Stmt]) -> String {
         uses_lux_show: false,
         copy_structs: HashSet::new(),
         uses_copy_slice: false,
+        bound_id: 0,
     };
 
     for stmt in program {
@@ -653,7 +658,7 @@ impl Gen {
     /// the type of the destination, so an empty array literal still lands typed.
     fn emit_copied(&mut self, value: &Expr, expected: &Ty) -> String {
         let base = self.emit_expr_typed(value, expected);
-        if is_place(value) && self.needs_copy(expected) {
+        if is_place(value, &self.t) && self.needs_copy(expected) {
             self.register_copy_deps(expected);
             self.deep_copy_expr(expected, &base)
         } else {
@@ -801,9 +806,33 @@ impl Gen {
             Ty::Range => {
                 if let Expr::Range { start, end, .. } = iter {
                     let s = self.emit_expr(start);
-                    let e = self.emit_expr(end);
+                    // A discarded loop variable (`for _ in ..`) can't go into the
+                    // three slots of a C-style `for` — `_ := 0`, `_ < n` and `_++`
+                    // are each invalid Go. Give it a throwaway name instead; the
+                    // body never reads it, and Go's post-statement counts as a use.
+                    let counter = if var == "_" { "__i" } else { var };
+                    // lux evaluates a range's bound exactly once (the interpreter
+                    // reads `0..n` into a fixed `hi` before the loop), but the
+                    // condition of a C-`for` re-evaluates it every pass. That
+                    // diverges if the bound is a call with a side effect or one the
+                    // body could change, and runs quietly cubic when the call
+                    // deep-copies a grid (#21). Only a literal is immutable, so
+                    // hoist everything else to a variable evaluated once.
+                    let e = match end.as_ref() {
+                        Expr::Int(..) => self.emit_expr(end),
+                        _ => {
+                            let bound = self.emit_expr(end);
+                            let name = format!("__end{}", self.bound_id);
+                            self.bound_id += 1;
+                            self.line(format!("{} := {}", name, bound));
+                            name
+                        }
+                    };
                     (
-                        format!("for {} := {}; {} < {}; {}++ {{", var, s, var, e, var),
+                        format!(
+                            "for {} := {}; {} < {}; {}++ {{",
+                            counter, s, counter, e, counter
+                        ),
                         Ty::Int,
                     )
                 } else {
@@ -1137,7 +1166,7 @@ impl Gen {
             Expr::Str(s, _) => format!("\"{}\"", escape(s)),
             Expr::Bool(b, _) => b.to_string(),
             Expr::Ident(name, _) => {
-                if name == "none" {
+                if name == "none" && !self.t.in_scope("none") {
                     "nil".to_string()
                 } else {
                     go_ident(name)
