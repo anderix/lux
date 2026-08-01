@@ -4,7 +4,7 @@ How far the language goes, and exactly where it stops.
 
 `conformance/` asks whether lux keeps its promise that one source behaves the same
 on three targets. This directory asks a different question: what can you actually
-*write* in it? Twenty-one programs, chosen from the ones a first course reaches
+*write* in it? The programs here are chosen from the ones a first course reaches
 for, each written the way lux wants it rather than the way the textbook prints it.
 Some of them stop early, and where they stop is the most useful thing here.
 
@@ -80,9 +80,9 @@ misrepresent the language in its own favour.
 **Deliberate, and staying that way.** There is no randomness, because lux's one
 load-bearing idea is that state is a value you can watch — `step(world, cmd) ->
 World`, replayable by folding the same commands again — and a hidden die roll
-breaks that on the first throw. A `Result` cannot be stored in a variable; it is
-handled where it is produced or returned for the caller to face, which is what
-keeps one source crossing three targets. There are no classes, no user-defined
+breaks that on the first throw. A `Result` cannot be stored in a variable or handed
+to `print`; it is handled where it is produced or returned for the caller to face,
+which is what keeps one source crossing three targets. There are no classes, no user-defined
 generics, and no ownership. Each of those is somebody's graduation lesson: Rust
 takes over for ownership, Swift for classes, Go for goroutines.
 
@@ -99,29 +99,21 @@ function that walks them. Enums can refer to themselves but two enums cannot ref
 to each other. There is no `break`, so a loop keeps its own answer to "am I done?",
 which is a fair description of what `break` does anywhere.
 
-## What isn't passing yet
+## What this found
 
 The point of running every program on every target is that a program which only
-works interpreted proves nothing. Current state, and it is not clean:
+works interpreted proves nothing. Every program here now matches on all three
+targets — but it took writing them to get there. Run `./flex.sh` for the live
+state.
 
-- **Rust** builds and matches all twenty-one.
-- **Swift** builds all twenty-one and matches twenty. `bubble` sorts an empty row
-  as its last check, and an empty row makes an inner bound go negative — which
-  Swift treats as a fatal error rather than a loop that doesn't run
-  ([#12](https://github.com/anderix/lux/issues/12)).
-- **Go** builds thirteen of twenty-one. An empty array literal handed to a function
-  emits the wrong type ([#8](https://github.com/anderix/lux/issues/8)), a `var`
-  holding an enum takes its first case's type rather than the enum's
-  ([#9](https://github.com/anderix/lux/issues/9)), and forwarding an error out of a
-  `match` arm returns one value where two are wanted
-  ([#10](https://github.com/anderix/lux/issues/10)). Of the thirteen that build,
-  `selection` differs: Go prints an array without commas
-  ([#11](https://github.com/anderix/lux/issues/11)).
-
-All six were found by writing these programs, which is the argument for the
-directory existing. None of them is a limit of the language — the interpreter runs
-every program here correctly — and none of them was found by the five programs in
-`conformance/`.
+The corpus is what surfaced the divergences, and each was a bug in a target, not a
+limit of the language: an empty array literal's type in Go, an enum `var` taking
+its case's type, an error forwarded from a `match` arm returning one value where Go
+wanted two, an array printed without commas, a reversed range crashing Swift, value
+semantics leaking through a Go slice, an enum match dropping its wildcard case. None
+was found by the smaller `conformance/` set; each was filed as an issue, fixed in
+the target, and closed. The [CHANGELOG](../CHANGELOG.md) carries the history — which
+is the argument for this directory existing.
 
 ## The rules
 

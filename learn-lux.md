@@ -815,10 +815,11 @@ the kind worth meeting head-on instead of hiding.
   Swift emits the bare lowercase case name, so a case named `nil` is backtick-
   quoted there (`swift_case`); Go and Rust qualify a case (`TreeNil`, `Tree::Nil`)
   and can't collide with a lowercase keyword, so they leave it as written.
-- **Go, the empty array literal with no context.** A bare `[]` with no elements
-  and nothing to infer from — neither an annotation nor a field — emits `[]any{}`.
-  It compiles and prints the same empty list, just with the loosest element type;
-  an annotated binding or a struct field pins the real type.
+- **Go, the empty array literal with no context.** A bare `[]` takes its element
+  type from wherever it lands — an annotated binding, a struct field, a call
+  argument, a return. The only place left with nothing to infer from is a truly
+  standalone `[]`, like `print([])`, which emits `[]any{}`: it compiles and prints
+  the same empty list, just with the loosest element type.
 
 `examples/keep.lux`, the crawl world, is the program every learner is handed, so
 it must build everywhere: as of 0.14.3 it converts and compiles on all three

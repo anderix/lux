@@ -9,7 +9,7 @@ promise instead of assuming it.
 input, same bytes out, or it's a failure.
 
 ```
-./conformance.sh        # needs `lux` and `go` on PATH
+./conformance.sh        # needs `lux`, plus any of go / rustc / swiftc
 ```
 
 A failing leg is a real divergence to fix, never an expected tolerance. The
@@ -18,8 +18,8 @@ target is wrong.
 
 ## The corpus
 
-Five programs, each chosen to exercise a different part of the language rather
-than to be interesting in itself:
+Each program is chosen to exercise a different part of the language rather than
+to be interesting in itself:
 
 | file | shape | exercises |
 |---|---|---|
@@ -38,10 +38,12 @@ program: if a fix needs the corpus edited, the fix is wrong.
 
 The point is backend *correctness*, not language growth. These programs are
 shaped the way they are because certain things deliberately don't exist in lux —
-no string splitting, no maps, no `break`, no mutation — and that shape is the
-teaching content (insertion sort builds a new row; the RPN machine folds a fault
-forward). Don't add language features to make them nicer. A divergence here is a
-bug in a target, not a missing feature.
+no string splitting, no maps, no `break` — and that shape is the teaching content
+(insertion sort builds a new row; the RPN machine folds a fault forward). They
+favour building a new value over mutating one even though a `var` field or element
+can now be assigned, because that's the habit the language is teaching. Don't add
+language features to make them nicer. A divergence here is a bug in a target, not
+a missing feature.
 
 All three legs — Go, Rust, and Swift — are wired. A leg whose compiler isn't on
 PATH is skipped, so the suite runs on whatever toolchains are present.
