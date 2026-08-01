@@ -117,7 +117,23 @@ struct Interp {
     /// When set (by `lux trace`), narrate each executing line and the state it
     /// changes to stderr, leaving the program's own output on stdout untouched.
     trace: Option<Tracer>,
+    /// How many user-function calls are nested on the stack right now. Checked
+    /// against `MAX_CALL_DEPTH` on each call so runaway recursion becomes a lux
+    /// error rather than a stack overflow.
+    depth: usize,
 }
+
+/// How deep user-function calls may nest before the interpreter reports runaway
+/// recursion. Well above anything a real program recurses to (the compiled
+/// targets go further still), and comfortably inside `INTERP_STACK` so the limit
+/// is what stops a missing base case — never a raw stack overflow.
+const MAX_CALL_DEPTH: usize = 10_000;
+
+/// The stack the interpreter runs on. Each lux call nests several Rust frames, so
+/// the default thread stack overflows long before `MAX_CALL_DEPTH`; a large one
+/// keeps the depth limit in charge. It is reserved address space, paged in only
+/// as it's used, so the size costs almost nothing until the recursion is real.
+const INTERP_STACK: usize = 1 << 30; // 1 GiB
 
 /// The line-by-line narrator behind `lux trace`. It holds the source so it can
 /// reprint each executing line, and writes to stderr — so the program's own
@@ -195,25 +211,41 @@ fn run_with(
     program_args: &[String],
     trace: Option<Tracer>,
 ) -> Result<(), LuxError> {
-    let mut interp = Interp {
-        scopes: vec![HashMap::new()],
-        funcs: HashMap::new(),
-        structs: HashMap::new(),
-        enums: HashMap::new(),
-        program_args: program_args.to_vec(),
-        trace,
-    };
-    // Option and Result are built-in enums, registered before anything else so
-    // they exist for type-checking and so a user can't redeclare their names.
-    interp.register_builtin_types();
-    // Collect every type and function up front, so a program can refer to them
-    // before they appear in the file. Types come first because the validation
-    // pass and the functions can mention them.
-    interp.register_types(program)?;
-    interp.validate_type_decls(program)?;
-    interp.register_funcs(program)?;
-    interp.exec_block(program)?;
-    Ok(())
+    // Run on a thread with a large stack: the interpreter recurses through the
+    // Rust stack once per lux call, so a deeply recursive program would overflow
+    // the default stack — aborting the process with no diagnostic — before its own
+    // depth limit could report a clean error. A scoped thread lets the closure keep
+    // borrowing `program`.
+    std::thread::scope(|s| {
+        std::thread::Builder::new()
+            .stack_size(INTERP_STACK)
+            .spawn_scoped(s, move || {
+                let mut interp = Interp {
+                    scopes: vec![HashMap::new()],
+                    funcs: HashMap::new(),
+                    structs: HashMap::new(),
+                    enums: HashMap::new(),
+                    program_args: program_args.to_vec(),
+                    trace,
+                    depth: 0,
+                };
+                // Option and Result are built-in enums, registered before anything
+                // else so they exist for type-checking and a user can't redeclare
+                // their names.
+                interp.register_builtin_types();
+                // Collect every type and function up front, so a program can refer
+                // to them before they appear in the file. Types come first because
+                // the validation pass and the functions can mention them.
+                interp.register_types(program)?;
+                interp.validate_type_decls(program)?;
+                interp.register_funcs(program)?;
+                interp.exec_block(program)?;
+                Ok(())
+            })
+            .expect("spawn interpreter thread")
+            .join()
+            .expect("interpreter thread panicked")
+    })
 }
 
 impl Interp {
@@ -1685,7 +1717,25 @@ impl Interp {
     /// it sees its parameters and other functions, but not the caller's
     /// locals — and the returned value is checked against the declared return
     /// type.
+    /// Enter a user-function call, counting the nesting depth so runaway recursion
+    /// stops with a lux error rather than a stack overflow. The count is restored
+    /// however the call ends, so an error deep in the stack doesn't leave it skewed.
     fn call_user(&mut self, name: &str, args: &[Expr], span: Span) -> Result<Value, LuxError> {
+        if self.depth >= MAX_CALL_DEPTH {
+            return Err(call_stack_too_deep(name, span));
+        }
+        self.depth += 1;
+        let result = self.call_user_inner(name, args, span);
+        self.depth -= 1;
+        result
+    }
+
+    fn call_user_inner(
+        &mut self,
+        name: &str,
+        args: &[Expr],
+        span: Span,
+    ) -> Result<Value, LuxError> {
         let func = match self.funcs.get(name) {
             Some(f) => Rc::clone(f),
             None => {
@@ -2501,6 +2551,27 @@ fn result_not_printed(span: Span) -> LuxError {
     .with_learn(
         "result",
         "a Result is answered where it's made: matched or returned, not passed around",
+    )
+}
+
+/// The error for recursion that never bottoms out. The interpreter counts how
+/// deep the calls are nested and stops at `MAX_CALL_DEPTH`, so a missing base
+/// case surfaces as an ordinary lux diagnostic — naming the function and pointing
+/// at the base case — instead of a raw stack overflow that aborts with no message.
+fn call_stack_too_deep(name: &str, span: Span) -> LuxError {
+    LuxError::new(
+        format!(
+            "`{}` kept calling without stopping — more than {} calls deep",
+            name, MAX_CALL_DEPTH
+        ),
+        span,
+    )
+    .with_note(
+        "a function that calls itself needs a base case it reaches — a point where it returns instead of calling again",
+    )
+    .with_learn(
+        "functions",
+        "recursion needs a base case, or it calls itself forever",
     )
 }
 

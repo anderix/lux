@@ -1,7 +1,9 @@
-//! Parser-level diagnostics that have to meet the errors-are-trails bar, since a
-//! learner meets them early: an empty struct, a construction field that forgot its
-//! label, and a `return` inside a match arm. Each should name the cause and point
-//! somewhere useful, not fall through to a raw "expected a value".
+//! Diagnostics that have to meet the errors-are-trails bar, since a learner meets
+//! them early: an empty struct, a construction field that forgot its label, a
+//! `return` inside a match arm, and recursion that never reaches a base case. Each
+//! should name the cause and point somewhere useful, not fall through to a raw
+//! "expected a value" — or, for runaway recursion, a stack overflow that aborts
+//! with no message at all.
 
 use std::process::{Command, Stdio};
 
@@ -63,4 +65,59 @@ fn a_return_inside_a_match_arm_explains_arms_are_values() {
         err.contains("match arm is a value") && err.contains("`return`"),
         "should explain arms are expressions, got:\n{err}"
     );
+}
+
+/// Recursion with no reachable base case — the classic beginner mistake, and the
+/// one place the interpreter used to show its own host language: a raw stack
+/// overflow, `SIGABRT`, exit 134, and not one word about the program that was run.
+/// It now stops itself at a depth limit and reports an ordinary lux error that
+/// names the function and points at the base case, exiting 1 like every other.
+#[test]
+fn runaway_recursion_reports_a_lux_error_instead_of_aborting() {
+    let src = "func fact(n: int) -> int {\n    return n * fact(n - 1)\n}\nprint(fact(5))\n";
+    let path = std::env::temp_dir().join(format!("lux-diag-{}-runaway.lux", std::process::id()));
+    std::fs::write(&path, src).unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_lux"))
+        .arg("run")
+        .arg(&path)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let _ = std::fs::remove_file(&path);
+
+    // Exit 1 (an ordinary lux error), not 134 (SIGABRT) or any other signal death.
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "should exit 1 like every lux error"
+    );
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("`fact`") && err.contains("base case"),
+        "should name the function and point at the base case, got:\n{err}"
+    );
+    assert!(
+        !err.contains("stack overflow") && !err.contains("aborting"),
+        "should not leak the host runtime's overflow abort, got:\n{err}"
+    );
+}
+
+/// The depth limit sits well above any real recursion, so a correct, terminating
+/// program that simply goes deep still runs — the interpreter clears thousands of
+/// frames on the large stack it runs on, converging with the compiled targets
+/// rather than refusing what they accept.
+#[test]
+fn deep_but_terminating_recursion_still_runs() {
+    let src = "func d(n: int) -> int {\n    if n == 0 { return 0 }\n    return 1 + d(n - 1)\n}\nprint(d(5000))\n";
+    let path = std::env::temp_dir().join(format!("lux-diag-{}-deep.lux", std::process::id()));
+    std::fs::write(&path, src).unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_lux"))
+        .arg("run")
+        .arg(&path)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let _ = std::fs::remove_file(&path);
+    assert!(out.status.success(), "d(5000) should run to completion");
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "5000\n");
 }
