@@ -57,10 +57,11 @@ struct Gen {
     /// current nesting. A scratch name must dodge these too, so an inner match
     /// doesn't reuse the name an enclosing one is still holding.
     scratches: Vec<String>,
-    /// `print`/`eprint` of an array routes through the `showList` helper so the
-    /// output reads the way lux renders it — `[1, 2, 3]`, comma-separated — rather
-    /// than `fmt`'s space-separated `[1 2 3]`.
-    uses_show_list: bool,
+    /// `print`/`eprint` of a compound value (array, struct, enum, `Option`) routes
+    /// through the generated `luxShow` renderer so the output reads the way lux
+    /// renders it — `[1, 2, 3]`, `P(x: 1, y: 2)`, `Shape.circle(radius: 5)` —
+    /// rather than `fmt`'s `[1 2 3]`, `{1 2}`, `{5}`.
+    uses_lux_show: bool,
 }
 
 /// Translate a whole program to Go source text.
@@ -85,7 +86,7 @@ pub fn to_go(program: &[Stmt]) -> String {
         uses_parse_float: false,
         uses_run: false,
         scratches: Vec::new(),
-        uses_show_list: false,
+        uses_lux_show: false,
     };
 
     for stmt in program {
@@ -226,14 +227,14 @@ impl Gen {
         if self.uses_os {
             imports.push("os");
         }
-        // `showList` walks a slice of any depth by reflection.
-        if self.uses_show_list {
+        // `luxShow` walks a slice or a pointer of any type by reflection.
+        if self.uses_lux_show {
             imports.push("reflect");
         }
         if self.uses_strconv {
             imports.push("strconv");
         }
-        if self.uses_strings || self.uses_show_list {
+        if self.uses_strings || self.uses_lux_show {
             imports.push("strings");
         }
         imports.sort_unstable();
@@ -253,24 +254,8 @@ impl Gen {
             // case borrows one through a tiny generic helper.
             head.push_str("func ptr[T any](v T) *T {\n\treturn &v\n}\n\n");
         }
-        if self.uses_show_list {
-            // fmt prints a slice space-separated (`[1 2 3]`); lux renders it with
-            // commas (`[1, 2, 3]`). Reflection lets one helper handle a slice of
-            // any element type, and recurse so a nested array reads the same way
-            // all the way down. A non-slice falls through to fmt's own rendering.
-            head.push_str(
-                "func showList(v any) string {\n\
-                 \trv := reflect.ValueOf(v)\n\
-                 \tif rv.Kind() == reflect.Slice {\n\
-                 \t\tparts := make([]string, rv.Len())\n\
-                 \t\tfor i := range parts {\n\
-                 \t\t\tparts[i] = showList(rv.Index(i).Interface())\n\
-                 \t\t}\n\
-                 \t\treturn \"[\" + strings.Join(parts, \", \") + \"]\"\n\
-                 \t}\n\
-                 \treturn fmt.Sprintf(\"%v\", v)\n\
-                 }\n\n",
-            );
+        if self.uses_lux_show {
+            head.push_str(&self.lux_show_fn());
         }
         if self.uses_read_file {
             // os.ReadFile hands back bytes; lux reads a string, so decode here.
@@ -1138,14 +1123,91 @@ impl Gen {
         s
     }
 
-    /// One argument to `print`/`eprint`. An array is wrapped in `showList` so it
-    /// renders lux's way — comma-separated — instead of `fmt`'s space-separated
-    /// slice. Everything else prints as `fmt` already renders it.
+    /// The generated `luxShow(v any) string`: renders any value the way lux does,
+    /// where `fmt`'s defaults would read differently — a struct as `{1 2}`, an enum
+    /// case as `{5}`, a slice space-separated. A type switch names each struct and
+    /// enum case (with lux's labels and its `Enum.case` form); reflection handles a
+    /// slice or an `Option` pointer of any element type and recurses; scalars fall
+    /// through to `fmt`. Cases are emitted in name order so the output is stable.
+    fn lux_show_fn(&self) -> String {
+        let mut cases = String::new();
+
+        // Structs: `Name(field: value, …)`. `Output` is the built-in `run` returns,
+        // and its Go type is only emitted when `run` is used, so name it only then.
+        let mut struct_names: Vec<&String> = self.t.env.structs.keys().collect();
+        struct_names.sort();
+        for name in struct_names {
+            if name == "Output" && !self.uses_run {
+                continue;
+            }
+            let fields = &self.t.env.structs[name];
+            cases.push_str(&format!(
+                "\tcase {}:\n\t\treturn {}\n",
+                name,
+                render_labelled(name, fields)
+            ));
+        }
+
+        // Enum cases: `Enum.case` alone, or `Enum.case(field: value, …)` with a
+        // payload. The Go type is the per-case struct (`ShapeCircle`); the rendered
+        // label is lux's own `Shape.circle`.
+        let mut enum_names: Vec<&String> = self.t.env.enums.keys().collect();
+        enum_names.sort();
+        for ename in enum_names {
+            for v in &self.t.env.enums[ename] {
+                let case = format!("{}{}", ename, to_pascal(&v.name));
+                if v.fields.is_empty() {
+                    cases.push_str(&format!(
+                        "\tcase {}:\n\t\treturn \"{}.{}\"\n",
+                        case, ename, v.name
+                    ));
+                } else {
+                    let head = format!("{}.{}", ename, v.name);
+                    cases.push_str(&format!(
+                        "\tcase {}:\n\t\treturn {}\n",
+                        case,
+                        render_labelled(&head, &v.fields)
+                    ));
+                }
+            }
+        }
+
+        format!(
+            "func luxShow(v any) string {{\n\
+             \tswitch x := v.(type) {{\n\
+             \tcase string:\n\t\treturn x\n\
+             {cases}\
+             \t}}\n\
+             \trv := reflect.ValueOf(v)\n\
+             \tswitch rv.Kind() {{\n\
+             \tcase reflect.Slice:\n\
+             \t\tparts := make([]string, rv.Len())\n\
+             \t\tfor i := range parts {{\n\
+             \t\t\tparts[i] = luxShow(rv.Index(i).Interface())\n\
+             \t\t}}\n\
+             \t\treturn \"[\" + strings.Join(parts, \", \") + \"]\"\n\
+             \tcase reflect.Pointer:\n\
+             \t\tif rv.IsNil() {{\n\
+             \t\t\treturn \"none\"\n\
+             \t\t}}\n\
+             \t\treturn \"some(\" + luxShow(rv.Elem().Interface()) + \")\"\n\
+             \t}}\n\
+             \treturn fmt.Sprintf(\"%v\", v)\n\
+             }}\n\n"
+        )
+    }
+
+    /// One argument to `print`/`eprint`. A compound value — array, struct, enum, or
+    /// `Option` — is wrapped in `luxShow` so it reads the way lux renders it rather
+    /// than `fmt`'s default. A scalar prints as `fmt` already renders it.
     fn print_arg(&mut self, a: &Expr) -> String {
         let e = self.emit_expr(a);
-        if matches!(self.t.type_of(a), Ty::Array(_)) {
-            self.uses_show_list = true;
-            format!("showList({})", e)
+        if matches!(
+            self.t.type_of(a),
+            Ty::Array(_) | Ty::User(_) | Ty::Option(_) | Ty::Result(..)
+        ) {
+            self.uses_lux_show = true;
+            format!("luxShow({})", e)
         } else {
             e
         }
@@ -1314,6 +1376,18 @@ impl Gen {
             format!("{}{{{}}}", case, parts.join(", "))
         }
     }
+}
+
+/// Build the `luxShow` body for a labelled value — a struct or an enum case with
+/// a payload — as a Go string expression: `"head(" + "f: " + luxShow(x.f) + …)`.
+/// The label is each field's lux name; the access is `x.f`, which Go keeps as the
+/// same name. Fields are read in declared order.
+fn render_labelled(head: &str, fields: &[FieldDef]) -> String {
+    let parts: Vec<String> = fields
+        .iter()
+        .map(|f| format!("\"{}: \" + luxShow(x.{})", f.name, f.name))
+        .collect();
+    format!("\"{}(\" + {} + \")\"", head, parts.join(" + \", \" + "))
 }
 
 /// The case name of a variant pattern, for matching `some`/`none`/`ok`/`err`.

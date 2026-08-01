@@ -1101,6 +1101,54 @@ print("xs is", xs)
     );
 }
 
+/// Printing a struct or an enum in Go reads the way lux renders it —
+/// `P(x: 1, y: 2)`, `Shape.circle(radius: 5)`, `Shape.dot` — not `fmt`'s `{1 2}`,
+/// `{5}`, `{}`. The generated `luxShow` recurses, so a struct that holds an array
+/// and an enum renders all the way down. Expected strings are exactly `lux run`.
+#[test]
+fn go_renders_structs_and_enums_the_way_lux_does() {
+    if !tool_available("go", "version") {
+        eprintln!("skipping: go not on PATH");
+        return;
+    }
+    let src = r#"
+struct P { x: int  y: int }
+enum Shape { circle(radius: int)  dot }
+struct Box { items: [int]  shape: Shape }
+print(P(x: 1, y: 2))
+print(Shape.circle(radius: 5))
+print(Shape.dot)
+print([P(x: 1, y: 2), P(x: 3, y: 4)])
+print(Box(items: [1, 2], shape: Shape.dot))
+"#;
+    let program = parser::parse(lexer::lex(src).expect("lex")).expect("parse");
+    let go = convert::to_go(&program);
+    let dir = std::env::temp_dir().join("lux_go_luxshow");
+    std::fs::create_dir_all(&dir).expect("mkdir");
+    std::fs::write(dir.join("go.mod"), "module luxtest\n\ngo 1.21\n").expect("write go.mod");
+    std::fs::write(dir.join("main.go"), &go).expect("write go");
+    let bin = dir.join("bin");
+    let out = Command::new("go")
+        .arg("build")
+        .arg("-o")
+        .arg(&bin)
+        .current_dir(&dir)
+        .env("GOCACHE", std::env::temp_dir().join("lux_go_cache"))
+        .output()
+        .expect("run go build");
+    assert!(
+        out.status.success(),
+        "struct/enum printing did not compile as Go:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let run = Command::new(&bin).output().expect("run go bin");
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "P(x: 1, y: 2)\nShape.circle(radius: 5)\nShape.dot\n[P(x: 1, y: 2), P(x: 3, y: 4)]\nBox(items: [1, 2], shape: Shape.dot)\n",
+        "go struct/enum rendering should match lux run"
+    );
+}
+
 /// An empty array literal carries no element to infer a type from, so Go needs
 /// the type from the position it lands in: a parameter (`total([])`) or a return
 /// (`empty => []` where the function returns `[int]`). 0.14.0 typed an annotated
