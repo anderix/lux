@@ -546,9 +546,10 @@ failure as a value you `match` on, instead of a hidden mechanism that jumps out
 of your code, is what keeps the failure path in plain sight.
 
 One rule comes with it: a `Result` is answered where it's made. Match it right
-where the call is, or `return` it for the caller to face — but don't stash it in
-a `let` for later. That mirrors how Go works: you check an error at the call site,
-not three lines down. An `Option` you *can* keep in a variable — a missing value
+where the call is, or `return` it for the caller to face — but don't pass it
+around unanswered: not stashed in a `let`, not handed to `print` to look at later.
+That mirrors how Go works: you check an error at the call site, not three lines
+down. An `Option` you *can* keep in a variable — a missing value
 is still a real value — but a `Result` is a question waiting for an answer. When
 you move up to Rust or Swift, a `Result` becomes an ordinary value you can hold
 onto and pass around; that extra freedom is one of the things you graduate into.

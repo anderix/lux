@@ -22,9 +22,10 @@ whole corpus now behaves identically on all four.
   recursive tree all read lux's way and compose all the way down. A bare
   `some`/`none` in print position, which had no type to infer from, is pinned at
   the site: `print(some("north"))` compiled nowhere before and now prints
-  `some(north)` everywhere. A `Result` stays off this path — it's Go's `(value,
-  error)` pair, not a value, and lux's rule is to match a Result where it's
-  produced, not print it.
+  `some(north)` everywhere. Printing a `Result` is now refused with a message that
+  points you to matching it — it's Go's `(value, error)` pair, not a value, and
+  the same rule that keeps a Result out of a `let` keeps it out of `print`
+  (the interpreter allowed it before, which was the inconsistency).
 - **Go: arrays keep lux's value semantics.** A Go slice is a reference, so
   `var xs = input` aliased the caller's row and an in-place sort reached back
   through it, mutating a source the program was told stays untouched. An array

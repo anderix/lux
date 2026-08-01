@@ -155,6 +155,30 @@ fn a_result_cannot_be_stored() {
 }
 
 #[test]
+fn a_result_cannot_be_printed() {
+    // Printing a Result would pass it around, the same habit storing it does —
+    // and it has no single-value shape to hand to `print` once it's Go's (value,
+    // error) pair. A user function, a bare literal, and eprint are all refused.
+    rejected(
+        "print-userfn",
+        &format!("{HALF}\nprint(half(4))"),
+        "can't be printed",
+    );
+    rejected("print-literal", "print(ok(5))", "can't be printed");
+    rejected(
+        "eprint-userfn",
+        &format!("{HALF}\neprint(half(4))"),
+        "can't be printed",
+    );
+    // Matched where it's produced, then each side printed, is exactly right.
+    ok_reaches_end(
+        "print-matched",
+        &format!("{HALF}\nmatch half(4) {{ ok(let v) => print(v)  err(let e) => print(e) }}"),
+        "",
+    );
+}
+
+#[test]
 fn a_result_can_be_matched_inline_or_returned() {
     // Matched right where it's produced.
     ok_reaches_end(

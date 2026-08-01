@@ -1313,7 +1313,11 @@ impl Interp {
             "print" => {
                 let mut parts = Vec::with_capacity(args.len());
                 for a in args {
-                    parts.push(display(&self.eval(a)?));
+                    let v = self.eval(a)?;
+                    if is_result(&v) {
+                        return Err(result_not_printed(a.span()));
+                    }
+                    parts.push(display(&v));
                 }
                 println!("{}", parts.join(" "));
                 Ok(Value::Unit)
@@ -1466,7 +1470,11 @@ impl Interp {
             "eprint" => {
                 let mut parts = Vec::with_capacity(args.len());
                 for a in args {
-                    parts.push(display(&self.eval(a)?));
+                    let v = self.eval(a)?;
+                    if is_result(&v) {
+                        return Err(result_not_printed(a.span()));
+                    }
+                    parts.push(display(&v));
                 }
                 eprintln!("{}", parts.join(" "));
                 Ok(Value::Unit)
@@ -2477,6 +2485,22 @@ fn result_not_stored(span: Span) -> LuxError {
     .with_learn(
         "result",
         "a Result is answered where it's made: matched or returned, not kept in a variable",
+    )
+}
+
+/// The error for trying to `print` a `Result`. Printing it would slip the same
+/// pass-a-Result-around habit past the rule that keeps it from a variable — and
+/// it can't cross to Go, where the value and the error are two returns, not one
+/// thing to hand to `print`. Match it and print each side instead.
+fn result_not_printed(span: Span) -> LuxError {
+    LuxError::new(
+        "a Result can't be printed — handle it where it's produced".to_string(),
+        span,
+    )
+    .with_note("match it and print each side — `match … { ok(let x) => print(x)  err(let e) => print(e) }`")
+    .with_learn(
+        "result",
+        "a Result is answered where it's made: matched or returned, not passed around",
     )
 }
 
