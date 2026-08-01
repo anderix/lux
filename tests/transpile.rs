@@ -1092,6 +1092,60 @@ print("xs is", xs)
     );
 }
 
+/// An empty array literal carries no element to infer a type from, so Go needs
+/// the type from the position it lands in: a parameter (`total([])`) or a return
+/// (`empty => []` where the function returns `[int]`). 0.14.0 typed an annotated
+/// binding's empty array; these are the two positions it didn't reach. The other
+/// backends never had the problem — this pins that all four now agree.
+#[test]
+fn an_empty_array_literal_is_typed_at_arg_and_return() {
+    let src = r#"
+enum Tree { empty  node(v: int) }
+func total(xs: [int]) -> int {
+    var n = 0
+    for x in xs { n += x }
+    return n
+}
+func inorder(t: Tree) -> [int] {
+    return match t {
+        empty => []
+        node(let v) => [v]
+    }
+}
+print(total([]))
+print(total([1, 2, 3]))
+print(inorder(Tree.empty))
+print(inorder(Tree.node(v: 7)))
+"#;
+    assert_prints_everywhere(src, "emptyarg", "0\n6\n[]\n[7]\n");
+}
+
+/// Forwarding a failure out of a `match` arm — `err(why) => err(why)` — is the
+/// shape the "handle a Result where it's produced" rule pushes every program
+/// toward, so it must be the best-supported one. In Go it emitted a single value
+/// where the `(value, error)` lowering wants two; a returning arm now goes
+/// through the same return path a top-level `return err(why)` does. The failure
+/// here travels up through two levels of nested match, the evaluator pattern.
+#[test]
+fn an_error_forwarded_from_a_match_arm_lowers_on_every_backend() {
+    let src = r#"
+func half(n: int) -> Result<int, string> {
+    if n % 2 != 0 { return err(string(n) + " is odd") }
+    return ok(n / 2)
+}
+func quarter(n: int) -> Result<int, string> {
+    return match half(n) {
+        err(let why) => err(why)
+        ok(let h)    => half(h)
+    }
+}
+match quarter(8) { ok(let v) => print("ok", v)  err(let e) => print("err", e) }
+match quarter(5) { ok(let v) => print("ok", v)  err(let e) => print("err", e) }
+match quarter(6) { ok(let v) => print("ok", v)  err(let e) => print("err", e) }
+"#;
+    assert_prints_everywhere(src, "errforward", "ok 2\nerr 5 is odd\nerr 3 is odd\n");
+}
+
 // --- structure shared by all three ----------------------------------------
 
 #[test]

@@ -538,7 +538,9 @@ impl Gen {
         {
             match name.as_str() {
                 "ok" => {
-                    let e = self.emit_expr(&args[0]);
+                    // Type the success value against the Result's ok slot, so a
+                    // returned empty array lands as `[]int{}`, not `[]any{}`.
+                    let e = self.emit_expr_typed(&args[0], &t);
                     self.line(format!("return {}, nil", e));
                     return;
                 }
@@ -558,7 +560,13 @@ impl Gen {
             self.emit_match(scrutinee, arms, true);
             return;
         }
-        let e = self.emit_expr(v);
+        // Type the returned value against the function's return type, so an empty
+        // array literal returned directly (`return []`) takes the declared element
+        // type rather than Go's untyped `[]any{}`.
+        let e = match self.ret.clone() {
+            Some(t) => self.emit_expr_typed(v, &t),
+            None => self.emit_expr(v),
+        };
         self.line(format!("return {}", e));
     }
 
@@ -713,15 +721,24 @@ impl Gen {
         }
     }
 
-    /// The body of one arm, either run for effect or turned into a `return`.
+    /// The body of one arm, either run for effect or turned into a `return`. A
+    /// returning arm goes through `emit_return`, so an arm that forwards a
+    /// `Result` — `err(why) => err(why)` — gets the same `(value, error)` pair
+    /// lowering a top-level `return err(why)` does, rather than a bare value where
+    /// Go wants two. It also picks up the return-position typing that an empty
+    /// array literal (`empty => []`) needs.
     fn emit_arm_body(&mut self, body: &Expr, ret: bool) {
+        if ret {
+            self.emit_return(Some(body));
+            return;
+        }
         match body {
             Expr::Match {
                 scrutinee, arms, ..
-            } => self.emit_match(scrutinee, arms, ret),
+            } => self.emit_match(scrutinee, arms, false),
             _ => {
                 let e = self.emit_expr(body);
-                self.line(if ret { format!("return {}", e) } else { e });
+                self.line(e);
             }
         }
     }
@@ -1224,7 +1241,23 @@ impl Gen {
             // ok/err in a return are handled there; reaching here is degenerate.
             "ok" | "err" => self.emit_expr(&args[0]),
             _ => {
-                let parts: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
+                // Type each argument against the parameter it fills, so an empty
+                // array literal passed straight in — `total([])` — takes the
+                // parameter's element type instead of Go's untyped `[]any{}`.
+                let param_tys: Option<Vec<Ty>> = self
+                    .t
+                    .env
+                    .funcs
+                    .get(name)
+                    .map(|(ps, _)| ps.iter().map(|p| ty_from_ann(&p.ty)).collect());
+                let parts: Vec<String> = args
+                    .iter()
+                    .enumerate()
+                    .map(|(i, a)| match &param_tys {
+                        Some(ts) if i < ts.len() => self.emit_expr_typed(a, &ts[i]),
+                        _ => self.emit_expr(a),
+                    })
+                    .collect();
                 format!("{}({})", go_ident(name), parts.join(", "))
             }
         }
