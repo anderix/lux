@@ -688,8 +688,11 @@ impl Gen {
         // otherwise `v` itself would be an unused local, which Go rejects. An arm
         // that binds a value it never uses falls through to a plain type switch.
         let any_bind = arms.iter().any(arm_uses_a_binding);
+        // The subject steps aside if an arm binds its name, so `full(let v, …)`
+        // doesn't shadow the switch variable it's pulled out of.
+        let subj = scratch_clear_of("v", arm_bindings(arms));
         let head = if any_bind {
-            format!("switch v := {}.(type) {{", s)
+            format!("switch {} := {}.(type) {{", subj, s)
         } else {
             format!("switch {}.(type) {{", s)
         };
@@ -716,7 +719,7 @@ impl Gen {
                 // Only pull out a binding the arm actually reads — an unused local
                 // is a compile error in Go, not a warning.
                 if b != "_" && expr_mentions(&arm.body, b) {
-                    self.line(format!("{} := v.{}", b, fname));
+                    self.line(format!("{} := {}.{}", b, subj, fname));
                 }
             }
             self.emit_arm_body(&arm.body, ret);
@@ -790,21 +793,29 @@ impl Gen {
             _ => None,
         });
         let s = self.emit_expr(scrutinee);
+        // The error scratch steps aside if an arm binds `err` itself, so
+        // `err(let err)` doesn't try to redeclare the test variable.
+        let bound: Vec<&str> = [&ok_bind, &err_bind]
+            .into_iter()
+            .flatten()
+            .map(String::as_str)
+            .collect();
+        let ev = scratch_clear_of("err", bound.into_iter());
         // An if-init scopes the value and error to this match, so two reads in
         // one block don't collide on the names. A success that carries nothing
         // leaves only the error to bind.
         if ok_ty == Ty::Unit {
-            self.line(format!("if err := {}; err == nil {{", s));
+            self.line(format!("if {} := {}; {} == nil {{", ev, s, ev));
         } else {
             // Bind the ok value only when the arm reads it; otherwise `_`, since Go
-            // rejects an unused local. `err` is always used by the test itself.
+            // rejects an unused local. The error scratch is always used by the test.
             let lhs = match &ok_bind {
                 Some(b) if b != "_" && ok_arm.is_some_and(|a| expr_mentions(&a.body, b)) => {
                     b.clone()
                 }
                 _ => "_".to_string(),
             };
-            self.line(format!("if {}, err := {}; err == nil {{", lhs, s));
+            self.line(format!("if {}, {} := {}; {} == nil {{", lhs, ev, s, ev));
         }
         self.indent += 1;
         self.t.push_scope();
@@ -826,7 +837,7 @@ impl Gen {
             let used = err_arm.is_some_and(|a| b != "_" && expr_mentions(&a.body, b));
             if used {
                 self.t.declare(b.clone(), err_ty);
-                self.line(format!("{} := err.Error()", b));
+                self.line(format!("{} := {}.Error()", b, ev));
             }
         }
         if let Some(a) = err_arm {
@@ -1154,6 +1165,29 @@ fn expr_mentions(e: &Expr, name: &str) -> bool {
             scrutinee, arms, ..
         } => expr_mentions(scrutinee, name) || arms.iter().any(|a| expr_mentions(&a.body, name)),
     }
+}
+
+/// A scratch name for the emitter that no arm binding can collide with. We start
+/// from `base` and append underscores until it's clear of every name the match
+/// captures — so `switch v := …` still reads as `v` unless an arm itself binds
+/// `v`, in which case the subject steps aside to `v_`. Go rejects `v := v.field`
+/// ("no new variables on left side of :="), so the subject must not share a name
+/// with anything the case pulls out of it.
+fn scratch_clear_of<'a>(base: &str, bindings: impl Iterator<Item = &'a str>) -> String {
+    let taken: std::collections::HashSet<&str> = bindings.collect();
+    let mut name = base.to_string();
+    while taken.contains(name.as_str()) {
+        name.push('_');
+    }
+    name
+}
+
+/// Every binding name captured across a match's arms.
+fn arm_bindings(arms: &[MatchArm]) -> impl Iterator<Item = &str> {
+    arms.iter().flat_map(|arm| match &arm.pattern {
+        Pattern::Variant { bindings, .. } => bindings.iter().map(String::as_str).collect(),
+        _ => Vec::new(),
+    })
 }
 
 /// Does this arm read the value it captures — i.e. is at least one non-`_`
