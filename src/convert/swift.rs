@@ -247,7 +247,16 @@ impl Gen {
     }
 
     fn emit_enum(&mut self, name: &str, variants: &[VariantDef]) {
-        self.line(format!("enum {}: Equatable {{", name));
+        // A field that stores the enum itself needs indirection to have a finite
+        // size. Swift's `indirect` boxes exactly those cases for us, so marking
+        // the enum is all it takes — construction and matching read the same.
+        let recursive = variants.iter().any(|v| {
+            v.fields
+                .iter()
+                .any(|f| matches!(ty_from_ann(&f.ty), Ty::User(ref n) if n == name))
+        });
+        let kw = if recursive { "indirect enum" } else { "enum" };
+        self.line(format!("{} {}: Equatable {{", kw, name));
         for v in variants {
             if v.fields.is_empty() {
                 self.line(format!("    case {}", v.name));

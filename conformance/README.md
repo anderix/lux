@@ -28,6 +28,7 @@ than to be interesting in itself:
 | `stats.lux` | Unix filter | `readLine` loop, `Option` handling, insertion sort |
 | `doctor.lux` | orchestration | `run`, `Output` struct, the launch-vs-status failure split, `eprint` |
 | `decide.lux` | decision table | nested `match` over two enums, exhaustiveness, `Result`-shaped verdicts |
+| `tree.lux` | binary tree | a recursive enum, hand-built and folded three ways — indirection each target spells differently (Box, `indirect`, interface) |
 
 These are the baseline. They all run correctly under `lux run` — that is the
 fixed point. When a transpiled target disagrees, fix the target, not the

@@ -214,6 +214,108 @@ fn go_examples_compile() {
     }
 }
 
+// --- Recursive data --------------------------------------------------------
+
+/// A recursive enum runs interpreted; every target has to spell the indirection
+/// its own way — a `Box` in Rust, `indirect` in Swift, the interface encoding in
+/// Go. This compiles the same tree on each available backend and checks the
+/// answer, so the three stay in step with the interpreter.
+#[test]
+fn recursive_enum_compiles_and_runs_on_every_backend() {
+    let src = r#"
+enum Tree {
+    leaf
+    node(left: Tree, value: int, right: Tree)
+}
+func sum(t: Tree) -> int {
+    return match t {
+        leaf => 0
+        node(let l, let v, let r) => sum(l) + v + sum(r)
+    }
+}
+let t = Tree.node(left: Tree.node(left: Tree.leaf, value: 1, right: Tree.leaf), value: 2, right: Tree.leaf)
+print(sum(t))
+"#;
+    let program = parser::parse(lexer::lex(src).expect("lex")).expect("parse");
+    let tmp = std::env::temp_dir();
+
+    // Rust: the recursive field is boxed, and reads deref through it.
+    let rust = convert::to_rust(&program);
+    assert!(
+        rust.contains("Box<Tree>"),
+        "recursive field should be boxed"
+    );
+    if tool_available("rustc", "--version") {
+        let rs = tmp.join("lux_rec.rs");
+        std::fs::write(&rs, &rust).expect("write rust");
+        let bin = tmp.join("lux_rec_rs");
+        let out = Command::new("rustc")
+            .arg(&rs)
+            .arg("-O")
+            .arg("-o")
+            .arg(&bin)
+            .output()
+            .expect("run rustc");
+        assert!(
+            out.status.success(),
+            "recursive enum did not compile as Rust:\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let run = Command::new(&bin).output().expect("run rust bin");
+        assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "3");
+    }
+
+    // Swift: the enum is marked `indirect`, which boxes for us.
+    let swift = convert::to_swift(&program);
+    assert!(
+        swift.contains("indirect enum Tree"),
+        "recursive enum should be marked indirect"
+    );
+    if tool_available("swiftc", "--version") {
+        let sw = tmp.join("lux_rec.swift");
+        std::fs::write(&sw, &swift).expect("write swift");
+        let bin = tmp.join("lux_rec_sw");
+        let out = Command::new("swiftc")
+            .arg(&sw)
+            .arg("-o")
+            .arg(&bin)
+            .output()
+            .expect("run swiftc");
+        assert!(
+            out.status.success(),
+            "recursive enum did not compile as Swift:\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let run = Command::new(&bin).output().expect("run swift bin");
+        assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "3");
+    }
+
+    // Go: the interface encoding already carries the indirection.
+    if tool_available("go", "version") {
+        let go = convert::to_go(&program);
+        let dir = tmp.join("lux_go_rec");
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        std::fs::write(dir.join("go.mod"), "module luxtest\n\ngo 1.21\n").expect("write go.mod");
+        std::fs::write(dir.join("main.go"), &go).expect("write go");
+        let bin = dir.join("bin");
+        let out = Command::new("go")
+            .arg("build")
+            .arg("-o")
+            .arg(&bin)
+            .current_dir(&dir)
+            .env("GOCACHE", tmp.join("lux_go_cache"))
+            .output()
+            .expect("run go build");
+        assert!(
+            out.status.success(),
+            "recursive enum did not compile as Go:\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let run = Command::new(&bin).output().expect("run go bin");
+        assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "3");
+    }
+}
+
 #[test]
 fn go_idioms() {
     let go = convert::to_go(&parse("tour"));

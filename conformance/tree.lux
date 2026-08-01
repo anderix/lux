@@ -1,0 +1,49 @@
+// A binary tree, the shape a first data-structures lesson reaches for: a
+// recursive enum, built by hand, then folded three ways. Every target has to
+// spell the indirection somewhere — a Box in Rust, `indirect` in Swift, an
+// interface in Go — and lux hides all three behind the same `node`/`leaf`.
+//
+// The `node(let l, let v, let r)` arm also binds a value named `v`, which is the
+// name the Go backend uses for its own type-switch subject; keeping it here holds
+// that collision covered.
+
+enum Tree {
+    leaf
+    node(left: Tree, value: int, right: Tree)
+}
+
+func sum(t: Tree) -> int {
+    return match t {
+        leaf => 0
+        node(let l, let v, let r) => sum(l) + v + sum(r)
+    }
+}
+
+func depth(t: Tree) -> int {
+    return match t {
+        leaf => 0
+        node(let l, let v, let r) => 1 + biggest(depth(l), depth(r))
+    }
+}
+
+func count(t: Tree) -> int {
+    return match t {
+        leaf => 0
+        node(let l, let v, let r) => 1 + count(l) + count(r)
+    }
+}
+
+func biggest(a: int, b: int) -> int {
+    if a > b { return a }
+    return b
+}
+
+// A deliberately lopsided tree, so depth and count disagree.
+let inner = Tree.node(left: Tree.leaf, value: 2, right: Tree.leaf)
+let left = Tree.node(left: Tree.leaf, value: 1, right: inner)
+let right = Tree.node(left: Tree.leaf, value: 4, right: Tree.leaf)
+let root = Tree.node(left: left, value: 3, right: right)
+
+print("sum:   " + string(sum(root)))
+print("depth: " + string(depth(root)))
+print("count: " + string(count(root)))

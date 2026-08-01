@@ -4,6 +4,28 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.2] - 2026-08-01
+
+### Added
+
+- **Recursive enums cross all three targets.** An enum whose field stores its own
+  type — a tree's `node(left: Tree, …, right: Tree)`, a linked list, an expression
+  evaluator — ran interpreted but wouldn't compile as Rust or Swift, which needed
+  the indirection spelled out. The Rust backend now boxes a recursive field and
+  derefs it on read; the Swift backend marks the enum `indirect`; Go already
+  carried the indirection in its interface encoding. A learner's first tree now
+  behaves the same everywhere. Covered by a new `tree.lux` in the conformance
+  suite. (Direct self-reference; mutual recursion between two enums isn't handled.)
+
+### Fixed
+
+- **A match binding can share a name with the emitter's Go scratch variable.** The
+  Go type switch opens with a subject `v` and the `Result` lowering names its
+  error `err`; an arm that bound a variable with that same name — `full(let v, …)`
+  or `err(let err)` — produced Go that redeclared the scratch and wouldn't compile.
+  The scratch now steps aside to `v_` / `err_` only on a real collision, so the
+  common case still reads `v` and `err`.
+
 ## [0.14.1] - 2026-07-31
 
 ### Fixed
@@ -491,6 +513,7 @@ All notable changes to lux are recorded here. The format follows
   `lux build` compiles the Rust translation to a native binary.
 - A `curl` installer and uninstaller.
 
+[0.14.2]: https://github.com/anderix/lux/releases/tag/v0.14.2
 [0.14.1]: https://github.com/anderix/lux/releases/tag/v0.14.1
 [0.14.0]: https://github.com/anderix/lux/releases/tag/v0.14.0
 [0.13.0]: https://github.com/anderix/lux/releases/tag/v0.13.0

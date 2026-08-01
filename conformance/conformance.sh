@@ -98,7 +98,7 @@ check () {
 echo "targets: ${TARGETS[*]}"
 echo
 echo "building translations"
-for prog in rpn life stats doctor decide; do
+for prog in rpn life stats doctor decide tree; do
     for target in "${TARGETS[@]}"; do
         declared_seam "$target" "$prog" && continue
         if build "$target" "$prog"; then
@@ -123,6 +123,7 @@ check stats  "stats — junk lines"      "printf '5\n3\nnope\n9\n' | BIN"
 check stats  "stats — empty input"     "printf '' | BIN"
 check doctor "doctor — subprocesses"   'BIN'
 check decide "decide — policy table"   'BIN'
+check tree   "tree — recursive enum"   'BIN'
 
 echo
 echo "$PASS matched, $FAIL differed"

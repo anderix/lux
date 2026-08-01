@@ -27,6 +27,11 @@ struct Gen {
     /// `run` needs the built-in `Output` struct and a helper that spawns a
     /// command, emitted once when the program reaches for it.
     uses_run: bool,
+    /// Match bindings currently in scope that hold a `Box` — a recursive enum
+    /// field. A read of one derefs the box so the arm sees the value, not the
+    /// pointer. Used as a stack: an arm pushes its boxed captures and truncates
+    /// back on the way out, so nested matches stay balanced.
+    boxed: Vec<String>,
 }
 
 /// Reading one line, returning `None` at end of input — the helper `readLine()`
@@ -88,6 +93,7 @@ pub fn to_rust(program: &[Stmt]) -> String {
         uses_read_line: false,
         uses_input: false,
         uses_run: false,
+        boxed: Vec::new(),
     };
 
     for stmt in program {
@@ -211,7 +217,17 @@ impl Gen {
                 let tys: Vec<String> = v
                     .fields
                     .iter()
-                    .map(|f| ty_text(&ty_from_ann(&f.ty)))
+                    .map(|f| {
+                        let t = ty_from_ann(&f.ty);
+                        let text = ty_text(&t);
+                        // A field that stores the enum itself would make the type
+                        // infinitely sized; a Box gives it a finite footprint.
+                        if is_recursive_field(name, &t) {
+                            format!("Box<{}>", text)
+                        } else {
+                            text
+                        }
+                    })
                     .collect();
                 self.line(format!("    {}({}),", to_pascal(&v.name), tys.join(", ")));
             }
@@ -460,7 +476,13 @@ impl Gen {
                 if name == "none" {
                     "None".to_string()
                 } else {
-                    rust_ident(&to_snake(name))
+                    let id = rust_ident(&to_snake(name));
+                    // A boxed capture is a `Box<T>`; deref it so the arm reads a `T`.
+                    if self.boxed.contains(&id) {
+                        format!("(*{})", id)
+                    } else {
+                        id
+                    }
                 }
             }
             Expr::Array(els, _) => {
@@ -732,21 +754,32 @@ impl Gen {
     ) -> String {
         // Tuple variants are positional, so emit the values in the order the
         // enum declared its fields, not the order they were written.
-        let order: Option<Vec<String>> = self.t.env.enums.get(enum_name).and_then(|variants| {
-            variants
-                .iter()
-                .find(|v| v.name == variant)
-                .map(|v| v.fields.iter().map(|f| f.name.clone()).collect())
-        });
-        let args: Vec<String> = match order {
+        // (field name, is this field recursive) in declared order.
+        let decl: Option<Vec<(String, bool)>> =
+            self.t.env.enums.get(enum_name).and_then(|variants| {
+                variants.iter().find(|v| v.name == variant).map(|v| {
+                    v.fields
+                        .iter()
+                        .map(|f| {
+                            (
+                                f.name.clone(),
+                                is_recursive_field(enum_name, &ty_from_ann(&f.ty)),
+                            )
+                        })
+                        .collect()
+                })
+            });
+        let args: Vec<String> = match decl {
             Some(names) => names
                 .iter()
-                .map(|fname| {
+                .map(|(fname, rec)| {
                     let expr = fields.iter().find(|(k, _)| k == fname).map(|(_, e)| e);
-                    match expr {
+                    let s = match expr {
                         Some(e) => self.emit_expr(e),
                         None => "()".to_string(),
-                    }
+                    };
+                    // A recursive field is stored behind a Box, so wrap the value.
+                    if *rec { format!("Box::new({})", s) } else { s }
                 })
                 .collect(),
             None => fields.iter().map(|(_, e)| self.emit_expr(e)).collect(),
@@ -777,10 +810,16 @@ impl Gen {
             // correctly (a captured string should print without quotes).
             self.t.push_scope();
             self.declare_bindings(&arm.pattern, &st);
+            // A capture that came out of a boxed (recursive) field is read through
+            // a deref; note which ones for the length of this arm.
+            let mark = self.boxed.len();
+            let captures = self.boxed_captures(&arm.pattern, &st);
+            self.boxed.extend(captures);
             // Arm bodies sit one level in, so a nested match nests cleanly.
             self.indent = base + 1;
             let body = self.emit_expr(&arm.body);
             self.indent = base;
+            self.boxed.truncate(mark);
             self.t.pop_scope();
             s.push_str(&format!("{}{} => {},\n", ind1, pat, body));
         }
@@ -817,6 +856,31 @@ impl Gen {
         }
     }
 
+    /// The emitted names of this pattern's captures that came out of a recursive
+    /// (boxed) field, so a read of one can deref the box.
+    fn boxed_captures(&self, pat: &Pattern, st: &Ty) -> Vec<String> {
+        let Pattern::Variant { name, bindings, .. } = pat else {
+            return Vec::new();
+        };
+        let Ty::User(en) = st else {
+            return Vec::new();
+        };
+        let field_tys: Vec<Ty> = self
+            .t
+            .env
+            .enums
+            .get(en)
+            .and_then(|vs| vs.iter().find(|v| v.name == *name))
+            .map(|v| v.fields.iter().map(|f| ty_from_ann(&f.ty)).collect())
+            .unwrap_or_default();
+        bindings
+            .iter()
+            .zip(field_tys)
+            .filter(|(b, t)| b.as_str() != "_" && is_recursive_field(en, t))
+            .map(|(b, _)| rust_ident(&to_snake(b)))
+            .collect()
+    }
+
     /// Record the types of a pattern's captures in the current scope.
     fn declare_bindings(&mut self, pat: &Pattern, st: &Ty) {
         let Pattern::Variant { name, bindings, .. } = pat else {
@@ -840,6 +904,15 @@ impl Gen {
             self.t.declare(b.clone(), t);
         }
     }
+}
+
+/// A field is recursive when it stores the very enum being defined, by value —
+/// `node(left: Tree, …)`, `cons(int, List)`. Rust needs a `Box` there to give the
+/// type a finite size. Direct self-reference only: an array or `Option` of the
+/// enum already carries its own indirection, and mutual recursion between two
+/// enums isn't detected here.
+fn is_recursive_field(enum_name: &str, ty: &Ty) -> bool {
+    matches!(ty, Ty::User(n) if n == enum_name)
 }
 
 fn paren_or_empty(binds: &[String]) -> String {
