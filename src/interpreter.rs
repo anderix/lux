@@ -398,11 +398,18 @@ impl Interp {
     fn trace_leaf(&self, s: &Stmt) {
         let Some(t) = &self.trace else { return };
         match s {
-            Stmt::Let { name, span, .. }
-            | Stmt::Var { name, span, .. }
-            | Stmt::Assign { name, span, .. } => {
+            Stmt::Let { name, span, .. } | Stmt::Var { name, span, .. } => {
                 if let Some(b) = self.lookup(name) {
                     t.step(*span, &format!("{} = {}", name, trace_render(&b.value)));
+                }
+            }
+            // An assignment narrates the root binding it changed — after a
+            // `w.doorOpen = true`, the whole `w` it now holds.
+            Stmt::Assign { target, span, .. } => {
+                if let Some(root) = target.place_root()
+                    && let Some(b) = self.lookup(root)
+                {
+                    t.step(*span, &format!("{} = {}", root, trace_render(&b.value)));
                 }
             }
             // A bare expression — usually a print — runs for its effect; its
@@ -496,21 +503,27 @@ impl Interp {
             }
 
             Stmt::Assign {
-                name,
-                name_span,
+                target,
                 op,
                 value,
                 span,
             } => {
                 let new = self.eval(value)?;
-                let binding = self.lookup(name).ok_or_else(|| {
-                    LuxError::new(format!("`{}` is not defined", name), *name_span)
+                // Every place is rooted at a name; that binding must exist and be
+                // a `var`, whether we're setting the whole thing or a field of it.
+                let root = target.place_root().expect("the parser only builds a place");
+                let binding = self.lookup(root).ok_or_else(|| {
+                    LuxError::new(format!("`{}` is not defined", root), target.span())
                         .with_note("declare it first with let or var")
                         .with_learn("variables", "a name has to be made before it's used")
                 })?;
                 if !binding.mutable {
                     return Err(LuxError::new(
-                        format!("cannot reassign `{}` — it was declared with let", name),
+                        format!(
+                            "cannot change `{}` — `{}` was declared with let",
+                            describe_place(target),
+                            root
+                        ),
                         *span,
                     )
                     .with_note("use `var` instead of `let` if it needs to change")
@@ -519,27 +532,30 @@ impl Interp {
                         "a let holds still on purpose — that's what keeps it safe",
                     ));
                 }
-                let current = binding.value.clone();
+                // Resolve any index expressions to concrete positions before the
+                // mutable borrow, so evaluating them can't overlap the write.
+                let path = self.resolve_path(target)?;
+                let slot = navigate_mut(&mut self.lookup_mut(root).unwrap().value, &path, *span)?;
                 let result = match op {
                     AssignOp::Set => {
-                        if !same_type(&current, &new) {
+                        if !same_type(slot, &new) {
                             return Err(LuxError::new(
                                 format!(
                                     "`{}` is {} but you assigned {}",
-                                    name,
-                                    value_type(&current),
+                                    describe_place(target),
+                                    value_type(slot),
                                     value_type(&new)
                                 ),
                                 *span,
                             )
-                            .with_learn("variables", "a name keeps the type it started with"));
+                            .with_learn("variables", "a place keeps the type it started with"));
                         }
                         new
                     }
-                    AssignOp::Add => append_or_add(current, new, *span)?,
-                    AssignOp::Sub => sub(&current, &new, *span)?,
+                    AssignOp::Add => append_or_add(slot.clone(), new, *span)?,
+                    AssignOp::Sub => sub(slot, &new, *span)?,
                 };
-                self.lookup_mut(name).unwrap().value = result;
+                *slot = result;
                 Ok(Flow::Normal)
             }
 
@@ -651,6 +667,42 @@ impl Interp {
         let r = self.exec_block(body);
         self.pop();
         r
+    }
+
+    /// Flatten a place expression into a path of steps, evaluating each index to
+    /// a concrete position as we go — so the write that follows takes its mutable
+    /// borrow with nothing left to evaluate.
+    fn resolve_path(&mut self, target: &Expr) -> Result<Vec<Step>, LuxError> {
+        match target {
+            Expr::Ident(..) => Ok(Vec::new()),
+            Expr::Field { base, field, .. } => {
+                let mut path = self.resolve_path(base)?;
+                path.push(Step::Field(field.clone()));
+                Ok(path)
+            }
+            Expr::Index { base, index, span } => {
+                let mut path = self.resolve_path(base)?;
+                let i = match self.eval(index)? {
+                    Value::Int(n) if n >= 0 => n as usize,
+                    Value::Int(n) => {
+                        return Err(LuxError::new(format!("index {} is negative", n), *span)
+                            .with_note("array positions start at 0"));
+                    }
+                    other => {
+                        return Err(LuxError::new(
+                            format!(
+                                "an index has to be a whole number, not {}",
+                                other.type_name()
+                            ),
+                            *span,
+                        ));
+                    }
+                };
+                path.push(Step::Index(i));
+                Ok(path)
+            }
+            _ => unreachable!("place_root guarantees an Ident/Field/Index chain"),
+        }
     }
 
     // ----- expressions ------------------------------------------------------
@@ -1916,6 +1968,66 @@ fn named(type_name: &str) -> String {
 /// How a value's type reads in a message about types: scalars by name, arrays
 /// as `[int]` so the element type shows. No article, so it composes next to a
 /// `describe_type` annotation.
+/// One step of a place path, with any index already evaluated to a position.
+enum Step {
+    Field(String),
+    Index(usize),
+}
+
+/// Walk a resolved path into a value and hand back a mutable reference to the
+/// slot it names, so an assignment can write straight into it — the value stays
+/// where it lives (structs and arrays are held inline), so no copy is made.
+fn navigate_mut<'a>(
+    root: &'a mut Value,
+    path: &[Step],
+    span: Span,
+) -> Result<&'a mut Value, LuxError> {
+    let mut cur = root;
+    for step in path {
+        cur = match (cur, step) {
+            (Value::Struct { fields, .. }, Step::Field(f)) => fields
+                .iter_mut()
+                .find(|(k, _)| k == f)
+                .map(|(_, v)| v)
+                .ok_or_else(|| LuxError::new(format!("there's no field `{}` here", f), span))?,
+            (Value::Array(items), Step::Index(i)) => {
+                let len = items.len();
+                items.get_mut(*i).ok_or_else(|| {
+                    LuxError::new(
+                        format!("index {} is past the end of an array of {}", i, len),
+                        span,
+                    )
+                    .with_note("an array position has to be one that already exists")
+                })?
+            }
+            (other, Step::Field(f)) => {
+                return Err(LuxError::new(
+                    format!("`{}` isn't a field of {}", f, other.type_name()),
+                    span,
+                ));
+            }
+            (other, Step::Index(_)) => {
+                return Err(LuxError::new(
+                    format!("{} can't be indexed", other.type_name()),
+                    span,
+                ));
+            }
+        };
+    }
+    Ok(cur)
+}
+
+/// A readable name for a place, for error and trace text — `w.doorOpen`,
+/// `items[…]` (the index isn't spelled out, only that there is one).
+fn describe_place(e: &Expr) -> String {
+    match e {
+        Expr::Ident(n, _) => n.clone(),
+        Expr::Field { base, field, .. } => format!("{}.{}", describe_place(base), field),
+        Expr::Index { base, .. } => format!("{}[…]", describe_place(base)),
+        _ => "this".to_string(),
+    }
+}
+
 fn value_type(v: &Value) -> String {
     match v {
         Value::Array(items) => match items.first() {

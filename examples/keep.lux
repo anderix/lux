@@ -21,9 +21,11 @@ enum Room {
 }
 
 // The whole state of the game in one value: where you are, what you're carrying,
-// whether the door is open, and whether you're still playing. We never change a
-// World in place. Each turn builds the *next* World from the one before — that's
-// why every helper below takes a World and hands one back.
+// whether the door is open, and whether you're still playing. The crawl chooses
+// never to change a World in place — a `var` could be assigned field by field,
+// but building the *next* World from the one before is what makes undo a spare
+// variable and replay a fold over past turns. That's why every helper below takes
+// a World and hands one back.
 struct World {
     room: Room
     items: [string]

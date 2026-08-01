@@ -453,8 +453,8 @@ impl Gen {
             }
             Stmt::Var { value: None, .. } => {}
             Stmt::Assign {
-                name, op, value, ..
-            } => self.emit_assign(name, *op, value),
+                target, op, value, ..
+            } => self.emit_assign(target, *op, value),
             Stmt::Return { value, .. } => self.emit_return(value.as_ref()),
             Stmt::If {
                 cond,
@@ -569,29 +569,31 @@ impl Gen {
             .map(|f| ty_from_ann(&f.ty))
     }
 
-    fn emit_assign(&mut self, name: &str, op: AssignOp, value: &Expr) {
-        let lty = self.t.lookup(name);
-        let ident = go_ident(name);
+    fn emit_assign(&mut self, target: &Expr, op: AssignOp, value: &Expr) {
+        // The place emits the same on the left as when read — `w.doorOpen`,
+        // `items[i]`, or a plain name — and its type picks how `+=` lowers.
+        let lhs = self.emit_expr(target);
+        let lty = self.t.type_of(target);
         match op {
             AssignOp::Set => {
                 let e = self.emit_expr(value);
-                self.line(format!("{} = {}", ident, e));
+                self.line(format!("{} = {}", lhs, e));
             }
             AssignOp::Add => match lty {
                 // lux `+=` on an array appends one element.
                 Ty::Array(_) => {
                     let e = self.emit_expr(value);
-                    self.line(format!("{} = append({}, {})", ident, ident, e));
+                    self.line(format!("{} = append({}, {})", lhs, lhs, e));
                 }
                 // Strings and numbers both take Go's `+=` directly.
                 _ => {
                     let e = self.emit_expr(value);
-                    self.line(format!("{} += {}", ident, e));
+                    self.line(format!("{} += {}", lhs, e));
                 }
             },
             AssignOp::Sub => {
                 let e = self.emit_expr(value);
-                self.line(format!("{} -= {}", ident, e));
+                self.line(format!("{} -= {}", lhs, e));
             }
         }
     }

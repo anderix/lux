@@ -11,8 +11,8 @@
 use crate::ast::*;
 
 use super::{
-    Ty, Types, bin_prec, escape, expr_mentions, format_float, indent, op_str, rust_ident,
-    to_pascal, to_snake, ty_from_ann,
+    Ty, Types, bin_prec, escape, expr_mentions, format_float, indent, mutated_roots, op_str,
+    rust_ident, to_pascal, to_snake, ty_from_ann,
 };
 
 struct Gen {
@@ -33,6 +33,9 @@ struct Gen {
     /// pointer. Used as a stack: an arm pushes its boxed captures and truncates
     /// back on the way out, so nested matches stay balanced.
     boxed: Vec<String>,
+    /// Names ever mutated in the program, so a `var` that's only ever read binds
+    /// immutably and doesn't draw Rust's "does not need to be mutable" warning.
+    mutated: std::collections::HashSet<String>,
 }
 
 /// Reading one line, returning `None` at end of input — the helper `readLine()`
@@ -95,6 +98,7 @@ pub fn to_rust(program: &[Stmt]) -> String {
         uses_input: false,
         uses_run: false,
         boxed: Vec::new(),
+        mutated: mutated_roots(program),
     };
 
     for stmt in program {
@@ -298,8 +302,8 @@ impl Gen {
             }
             Stmt::Var { value: None, .. } => {} // a var with neither type nor value can't occur
             Stmt::Assign {
-                name, op, value, ..
-            } => self.emit_assign(name, *op, value),
+                target, op, value, ..
+            } => self.emit_assign(target, *op, value),
             Stmt::Return { value, .. } => match value {
                 Some(v) => {
                     let e = self.emit_expr(v);
@@ -358,8 +362,16 @@ impl Gen {
         // of its own, so when the source named one, write it down for Rust.
         let value_open = self.t.type_of(value).has_unknown();
         let annotate = !vty.has_unknown() && ((ann.is_some() && value_open) || vty.has_int());
-        let kw = if mutable { "let mut" } else { "let" };
-        let expr = self.emit_expr(value);
+        // `let mut` only when the binding is actually mutated somewhere; a `var`
+        // that's only read binds plainly, so Rust doesn't warn about an idle `mut`.
+        let kw = if mutable && self.mutated.contains(name) {
+            "let mut"
+        } else {
+            "let"
+        };
+        // Binding to a named non-Copy value copies it (lux semantics), so the
+        // source stays usable — `var a = w` leaves `w` intact for a later read.
+        let expr = self.emit_moved(value);
         if annotate {
             self.line(format!("{} {}: {} = {};", kw, snake, ty_text(&vty), expr));
         } else {
@@ -368,38 +380,42 @@ impl Gen {
         self.t.declare(name.to_string(), vty);
     }
 
-    fn emit_assign(&mut self, name: &str, op: AssignOp, value: &Expr) {
-        let snake = rust_ident(&to_snake(name));
-        let lty = self.t.lookup(name);
+    fn emit_assign(&mut self, target: &Expr, op: AssignOp, value: &Expr) {
+        // The place reads the same on the left as anywhere else — `w.door_open`,
+        // `items[i]`, or a plain name — and its type drives how `+=` lowers.
+        let lhs = self.emit_expr(target);
+        let lty = self.t.type_of(target);
         match op {
             AssignOp::Set => {
-                let e = self.emit_expr(value);
-                self.line(format!("{} = {};", snake, e));
+                // A named non-Copy value assigned in whole is cloned, so the
+                // source stays usable — lux copies where Rust would move.
+                let e = self.emit_moved(value);
+                self.line(format!("{} = {};", lhs, e));
             }
             AssignOp::Add => match lty {
                 Ty::Str => {
                     // lux `+=` on a string appends text.
                     if let Expr::Str(s, _) = value {
-                        self.line(format!("{}.push_str(\"{}\");", snake, escape(s)));
+                        self.line(format!("{}.push_str(\"{}\");", lhs, escape(s)));
                     } else {
                         let e = self.emit_expr(value);
-                        self.line(format!("{}.push_str(&{});", snake, e));
+                        self.line(format!("{}.push_str(&{});", lhs, e));
                     }
                 }
                 Ty::Array(_) => {
                     // lux `+=` on an array appends one element. Moving a named
                     // non-Copy value in would end its life, so it's cloned.
                     let e = self.emit_moved(value);
-                    self.line(format!("{}.push({});", snake, e));
+                    self.line(format!("{}.push({});", lhs, e));
                 }
                 _ => {
                     let e = self.emit_expr(value);
-                    self.line(format!("{} += {};", snake, e));
+                    self.line(format!("{} += {};", lhs, e));
                 }
             },
             AssignOp::Sub => {
                 let e = self.emit_expr(value);
-                self.line(format!("{} -= {};", snake, e));
+                self.line(format!("{} -= {};", lhs, e));
             }
         }
     }

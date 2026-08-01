@@ -139,14 +139,43 @@ impl Parser {
             Tok::If => self.if_stmt(),
             Tok::While => self.while_stmt(),
             Tok::For => self.for_stmt(),
-            Tok::Ident(_) if self.assign_ahead() => self.assign_stmt(),
-            _ => Ok(Stmt::Expr(self.expression()?)),
+            _ => self.expr_or_assign_stmt(),
         }
     }
 
-    /// True when the current ident is followed by an assignment operator.
-    fn assign_ahead(&self) -> bool {
-        matches!(self.next_tok(), Tok::Eq | Tok::PlusEq | Tok::MinusEq)
+    /// A statement that starts with an expression: either a bare expression run
+    /// for its effect (`print(...)`), or an assignment when an assignment operator
+    /// follows a place — `w.doorOpen = true`, `items[0] = "x"`, `count += 1`.
+    fn expr_or_assign_stmt(&mut self) -> Result<Stmt, LuxError> {
+        let target = self.expression()?;
+        let op = match self.peek_tok() {
+            Tok::Eq => AssignOp::Set,
+            Tok::PlusEq => AssignOp::Add,
+            Tok::MinusEq => AssignOp::Sub,
+            _ => return Ok(Stmt::Expr(target)),
+        };
+        // The left of `=` has to be a place — a name, a field, or an element —
+        // not a value like a literal or a call result.
+        if target.place_root().is_none() {
+            return Err(LuxError::new(
+                "the left side of an assignment has to be a place you can store into",
+                target.span(),
+            )
+            .with_note("assign to a name, a field like `w.doorOpen`, or an element like `items[0]`")
+            .with_learn(
+                "variables",
+                "assignment changes what a place holds, so it needs a place on the left, not a value",
+            ));
+        }
+        self.advance(); // the assignment operator
+        let value = self.expression()?;
+        let span = target.span().to(value.span());
+        Ok(Stmt::Assign {
+            target,
+            op,
+            value,
+            span,
+        })
     }
 
     fn let_stmt(&mut self) -> Result<Stmt, LuxError> {
@@ -337,26 +366,6 @@ impl Parser {
             iter,
             body,
             span: start,
-        })
-    }
-
-    fn assign_stmt(&mut self) -> Result<Stmt, LuxError> {
-        let (name, name_span) = self.ident("a name")?;
-        let op = match self.peek_tok() {
-            Tok::Eq => AssignOp::Set,
-            Tok::PlusEq => AssignOp::Add,
-            Tok::MinusEq => AssignOp::Sub,
-            _ => unreachable!("assign_ahead guaranteed an assignment operator"),
-        };
-        self.advance();
-        let value = self.expression()?;
-        let span = name_span.to(value.span());
-        Ok(Stmt::Assign {
-            name,
-            name_span,
-            op,
-            value,
-            span,
         })
     }
 

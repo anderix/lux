@@ -6,6 +6,20 @@ All notable changes to lux are recorded here. The format follows
 
 ## [0.14.3] - 2026-08-01
 
+### Added
+
+- **Assigning to a struct field or an array element.** `w.doorOpen = true` and
+  `items[0] = "lantern"` now work when the root is a `var` — `count += 1` through a
+  field too. lux was the only one of its three targets that refused this, so it was
+  stricter than every language it's a stepping stone toward; it now matches the
+  centroid, gated the way Swift's `var` and Rust's `mut` gate it. A `let` still
+  refuses, now with a real diagnostic that names the rule ("cannot change
+  `w.doorOpen` — `w` was declared with let") instead of a raw parse error, and the
+  left of an assignment must be a place, not a value. Value semantics are
+  preserved: `var a = w; a.doorOpen = true` leaves `w` untouched, the same as Go
+  and Swift. The crawl still builds each turn's World fresh — now a deliberate
+  style rather than the only option.
+
 ### Fixed
 
 The crawl starter world — the program `lux crawl` hands every learner — now

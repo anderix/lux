@@ -71,10 +71,11 @@ pub enum Stmt {
         value: Option<Expr>,
         span: Span,
     },
-    /// `name = value`, `name += value`, `name -= value`.
+    /// `target = value`, `target += value`, `target -= value`. The target is a
+    /// place: a plain name, a struct field (`w.doorOpen`), or an array element
+    /// (`items[0]`), possibly chained. The root name must be a `var`.
     Assign {
-        name: String,
-        name_span: Span,
+        target: Expr,
         op: AssignOp,
         value: Expr,
         span: Span,
@@ -259,6 +260,17 @@ impl Expr {
             | Expr::EnumLit { span, .. }
             | Expr::Field { span, .. }
             | Expr::Match { span, .. } => *span,
+        }
+    }
+
+    /// If this expression is a place — a name, or a field/element path rooted at
+    /// one — the name at its root. `w.items[0]` roots at `w`; a literal or a call
+    /// result roots at nothing, and so can't be assigned to.
+    pub fn place_root(&self) -> Option<&str> {
+        match self {
+            Expr::Ident(name, _) => Some(name),
+            Expr::Field { base, .. } | Expr::Index { base, .. } => base.place_root(),
+            _ => None,
         }
     }
 }

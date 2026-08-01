@@ -16,8 +16,8 @@
 use crate::ast::*;
 
 use super::{
-    Ty, Types, bin_prec, escape, expr_mentions, format_float, indent, op_str, swift_case,
-    swift_ident, ty_from_ann,
+    Ty, Types, bin_prec, escape, expr_mentions, format_float, indent, mutated_roots, op_str,
+    swift_case, swift_ident, ty_from_ann,
 };
 
 struct Gen {
@@ -35,6 +35,9 @@ struct Gen {
     /// `run` needs Foundation's `Process`, the built-in `Output` struct, and the
     /// `String: Error` conformance its `Result` shares with the file helpers.
     uses_run: bool,
+    /// Names ever mutated in the program, so a `var` that's only read binds with
+    /// `let` and doesn't draw Swift's "never mutated, consider let" warning.
+    mutated: std::collections::HashSet<String>,
 }
 
 /// Translate a whole program to Swift source text.
@@ -48,6 +51,7 @@ pub fn to_swift(program: &[Stmt]) -> String {
         uses_eprint: false,
         uses_input: false,
         uses_run: false,
+        mutated: mutated_roots(program),
     };
 
     for stmt in program {
@@ -239,8 +243,11 @@ impl Gen {
     fn emit_struct(&mut self, name: &str, fields: &[FieldDef]) {
         self.line(format!("struct {}: Equatable {{", name));
         for f in fields {
+            // `var` properties, so a `var` instance can assign a field while a
+            // `let` one still can't — Swift enforces the same gate lux does at the
+            // binding, and an unmutated struct property draws no warning.
             self.line(format!(
-                "    let {}: {}",
+                "    var {}: {}",
                 f.name,
                 ty_text(&ty_from_ann(&f.ty))
             ));
@@ -343,8 +350,8 @@ impl Gen {
             }
             Stmt::Var { value: None, .. } => {}
             Stmt::Assign {
-                name, op, value, ..
-            } => self.emit_assign(name, *op, value),
+                target, op, value, ..
+            } => self.emit_assign(target, *op, value),
             Stmt::Return { value, .. } => match value {
                 // `return match ...` becomes a switch whose arms each return.
                 Some(Expr::Match {
@@ -406,7 +413,13 @@ impl Gen {
         // Only annotate when the value can't pin its own type (a bare `none`),
         // since Swift infers the rest.
         let value_open = self.t.type_of(value).has_unknown();
-        let kw = if mutable { "var" } else { "let" };
+        // `var` only when the binding is actually mutated; a `var` that's only
+        // read binds with `let`, so Swift doesn't warn it was never mutated.
+        let kw = if mutable && self.mutated.contains(name) {
+            "var"
+        } else {
+            "let"
+        };
         let ident = swift_ident(name);
         let expr = self.emit_expr(value);
         if ann.is_some() && value_open && !vty.has_unknown() {
@@ -417,29 +430,31 @@ impl Gen {
         self.t.declare(name.to_string(), vty);
     }
 
-    fn emit_assign(&mut self, name: &str, op: AssignOp, value: &Expr) {
-        let lty = self.t.lookup(name);
-        let ident = swift_ident(name);
+    fn emit_assign(&mut self, target: &Expr, op: AssignOp, value: &Expr) {
+        // The place emits the same on the left as when read — `w.doorOpen`,
+        // `items[i]`, or a plain name — and its type picks how `+=` lowers.
+        let lhs = self.emit_expr(target);
+        let lty = self.t.type_of(target);
         match op {
             AssignOp::Set => {
                 let e = self.emit_expr(value);
-                self.line(format!("{} = {}", ident, e));
+                self.line(format!("{} = {}", lhs, e));
             }
             AssignOp::Add => match lty {
                 // lux `+=` on an array appends one element.
                 Ty::Array(_) => {
                     let e = self.emit_expr(value);
-                    self.line(format!("{}.append({})", ident, e));
+                    self.line(format!("{}.append({})", lhs, e));
                 }
                 // Strings and numbers both take Swift's `+=` directly.
                 _ => {
                     let e = self.emit_expr(value);
-                    self.line(format!("{} += {}", ident, e));
+                    self.line(format!("{} += {}", lhs, e));
                 }
             },
             AssignOp::Sub => {
                 let e = self.emit_expr(value);
-                self.line(format!("{} -= {}", ident, e));
+                self.line(format!("{} -= {}", lhs, e));
             }
         }
     }

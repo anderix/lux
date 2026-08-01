@@ -552,6 +552,43 @@ fn swift_case(name: &str) -> String {
     }
 }
 
+/// Names ever used as the root of an assignment target — a plain rebind, or a
+/// write through a field or index — anywhere in the program. A `var` whose name
+/// never appears here is never mutated, so Rust and Swift can bind it immutably
+/// (`let`) and stay warning-clean; Go doesn't care either way. Shadowing is
+/// ignored, which is safe: a name shared between a mutated and an unmutated
+/// binding at worst keeps the mutable keyword and its warning, never the reverse.
+fn mutated_roots(program: &[Stmt]) -> std::collections::HashSet<String> {
+    fn walk(stmts: &[Stmt], out: &mut std::collections::HashSet<String>) {
+        for s in stmts {
+            match s {
+                Stmt::Assign { target, .. } => {
+                    if let Some(root) = target.place_root() {
+                        out.insert(root.to_string());
+                    }
+                }
+                Stmt::Func { body, .. } | Stmt::While { body, .. } | Stmt::For { body, .. } => {
+                    walk(body, out)
+                }
+                Stmt::If {
+                    then_body,
+                    else_body,
+                    ..
+                } => {
+                    walk(then_body, out);
+                    if let Some(e) = else_body {
+                        walk(e, out);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut out = std::collections::HashSet::new();
+    walk(program, &mut out);
+    out
+}
+
 /// Does `name` appear as an identifier anywhere in this expression? Used to decide
 /// whether a match arm actually reads the payload it binds. Go rejects an unused
 /// local outright; Rust and Swift only warn, but the backends' bar is warning-

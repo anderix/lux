@@ -427,6 +427,103 @@ print(rootvalue(t))
     }
 }
 
+/// Assigning through a place — a struct field or an array element — is emitted by
+/// every backend, and all three preserve lux's value semantics: `var a = w` copies,
+/// so mutating `a` leaves `w` alone. Compiles warning-clean (the `var w` that's
+/// only read binds immutably) and prints the same on each.
+#[test]
+fn field_and_element_assignment_matches_on_every_backend() {
+    let src = r#"
+struct World {
+    doorOpen: bool
+    items: [string]
+}
+var w = World(doorOpen: false, items: ["key"])
+w.doorOpen = true
+w.items[0] = "lantern"
+w.items += "torch"
+var copy = w
+copy.doorOpen = false
+print(w.doorOpen)
+print(copy.doorOpen)
+print(w.items[0])
+print(w.items[1])
+"#;
+    let program = parser::parse(lexer::lex(src).expect("lex")).expect("parse");
+    let expected = "true\nfalse\nlantern\ntorch\n";
+    let tmp = std::env::temp_dir();
+
+    if tool_available("rustc", "--version") {
+        let rust = convert::to_rust(&program);
+        let rs = tmp.join("lux_assign.rs");
+        std::fs::write(&rs, &rust).expect("write rust");
+        let bin = tmp.join("lux_assign_rs");
+        let out = Command::new("rustc")
+            .arg(&rs)
+            .arg("-o")
+            .arg(&bin)
+            .output()
+            .expect("run rustc");
+        assert!(
+            out.status.success() && out.stderr.is_empty(),
+            "place assignment should compile warning-clean as Rust:\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let run = Command::new(&bin).output().expect("run rust bin");
+        assert_eq!(
+            String::from_utf8_lossy(&run.stdout),
+            expected,
+            "rust output"
+        );
+    }
+    if tool_available("swiftc", "--version") {
+        let swift = convert::to_swift(&program);
+        let sw = tmp.join("lux_assign.swift");
+        std::fs::write(&sw, &swift).expect("write swift");
+        let bin = tmp.join("lux_assign_sw");
+        let out = Command::new("swiftc")
+            .arg(&sw)
+            .arg("-o")
+            .arg(&bin)
+            .output()
+            .expect("run swiftc");
+        assert!(
+            out.status.success() && out.stderr.is_empty(),
+            "place assignment should compile warning-clean as Swift:\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let run = Command::new(&bin).output().expect("run swift bin");
+        assert_eq!(
+            String::from_utf8_lossy(&run.stdout),
+            expected,
+            "swift output"
+        );
+    }
+    if tool_available("go", "version") {
+        let go = convert::to_go(&program);
+        let dir = tmp.join("lux_go_assign");
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        std::fs::write(dir.join("go.mod"), "module luxtest\n\ngo 1.21\n").expect("write go.mod");
+        std::fs::write(dir.join("main.go"), &go).expect("write go");
+        let bin = dir.join("bin");
+        let out = Command::new("go")
+            .arg("build")
+            .arg("-o")
+            .arg(&bin)
+            .current_dir(&dir)
+            .env("GOCACHE", tmp.join("lux_go_cache"))
+            .output()
+            .expect("run go build");
+        assert!(
+            out.status.success(),
+            "place assignment did not compile as Go:\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let run = Command::new(&bin).output().expect("run go bin");
+        assert_eq!(String::from_utf8_lossy(&run.stdout), expected, "go output");
+    }
+}
+
 /// An enum lowers to a Go interface, which is already nil-able, so `Option<enum>`
 /// must emit the bare interface (`nil` = none), not `*Interface` — a pointer to
 /// an interface that nothing satisfies. Covers the type, `some`/`none`
