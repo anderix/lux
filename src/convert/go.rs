@@ -570,11 +570,29 @@ impl Gen {
         self.line(format!("return {}", e));
     }
 
+    /// A value bound to a name must become an independent copy where lux's value
+    /// semantics call for one but Go's don't. A Go slice is a reference, so
+    /// `xs := input` would alias the caller's row — and a later in-place sort would
+    /// reach back through it, mutating a row the program was told stays untouched.
+    /// Copy an array bound from anything but a fresh literal, which is already its
+    /// own. (A struct is a Go value type and copies on assignment on its own; a
+    /// slice *inside* a struct is the same reference underneath — a deeper seam
+    /// than the flat sort row this covers.)
+    fn copy_on_bind(&mut self, vty: &Ty, value: &Expr, expr: String) -> String {
+        match vty {
+            Ty::Array(elem) if !matches!(value, Expr::Array(..)) => {
+                format!("append([]{}{{}}, {}...)", self.ty_text(elem), expr)
+            }
+            _ => expr,
+        }
+    }
+
     fn emit_binding(&mut self, name: &str, ann: Option<&TypeAnn>, value: &Expr) {
         let vty = ann
             .map(ty_from_ann)
             .unwrap_or_else(|| self.t.type_of(value));
-        let expr = self.emit_expr_typed(value, &vty);
+        let typed = self.emit_expr_typed(value, &vty);
+        let expr = self.copy_on_bind(&vty, value, typed);
         // An enum lowers to an interface. Initialising with `:=` would infer the
         // concrete case struct (`ColourRed`), so a later `c = Colour.blue` — a
         // different case — wouldn't assign, and a `switch c.(type)` on the concrete

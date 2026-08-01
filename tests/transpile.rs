@@ -1183,6 +1183,35 @@ print(size(out))
     assert_prints_everywhere(src, "enumvar", "red\nblue\n3\n");
 }
 
+/// lux arrays are values: copying one and mutating the copy leaves the original
+/// alone. A Go slice is a reference, so `var xs = input` aliased the caller's row
+/// and an in-place sort reached back through it — the flex corpus's bubble sort
+/// mutating a source it promised to leave untouched. The Go backend now copies an
+/// array bound from a place; Rust already cloned at its bind sites, Swift's arrays
+/// are values. This holds all three to lux's semantics: the source row survives a
+/// sort, and a `let` copy doesn't see a later write to what it was copied from.
+#[test]
+fn an_array_copy_is_independent_on_every_backend() {
+    let src = r#"
+func swapFirstTwo(input: [int]) -> [int] {
+    var xs = input
+    let hold = xs[0]
+    xs[0] = xs[1]
+    xs[1] = hold
+    return xs
+}
+let row = [2, 1]
+print(swapFirstTwo(row))
+print(row)
+var a = [1, 2, 3]
+let b = a
+a[0] = 99
+print(b)
+print(a)
+"#;
+    assert_prints_everywhere(src, "arraycopy", "[1, 2]\n[2, 1]\n[1, 2, 3]\n[99, 2, 3]\n");
+}
+
 // --- structure shared by all three ----------------------------------------
 
 #[test]
