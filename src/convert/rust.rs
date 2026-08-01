@@ -36,6 +36,11 @@ struct Gen {
     /// Names ever mutated in the program, so a `var` that's only ever read binds
     /// immutably and doesn't draw Rust's "does not need to be mutable" warning.
     mutated: std::collections::HashSet<String>,
+    /// `print` of a compound value routes through a generated `LuxShow` trait so
+    /// the output reads the way lux renders it — `P(x: 1, y: 2)`,
+    /// `Shape.circle(radius: 5)` — rather than Rust's `{:?}` (`P { x: 1, y: 2 }`,
+    /// `Circle(5)`). Emitted only when the program prints a compound value.
+    uses_lux_show: bool,
 }
 
 /// Reading one line, returning `None` at end of input — the helper `readLine()`
@@ -99,6 +104,7 @@ pub fn to_rust(program: &[Stmt]) -> String {
         uses_run: false,
         boxed: Vec::new(),
         mutated: mutated_roots(program),
+        uses_lux_show: false,
     };
 
     for stmt in program {
@@ -152,7 +158,147 @@ pub fn to_rust(program: &[Stmt]) -> String {
         preamble.push_str(INPUT_HELPER);
         preamble.push('\n');
     }
+    if g.uses_lux_show {
+        preamble.push_str(LUX_SHOW_PREAMBLE);
+        // One `impl LuxShow` per user type, in declaration order, so a struct or
+        // enum prints with lux's labels and its `Enum.case` form.
+        for stmt in program {
+            match stmt {
+                Stmt::Struct { name, fields, .. } => {
+                    preamble.push_str(&lux_show_struct(name, fields))
+                }
+                Stmt::Enum { name, variants, .. } => {
+                    preamble.push_str(&lux_show_enum(name, variants))
+                }
+                _ => {}
+            }
+        }
+    }
     format!("{}{}", preamble, g.out)
+}
+
+/// The `LuxShow` trait and its impls for the built-in types. A user struct or
+/// enum gets its own impl, generated per program. Rust's own `{:?}` would render
+/// a struct as `P { x: 1, y: 2 }` and a string as `"hi"`; lux renders `P(x: 1,
+/// y: 2)` and bare text, so print routes a compound value through this instead.
+/// The trait is ours, so implementing it for `Vec`/`Option`/`Result` is allowed
+/// where implementing `Display` for them would not be.
+const LUX_SHOW_PREAMBLE: &str = "\
+trait LuxShow {
+    fn lux_show(&self) -> String;
+}
+
+impl LuxShow for i64 {
+    fn lux_show(&self) -> String {
+        self.to_string()
+    }
+}
+
+impl LuxShow for f64 {
+    fn lux_show(&self) -> String {
+        if self.is_finite() && *self == self.trunc() {
+            format!(\"{:.1}\", self)
+        } else {
+            format!(\"{}\", self)
+        }
+    }
+}
+
+impl LuxShow for bool {
+    fn lux_show(&self) -> String {
+        self.to_string()
+    }
+}
+
+impl LuxShow for String {
+    fn lux_show(&self) -> String {
+        self.clone()
+    }
+}
+
+impl<T: LuxShow> LuxShow for Vec<T> {
+    fn lux_show(&self) -> String {
+        let parts: Vec<String> = self.iter().map(|x| x.lux_show()).collect();
+        format!(\"[{}]\", parts.join(\", \"))
+    }
+}
+
+impl<T: LuxShow> LuxShow for Option<T> {
+    fn lux_show(&self) -> String {
+        match self {
+            Some(v) => format!(\"some({})\", v.lux_show()),
+            None => \"none\".to_string(),
+        }
+    }
+}
+
+impl<T: LuxShow, E: LuxShow> LuxShow for Result<T, E> {
+    fn lux_show(&self) -> String {
+        match self {
+            Ok(v) => format!(\"ok({})\", v.lux_show()),
+            Err(e) => format!(\"err({})\", e.lux_show()),
+        }
+    }
+}
+
+";
+
+/// `impl LuxShow` for one struct: `Name(field: value, …)`, each field labelled
+/// with its lux name and read through its snake_case Rust field.
+fn lux_show_struct(name: &str, fields: &[FieldDef]) -> String {
+    let body = if fields.is_empty() {
+        format!("\"{}()\".to_string()", name)
+    } else {
+        let parts: Vec<String> = fields
+            .iter()
+            .map(|f| format!("format!(\"{}: {{}}\", self.{}.lux_show())", f.name, to_snake(&f.name)))
+            .collect();
+        format!(
+            "let fields = [{}];\n        format!(\"{}({{}})\", fields.join(\", \"))",
+            parts.join(", "),
+            name
+        )
+    };
+    format!(
+        "impl LuxShow for {} {{\n    fn lux_show(&self) -> String {{\n        {}\n    }}\n}}\n\n",
+        name, body
+    )
+}
+
+/// `impl LuxShow` for one enum: `Enum.case` alone, or `Enum.case(field: value, …)`
+/// with a payload bound positionally out of the tuple variant.
+fn lux_show_enum(name: &str, variants: &[VariantDef]) -> String {
+    let mut arms = String::new();
+    for v in variants {
+        let variant = to_pascal(&v.name);
+        if v.fields.is_empty() {
+            arms.push_str(&format!(
+                "            {}::{} => \"{}.{}\".to_string(),\n",
+                name, variant, name, v.name
+            ));
+        } else {
+            let binds: Vec<String> = (0..v.fields.len()).map(|i| format!("f{}", i)).collect();
+            let parts: Vec<String> = v
+                .fields
+                .iter()
+                .enumerate()
+                .map(|(i, f)| format!("format!(\"{}: {{}}\", f{}.lux_show())", f.name, i))
+                .collect();
+            arms.push_str(&format!(
+                "            {}::{}({}) => {{\n                let fields = [{}];\n                format!(\"{}.{}({{}})\", fields.join(\", \"))\n            }}\n",
+                name,
+                variant,
+                binds.join(", "),
+                parts.join(", "),
+                name,
+                v.name
+            ));
+        }
+    }
+    format!(
+        "impl LuxShow for {} {{\n    fn lux_show(&self) -> String {{\n        match self {{\n{}        }}\n    }}\n}}\n\n",
+        name, arms
+    )
 }
 
 /// A lux type as Rust source text.
@@ -664,15 +810,27 @@ impl Gen {
             if i > 0 {
                 fmt.push(' ');
             }
-            // `{:?}` on an f64 keeps the decimal point (`9.0`), matching how lux
-            // prints floats; plain scalars use `{}`.
             let ty = self.t.type_of(a);
-            fmt.push_str(if ty == Ty::Float || !ty.is_scalar() {
-                "{:?}"
+            if matches!(
+                ty,
+                Ty::Array(_) | Ty::User(_) | Ty::Option(_) | Ty::Result(..)
+            ) {
+                // A compound value renders lux's way through LuxShow, not Rust's
+                // `{:?}` — `P(x: 1, y: 2)` rather than `P { x: 1, y: 2 }`.
+                self.uses_lux_show = true;
+                fmt.push_str("{}");
+                let e = self.emit_expr(a);
+                parts.push(format!("({}).lux_show()", e));
             } else {
-                "{}"
-            });
-            parts.push(self.display_arg(a));
+                // `{:?}` on an f64 keeps the decimal point (`9.0`), matching how lux
+                // prints floats; plain scalars use `{}`.
+                fmt.push_str(if ty == Ty::Float || !ty.is_scalar() {
+                    "{:?}"
+                } else {
+                    "{}"
+                });
+                parts.push(self.display_arg(a));
+            }
         }
         if parts.is_empty() {
             format!("{}!()", mac)
