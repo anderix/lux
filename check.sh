@@ -8,8 +8,8 @@
 # the one you just changed.
 #
 # Usage:
-#   ./check.sh          build, cargo test, conformance, flex   (the full sweep)
-#   ./check.sh fast     build and cargo test only              (the tight loop)
+#   ./check.sh          fmt, clippy, build, cargo test, conformance, flex  (full)
+#   ./check.sh fast     fmt, clippy, build, cargo test only    (the tight loop)
 #
 # Exits non-zero on the first failure, so it drops cleanly into a pre-push hook
 # or CI. A missing target compiler isn't a failure — that leg is skipped, the
@@ -19,6 +19,14 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
 
 mode="${1:-full}"
+
+# The same gate CI's fast job runs, mirrored locally so a formatting or lint slip
+# is caught before the push rather than by a red CI run.
+echo "==> cargo fmt --check"
+cargo fmt --check
+
+echo "==> cargo clippy"
+cargo clippy --all-targets --quiet -- -D warnings
 
 echo "==> cargo build"
 cargo build --quiet
