@@ -1039,6 +1039,59 @@ print(seen)
     assert_prints_everywhere(src, "unusedloop", "3\n");
 }
 
+/// Printing an array of scalars reads the same on every backend — the common
+/// `print(xs)` line after a sort. Go used to defer to `fmt`, which prints a slice
+/// space-separated (`[1 2 3]`); it now renders lux's way, with commas.
+#[test]
+fn an_int_array_prints_with_commas_on_every_backend() {
+    assert_prints_everywhere("print([3, 1, 2])\n", "intarray", "[3, 1, 2]\n");
+}
+
+/// Go's array rendering matches the interpreter down the line: commas, strings
+/// shown as their bare text (the way `print` shows a scalar string), and nesting
+/// rendered the same all the way down — not `fmt`'s space-separated default. The
+/// expected strings here are exactly what `lux run` prints.
+#[test]
+fn go_renders_arrays_the_way_lux_does() {
+    if !tool_available("go", "version") {
+        eprintln!("skipping: go not on PATH");
+        return;
+    }
+    let src = r#"
+print([1, 2, 3])
+print(["a", "b"])
+print([[1, 2], [3]])
+let xs = [1, 2, 3]
+print("xs is", xs)
+"#;
+    let program = parser::parse(lexer::lex(src).expect("lex")).expect("parse");
+    let go = convert::to_go(&program);
+    let dir = std::env::temp_dir().join("lux_go_showlist");
+    std::fs::create_dir_all(&dir).expect("mkdir");
+    std::fs::write(dir.join("go.mod"), "module luxtest\n\ngo 1.21\n").expect("write go.mod");
+    std::fs::write(dir.join("main.go"), &go).expect("write go");
+    let bin = dir.join("bin");
+    let out = Command::new("go")
+        .arg("build")
+        .arg("-o")
+        .arg(&bin)
+        .current_dir(&dir)
+        .env("GOCACHE", std::env::temp_dir().join("lux_go_cache"))
+        .output()
+        .expect("run go build");
+    assert!(
+        out.status.success(),
+        "array printing did not compile as Go:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let run = Command::new(&bin).output().expect("run go bin");
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "[1, 2, 3]\n[a, b]\n[[1, 2], [3]]\nxs is [1, 2, 3]\n",
+        "go array rendering should match lux run"
+    );
+}
+
 // --- structure shared by all three ----------------------------------------
 
 #[test]

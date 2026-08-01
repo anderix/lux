@@ -57,6 +57,10 @@ struct Gen {
     /// current nesting. A scratch name must dodge these too, so an inner match
     /// doesn't reuse the name an enclosing one is still holding.
     scratches: Vec<String>,
+    /// `print`/`eprint` of an array routes through the `showList` helper so the
+    /// output reads the way lux renders it — `[1, 2, 3]`, comma-separated — rather
+    /// than `fmt`'s space-separated `[1 2 3]`.
+    uses_show_list: bool,
 }
 
 /// Translate a whole program to Go source text.
@@ -81,6 +85,7 @@ pub fn to_go(program: &[Stmt]) -> String {
         uses_parse_float: false,
         uses_run: false,
         scratches: Vec::new(),
+        uses_show_list: false,
     };
 
     for stmt in program {
@@ -221,10 +226,14 @@ impl Gen {
         if self.uses_os {
             imports.push("os");
         }
+        // `showList` walks a slice of any depth by reflection.
+        if self.uses_show_list {
+            imports.push("reflect");
+        }
         if self.uses_strconv {
             imports.push("strconv");
         }
-        if self.uses_strings {
+        if self.uses_strings || self.uses_show_list {
             imports.push("strings");
         }
         imports.sort_unstable();
@@ -243,6 +252,25 @@ impl Gen {
             // Go has no literal for "a pointer to this value", so the some(...)
             // case borrows one through a tiny generic helper.
             head.push_str("func ptr[T any](v T) *T {\n\treturn &v\n}\n\n");
+        }
+        if self.uses_show_list {
+            // fmt prints a slice space-separated (`[1 2 3]`); lux renders it with
+            // commas (`[1, 2, 3]`). Reflection lets one helper handle a slice of
+            // any element type, and recurse so a nested array reads the same way
+            // all the way down. A non-slice falls through to fmt's own rendering.
+            head.push_str(
+                "func showList(v any) string {\n\
+                 \trv := reflect.ValueOf(v)\n\
+                 \tif rv.Kind() == reflect.Slice {\n\
+                 \t\tparts := make([]string, rv.Len())\n\
+                 \t\tfor i := range parts {\n\
+                 \t\t\tparts[i] = showList(rv.Index(i).Interface())\n\
+                 \t\t}\n\
+                 \t\treturn \"[\" + strings.Join(parts, \", \") + \"]\"\n\
+                 \t}\n\
+                 \treturn fmt.Sprintf(\"%v\", v)\n\
+                 }\n\n",
+            );
         }
         if self.uses_read_file {
             // os.ReadFile hands back bytes; lux reads a string, so decode here.
@@ -1061,18 +1089,31 @@ impl Gen {
         s
     }
 
+    /// One argument to `print`/`eprint`. An array is wrapped in `showList` so it
+    /// renders lux's way — comma-separated — instead of `fmt`'s space-separated
+    /// slice. Everything else prints as `fmt` already renders it.
+    fn print_arg(&mut self, a: &Expr) -> String {
+        let e = self.emit_expr(a);
+        if matches!(self.t.type_of(a), Ty::Array(_)) {
+            self.uses_show_list = true;
+            format!("showList({})", e)
+        } else {
+            e
+        }
+    }
+
     fn emit_call(&mut self, name: &str, args: &[Expr]) -> String {
         match name {
             "print" => {
                 self.uses_fmt = true;
-                let parts: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
+                let parts: Vec<String> = args.iter().map(|a| self.print_arg(a)).collect();
                 format!("fmt.Println({})", parts.join(", "))
             }
             "eprint" => {
                 self.uses_fmt = true;
                 self.uses_os = true;
                 let mut parts = vec!["os.Stderr".to_string()];
-                parts.extend(args.iter().map(|a| self.emit_expr(a)));
+                parts.extend(args.iter().map(|a| self.print_arg(a)));
                 format!("fmt.Fprintln({})", parts.join(", "))
             }
             // The outside-world calls lower to package-level helpers (assembled
