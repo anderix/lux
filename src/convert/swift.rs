@@ -15,7 +15,9 @@
 
 use crate::ast::*;
 
-use super::{Ty, Types, bin_prec, escape, format_float, indent, op_str, swift_ident, ty_from_ann};
+use super::{
+    Ty, Types, bin_prec, escape, format_float, indent, op_str, swift_case, swift_ident, ty_from_ann,
+};
 
 struct Gen {
     t: Types,
@@ -259,7 +261,7 @@ impl Gen {
         self.line(format!("{} {}: Equatable {{", kw, name));
         for v in variants {
             if v.fields.is_empty() {
-                self.line(format!("    case {}", v.name));
+                self.line(format!("    case {}", swift_case(&v.name)));
             } else {
                 // Swift keeps the field labels lux wrote, so construction reads
                 // the same on both sides: `.circle(radius: 2.0)`.
@@ -268,7 +270,11 @@ impl Gen {
                     .iter()
                     .map(|f| format!("{}: {}", f.name, ty_text(&ty_from_ann(&f.ty))))
                     .collect();
-                self.line(format!("    case {}({})", v.name, parts.join(", ")));
+                self.line(format!(
+                    "    case {}({})",
+                    swift_case(&v.name),
+                    parts.join(", ")
+                ));
             }
         }
         self.line("}".into());
@@ -550,7 +556,7 @@ impl Gen {
                     Ty::Option(_) => "none".to_string(),
                     Ty::Result(_, _) if name == "ok" => "success".to_string(),
                     Ty::Result(_, _) => "failure".to_string(),
-                    _ => name.clone(),
+                    _ => swift_case(name),
                 };
                 format!("case .{}{}", case, inner)
             }
@@ -651,7 +657,7 @@ impl Gen {
                     && let Some(variants) = self.t.env.enums.get(n)
                     && variants.iter().any(|v| v.name == *field)
                 {
-                    return format!("{}.{}", n, field);
+                    return format!("{}.{}", n, swift_case(field));
                 }
                 let b = self.emit_expr(base);
                 format!("{}.{}", b, field)
@@ -809,9 +815,14 @@ impl Gen {
                 .collect(),
         };
         if parts.is_empty() {
-            format!("{}.{}", enum_name, variant)
+            format!("{}.{}", enum_name, swift_case(variant))
         } else {
-            format!("{}.{}({})", enum_name, variant, parts.join(", "))
+            format!(
+                "{}.{}({})",
+                enum_name,
+                swift_case(variant),
+                parts.join(", ")
+            )
         }
     }
 }

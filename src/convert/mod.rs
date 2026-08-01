@@ -392,9 +392,12 @@ fn format_float(f: f64) -> String {
 /// (they aren't legal lux identifiers either), so each list below holds only the
 /// target words lux does *not* itself reserve.
 ///
-/// This guards *value* names: functions, parameters, and locals. Type names,
-/// struct fields, and enum cases are left as written — a type called `map` is a
-/// documented rough edge (see learn-lux.md's scope notes), not a supported name.
+/// This guards *value* names: functions, parameters, and locals. Type names and
+/// struct fields are left as written — a type called `map` is a documented rough
+/// edge (see learn-lux.md's scope notes), not a supported name. Enum cases are
+/// left as written too, except in Swift, which alone emits the bare lowercase
+/// case name and so backtick-quotes a keyword collision (see `swift_case`); Go and
+/// Rust PascalCase and qualify their cases, which sidesteps the problem.
 fn reserve(name: &str, words: &[&str]) -> String {
     if words.contains(&name) {
         format!("{name}_")
@@ -528,4 +531,17 @@ const SWIFT_RESERVED: &[&str] = &[
 
 fn swift_ident(name: &str) -> String {
     reserve(name, SWIFT_RESERVED)
+}
+
+/// A Swift enum case name, backtick-quoted when it collides with a keyword so the
+/// generated Swift still reads with the name lux gave it — `.`nil`` rather than a
+/// mangled one. Swift is the only backend that needs this: Go and Rust PascalCase
+/// and qualify a case (`TreeNil`, `Tree::Nil`), which can't collide with a
+/// lowercase keyword, while Swift emits the bare `.nil`.
+fn swift_case(name: &str) -> String {
+    if SWIFT_RESERVED.contains(&name) {
+        format!("`{name}`")
+    } else {
+        name.to_string()
+    }
 }

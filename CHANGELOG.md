@@ -25,6 +25,12 @@ All notable changes to lux are recorded here. The format follows
   or `err(let err)` — produced Go that redeclared the scratch and wouldn't compile.
   The scratch now steps aside to `v_` / `err_` only on a real collision, so the
   common case still reads `v` and `err`.
+- **A Swift enum case named after a keyword compiles.** Swift emits the bare
+  lowercase case name, so an enum case called `nil` — the textbook empty-list case
+  — produced `case nil`, which Swift rejects. Such a case is now backtick-quoted
+  (`` case `nil` ``) at the declaration, in match patterns, and at construction.
+  Go and Rust were never affected: they qualify a case (`TreeNil`, `Tree::Nil`),
+  which can't collide with a lowercase keyword.
 
 ## [0.14.1] - 2026-07-31
 

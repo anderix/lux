@@ -181,6 +181,55 @@ fn swift_idioms() {
     assert!(opt.contains("Result<Int, String>"), "native Result");
 }
 
+/// Swift emits enum cases as the bare lowercase name lux wrote, so a case named
+/// after a Swift keyword — `nil` is the textbook empty-list case — must be
+/// backtick-quoted at every site: the declaration, a match pattern, and
+/// construction. Go and Rust qualify their cases and never hit this.
+#[test]
+fn swift_keyword_named_enum_case_compiles() {
+    let src = r#"
+enum List {
+    nil
+    cons(head: int, tail: List)
+}
+func sum(l: List) -> int {
+    return match l {
+        nil => 0
+        cons(let h, let t) => h + sum(t)
+    }
+}
+let xs = List.cons(head: 1, tail: List.cons(head: 2, tail: List.nil))
+print(sum(xs))
+"#;
+    let program = parser::parse(lexer::lex(src).expect("lex")).expect("parse");
+    let swift = convert::to_swift(&program);
+    assert!(
+        swift.contains("case `nil`"),
+        "declaration is backtick-quoted"
+    );
+    assert!(swift.contains(".`nil`"), "pattern and construction quoted");
+
+    if tool_available("swiftc", "--version") {
+        let tmp = std::env::temp_dir();
+        let sw = tmp.join("lux_kwcase.swift");
+        std::fs::write(&sw, &swift).expect("write swift");
+        let bin = tmp.join("lux_kwcase_sw");
+        let out = Command::new("swiftc")
+            .arg(&sw)
+            .arg("-o")
+            .arg(&bin)
+            .output()
+            .expect("run swiftc");
+        assert!(
+            out.status.success(),
+            "keyword-named enum case did not compile as Swift:\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let run = Command::new(&bin).output().expect("run swift bin");
+        assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "3");
+    }
+}
+
 // --- Go --------------------------------------------------------------------
 
 #[test]
