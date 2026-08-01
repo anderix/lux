@@ -38,6 +38,12 @@ struct Gen {
     /// Names ever mutated in the program, so a `var` that's only read binds with
     /// `let` and doesn't draw Swift's "never mutated, consider let" warning.
     mutated: std::collections::HashSet<String>,
+    /// `print` of a compound value routes through a generated `LuxShow` protocol
+    /// so the output reads the way lux renders it. Swift already prints a struct as
+    /// `P(x: 1, y: 2)`, but an enum case drops its type (`circle(radius: 5)`) and an
+    /// array leaks the module name (`[main.P(...)]`); `luxShow` fixes both and keeps
+    /// every backend rendering the same way. Emitted only when a compound is printed.
+    uses_lux_show: bool,
 }
 
 /// Translate a whole program to Swift source text.
@@ -52,6 +58,7 @@ pub fn to_swift(program: &[Stmt]) -> String {
         uses_input: false,
         uses_run: false,
         mutated: mutated_roots(program),
+        uses_lux_show: false,
     };
 
     for stmt in program {
@@ -150,6 +157,21 @@ impl Gen {
         if uses_io {
             // Foundation supplies the file reading/writing and the stderr handle.
             head.push_str("import Foundation\n\n");
+        }
+        if self.uses_lux_show {
+            head.push_str(LUX_SHOW_PREAMBLE);
+            // One conformance per user type, in declaration order.
+            for stmt in program {
+                match stmt {
+                    Stmt::Struct { name, fields, .. } => {
+                        head.push_str(&lux_show_struct(name, fields))
+                    }
+                    Stmt::Enum { name, variants, .. } => {
+                        head.push_str(&lux_show_enum(name, variants))
+                    }
+                    _ => {}
+                }
+            }
         }
         if needs_error {
             head.push_str("// lux's Result carries a plain string error; Swift's Result needs\n");
@@ -735,15 +757,32 @@ impl Gen {
         s
     }
 
+    /// One argument to `print`/`eprint`. A compound value — array, struct, enum,
+    /// or `Option` — is rendered through `luxShow` so it reads the way lux does;
+    /// Swift's default drops an enum case's type and leaks the module name into an
+    /// array. A scalar prints as Swift already renders it.
+    fn print_arg(&mut self, a: &Expr) -> String {
+        let e = self.emit_expr(a);
+        if matches!(
+            self.t.type_of(a),
+            Ty::Array(_) | Ty::User(_) | Ty::Option(_)
+        ) {
+            self.uses_lux_show = true;
+            format!("({}).luxShow()", e)
+        } else {
+            e
+        }
+    }
+
     fn emit_call(&mut self, name: &str, args: &[Expr]) -> String {
         match name {
             "print" => {
-                let parts: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
+                let parts: Vec<String> = args.iter().map(|a| self.print_arg(a)).collect();
                 format!("print({})", parts.join(", "))
             }
             "eprint" => {
                 self.uses_eprint = true;
-                let parts: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
+                let parts: Vec<String> = args.iter().map(|a| self.print_arg(a)).collect();
                 format!("eprint({})", parts.join(", "))
             }
             // readFile/writeFile lower to the do/catch helpers; args and readLine
@@ -863,6 +902,106 @@ impl Gen {
             )
         }
     }
+}
+
+/// The `LuxShow` protocol and its conformances for the built-in types. Swift's
+/// own printing renders a struct the way lux does but drops an enum case's type
+/// and leaks the module name through an array, so print routes a compound value
+/// through this instead. A user struct or enum gets its own conformance, generated
+/// per program. `Double`'s description already carries the `.0` lux keeps.
+const LUX_SHOW_PREAMBLE: &str = "\
+protocol LuxShow {
+    func luxShow() -> String
+}
+
+extension Int: LuxShow {
+    func luxShow() -> String { String(self) }
+}
+
+extension Double: LuxShow {
+    func luxShow() -> String { String(self) }
+}
+
+extension Bool: LuxShow {
+    func luxShow() -> String { self ? \"true\" : \"false\" }
+}
+
+extension String: LuxShow {
+    func luxShow() -> String { self }
+}
+
+extension Array: LuxShow where Element: LuxShow {
+    func luxShow() -> String {
+        \"[\" + self.map { $0.luxShow() }.joined(separator: \", \") + \"]\"
+    }
+}
+
+extension Optional: LuxShow where Wrapped: LuxShow {
+    func luxShow() -> String {
+        switch self {
+        case .some(let v): return \"some(\" + v.luxShow() + \")\"
+        case .none: return \"none\"
+        }
+    }
+}
+
+";
+
+/// A `LuxShow` conformance for one struct: `Name(field: value, …)`, each field
+/// labelled with its lux name and read off `self`.
+fn lux_show_struct(name: &str, fields: &[FieldDef]) -> String {
+    let body = if fields.is_empty() {
+        format!("\"{}()\"", name)
+    } else {
+        let parts: Vec<String> = fields
+            .iter()
+            .map(|f| format!("\"{}: \" + self.{}.luxShow()", f.name, f.name))
+            .collect();
+        format!(
+            "\"{}(\" + {} + \")\"",
+            name,
+            parts.join(" + \", \" + ")
+        )
+    };
+    format!(
+        "extension {}: LuxShow {{\n    func luxShow() -> String {{\n        {}\n    }}\n}}\n\n",
+        name, body
+    )
+}
+
+/// A `LuxShow` conformance for one enum: `Enum.case` alone, or
+/// `Enum.case(field: value, …)` with its associated values bound by label.
+fn lux_show_enum(name: &str, variants: &[VariantDef]) -> String {
+    let mut arms = String::new();
+    for v in variants {
+        if v.fields.is_empty() {
+            arms.push_str(&format!(
+                "        case .{}: return \"{}.{}\"\n",
+                swift_case(&v.name),
+                name,
+                v.name
+            ));
+        } else {
+            let binds: Vec<String> = v.fields.iter().map(|f| format!("let {}", f.name)).collect();
+            let parts: Vec<String> = v
+                .fields
+                .iter()
+                .map(|f| format!("\"{}: \" + {}.luxShow()", f.name, f.name))
+                .collect();
+            arms.push_str(&format!(
+                "        case .{}({}): return \"{}.{}(\" + {} + \")\"\n",
+                swift_case(&v.name),
+                binds.join(", "),
+                name,
+                v.name,
+                parts.join(" + \", \" + ")
+            ));
+        }
+    }
+    format!(
+        "extension {}: LuxShow {{\n    func luxShow() -> String {{\n        switch self {{\n{}        }}\n    }}\n}}\n\n",
+        name, arms
+    )
 }
 
 /// Does the program use a `Result` whose error is a string? If so, the Swift

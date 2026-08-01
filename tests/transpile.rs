@@ -1269,6 +1269,35 @@ print(a)
     assert_prints_everywhere(src, "arraycopy", "[1, 2]\n[2, 1]\n[1, 2, 3]\n[99, 2, 3]\n");
 }
 
+/// Printing a struct, an enum case (with or without a payload), an array of
+/// structs, and a recursive tree reads the same on every backend and matches the
+/// interpreter — `P(x: 1, y: 2)`, `Shape.circle(radius: 5)`, `Shape.dot`,
+/// `Tree.node(left: Tree.leaf, …)`. Each backend renders through its own `luxShow`
+/// (a Go type switch, a Rust trait, a Swift protocol); this holds all four to the
+/// same reading. Rust and Swift stay warning-clean.
+#[test]
+fn compound_values_print_the_same_on_every_backend() {
+    let src = r#"
+struct P { x: int  y: int }
+enum Shape { circle(radius: int)  dot }
+struct Bag { items: [int]  shape: Shape }
+enum Tree { leaf  node(left: Tree, value: int, right: Tree) }
+print(P(x: 1, y: 2))
+print(Shape.circle(radius: 5))
+print(Shape.dot)
+print([P(x: 1, y: 2), P(x: 3, y: 4)])
+print(Bag(items: [1, 2], shape: Shape.dot))
+print(Tree.node(left: Tree.leaf, value: 7, right: Tree.node(left: Tree.leaf, value: 9, right: Tree.leaf)))
+"#;
+    let expected = "P(x: 1, y: 2)\n\
+        Shape.circle(radius: 5)\n\
+        Shape.dot\n\
+        [P(x: 1, y: 2), P(x: 3, y: 4)]\n\
+        Bag(items: [1, 2], shape: Shape.dot)\n\
+        Tree.node(left: Tree.leaf, value: 7, right: Tree.node(left: Tree.leaf, value: 9, right: Tree.leaf))\n";
+    assert_prints_everywhere(src, "compound", expected);
+}
+
 // --- structure shared by all three ----------------------------------------
 
 #[test]
