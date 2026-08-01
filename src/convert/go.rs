@@ -974,8 +974,11 @@ impl Gen {
         // An enum `Option` is the bare interface, so the scrutinee is the value
         // itself — nil-tested directly and bound without a pointer deref.
         let enum_inner = self.is_enum_ty(&inner);
-        let some_arm = arms.iter().find(|a| arm_name(a) == Some("some"));
-        let none_arm = arms.iter().find(|a| arm_name(a) == Some("none"));
+        // A `_` arm stands in for whichever of some/none the match didn't name, so
+        // `match o { some(let v) => …  _ => … }` fills its else branch.
+        let wild = arms.iter().find(|a| matches!(a.pattern, Pattern::Wildcard(_)));
+        let some_arm = arms.iter().find(|a| arm_name(a) == Some("some")).or(wild);
+        let none_arm = arms.iter().find(|a| arm_name(a) == Some("none")).or(wild);
         let bind = some_arm.and_then(|a| match &a.pattern {
             Pattern::Variant { bindings, .. } => bindings.first().cloned(),
             _ => None,
@@ -1021,8 +1024,10 @@ impl Gen {
             Ty::Result(o, e) => (*o, *e),
             _ => (Ty::Unknown, Ty::Unknown),
         };
-        let ok_arm = arms.iter().find(|a| arm_name(a) == Some("ok"));
-        let err_arm = arms.iter().find(|a| arm_name(a) == Some("err"));
+        // A `_` arm stands in for whichever of ok/err the match didn't name.
+        let wild = arms.iter().find(|a| matches!(a.pattern, Pattern::Wildcard(_)));
+        let ok_arm = arms.iter().find(|a| arm_name(a) == Some("ok")).or(wild);
+        let err_arm = arms.iter().find(|a| arm_name(a) == Some("err")).or(wild);
         let ok_bind = ok_arm.and_then(|a| match &a.pattern {
             Pattern::Variant { bindings, .. } => bindings.first().cloned(),
             _ => None,

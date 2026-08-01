@@ -1366,6 +1366,32 @@ print(name(E.c))
     assert_prints_everywhere(src, "wildcard", "a\nother\nother\n");
 }
 
+/// A `_` arm stands in for the unnamed case of an `Option` or `Result` match too —
+/// `match o { some(let v) => …  _ => … }`, `match r { ok(let v) => …  _ => … }`.
+/// Go built each of these by finding arms by name (`some`/`none`, `ok`/`err`) and
+/// left the else branch empty when the other side was a wildcard, so a returning
+/// match compiled to a missing return. The wildcard now fills the missing side.
+#[test]
+fn a_wildcard_covers_option_and_result_matches_on_every_backend() {
+    let src = r#"
+func opt(o: Option<int>) -> string {
+    return match o { some(let v) => "some"  _ => "none" }
+}
+func res(n: int) -> string {
+    return match half(n) { ok(let v) => "ok"  _ => "err" }
+}
+func half(n: int) -> Result<int, string> {
+    if n % 2 == 0 { return ok(n / 2) }
+    return err("odd")
+}
+print(opt(some(1)))
+print(opt(none))
+print(res(4))
+print(res(3))
+"#;
+    assert_prints_everywhere(src, "optreswild", "some\nnone\nok\nerr\n");
+}
+
 /// Accumulating an `Option` across a loop — `var result: Option<int> = none` then
 /// `result = match … { some(let v) => some(v)  none => next }` — works on every
 /// backend. Two edges met here: a bare `none` with a type annotation (Go needs the
