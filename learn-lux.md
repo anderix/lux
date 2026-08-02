@@ -724,8 +724,8 @@ the start, the top level is only your definitions; the work moves inside.
 <!-- more -->
 You never needed `main` to write lux, and you still don't: the file-is-the-program
 style is the honest, everyday one, and this whole page was written in it. `main`
-is a travel adapter, not a promotion. Here is the same hello-world where you are
-headed:
+is a travel adapter, not a promotion. Rust and Go require the `main` you just
+learned:
 
 ```rust
 // Rust
@@ -741,13 +741,18 @@ func main() {
 }
 ```
 
+Swift is the surprise. Like lux, it lets the file be the program, so its
+hello-world needs no `main` at all:
+
 ```swift
-// Swift — which, like lux, lets the file be the program, so it runs main by hand
-func main() {
-    print("Hello, world!")
-}
-main()
+// Swift
+print("Hello, world!")
 ```
+
+So Swift is lux's closest cousin here, not its opposite. When you run `lux convert
+swift` on a program that has a `main`, lux writes it as a function and calls it, to
+keep the shape you wrote in plain sight — but a Swift programmer would more often
+just let the file be the program, the way you did to begin with.
 
 None of that is a mystery now. `fn` and `func` you know; `main` is the start, the
 thing lux just taught you; the print call is the print call. Even the line of
