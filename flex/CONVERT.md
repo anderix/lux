@@ -464,6 +464,87 @@ demonstrating itself. The keep never asks "did that succeed?" and stores the ans
 it answers each failure where it happens, which is why all three branches are visible
 here and none of them can be forgotten.
 
+## The last difference
+
+Everything above is a seam where lux and a target disagree about how to say something.
+[`bridge.lux`](bridge.lux) is the one place they disagree about how to *start*, and it
+is the last difference left.
+
+```lux
+func main() {
+    print("celsius   fahrenheit")
+    for step in 0..8 {
+        print(line(-40 + step * 20))
+    }
+```
+
+Rust and Go both require a named entry point, so lux's `main` becomes theirs, directly:
+
+```rust
+fn main() {
+    println!("{}", "celsius   fahrenheit");
+    for step in 0..8 {
+        println!("{}", line(-40 + step * 20));
+    }
+```
+
+```go
+func main() {
+	fmt.Println("celsius   fahrenheit")
+	for step := 0; step < 8; step++ {
+		fmt.Println(line(-40 + step*20))
+	}
+```
+
+Swift's top level already *is* the entry point — the same model lux has had since line
+one — so there is no entry point to map onto. `main` becomes an ordinary function with
+a call at the bottom of the file:
+
+```swift
+func main() {
+    print("celsius   fahrenheit")
+    for step in stride(from: 0, to: 8, by: 1) {
+        print(line(-40 &+ step &* 20))
+    }
+...
+main()
+```
+
+Which is the honest translation, and the reason the bridge is Rust's and Go's: Swift
+was never on the other side of this one.
+
+Two smaller things in that Swift are worth catching. `stride(from:to:by:)` is what a
+half-open range becomes when the language has no `0..8`. And `&+` and `&*` are Swift's
+*masking* operators — the ones that wrap on overflow instead of trapping. Swift traps
+by default and the other three wrap, so lux asks for wrapping explicitly to keep the
+four in step. Neither is something the learner wrote, and both are the kind of thing
+that would take an afternoon to discover alone.
+
+### What comes along
+
+`bridge` is arithmetic, strings, and function calls, so its translation is very nearly
+the file you wrote. Very nearly — one function arrives uninvited:
+
+```rust
+fn lux_div(a: i64, b: i64) -> i64 {
+    if b == 0 {
+        eprintln!("error: division by zero");
+        std::process::exit(1);
+    }
+    a / b
+}
+
+fn fahrenheit(celsius: i64) -> i64 {
+    return lux_div(celsius * 9, 5) + 32;
+}
+```
+
+`celsius * 9 / 5` could divide by zero in principle, and lux promised a sentence about
+that rather than a crash, so the promise travels with the program as four readable
+lines. That is a better picture of graduation than an empty diff would be. You do not
+leave with nothing added — you leave with a short list of what was being done for you,
+in a language where you can now read every line of it.
+
 ## What surrounds all of this
 
 Every translation opens with a prelude the program didn't ask for. Part of it is a

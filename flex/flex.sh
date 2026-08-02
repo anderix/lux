@@ -127,7 +127,7 @@ PROGRAMS=(fizzbuzz fib gcd sieve collatz roman
           pascal matrix lcs tictactoe queens maze
           stats points logic
           catn head wcl uniqc hist
-          keep)
+          bridge keep)
 
 if [ $# -gt 0 ]; then
     PROGRAMS=("$@")

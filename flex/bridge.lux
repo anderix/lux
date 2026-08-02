@@ -1,0 +1,69 @@
+// bridge — the shape every other language starts with, met last.
+//
+//   lux run bridge.lux
+//
+// Every other program in this directory runs top to bottom, because that is what lux
+// does and what a first year needs. This one has a `main`. It is the only one, and
+// that is the point of it.
+//
+// A `main` buys a beginner nothing. lux starts at the first line, so an entry point
+// is ceremony with no payoff — which is why it is the last thing lux teaches instead
+// of the first, and why nothing else here uses one. But Rust and Go both require a
+// named entry point, and that requirement is the last difference left between a lux
+// program and a real one in either language.
+//
+// So this program exists to be converted. Run it:
+//
+//   lux convert rust bridge.lux
+//   lux convert go   bridge.lux
+//
+// and read what comes back. It is very nearly this file: the same four functions in
+// the same order, `main` mapped straight onto the target's own, and none of the
+// machinery that makes richer values print alike, because everything here is
+// arithmetic and strings.
+//
+// Very nearly, and the exception is the interesting part. One function you did not
+// write comes along — a division guard, four lines of it — because `celsius * 9 / 5`
+// can divide by zero in principle and lux promised you a sentence about it rather than
+// a crash. That is the honest shape of graduation. You do not leave with nothing added;
+// you leave with a short, readable list of the things the language was doing for you,
+// and now you can see all of them.
+//
+// Swift is the cousin already across. Its top level *is* the entry point, exactly like
+// lux's, so a `main` here becomes an ordinary Swift function and a call to it. That is
+// the honest translation rather than a special case, and it is the reason the bridge
+// is Rust's and Go's and not Swift's.
+
+// Whole-number arithmetic on purpose: 9 / 5 truncates, so this is the textbook's
+// integer conversion and not the exact one. Every language on the other side does the
+// same thing with the same operators, which is part of what makes it a fair bridge.
+func fahrenheit(celsius: int) -> int {
+    return celsius * 9 / 5 + 32
+}
+
+// Right-aligning a number by growing a string until it is wide enough. No array
+// indexing anywhere in this program, which is deliberate: an index would pull in the
+// bounds check lux performs for you, and the translation would stop being only your
+// program.
+func pad(n: int, width: int) -> string {
+    var s = string(n)
+    while length(s) < width {
+        s = " " + s
+    }
+    return s
+}
+
+func line(celsius: int) -> string {
+    return pad(celsius, 6) + pad(fahrenheit(celsius), 8)
+}
+
+func main() {
+    print("celsius   fahrenheit")
+    for step in 0..8 {
+        print(line(-40 + step * 20))
+    }
+    print("")
+    print("water freezes at", fahrenheit(0))
+    print("water boils at  ", fahrenheit(100))
+    print("they agree at   ", fahrenheit(-40))
+}

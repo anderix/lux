@@ -99,6 +99,27 @@ line can come back empty.
 | `uniqc` | `uniq -c`, writable precisely because the real one only collapses adjacent runs |
 | `hist` | a bar chart, scaling, and junk input counted rather than fatal |
 
+**The bridge out.** Every program above runs top to bottom, which is what lux does and
+what a first year needs. This one has a `main`, and it is the only one that does —
+because `main` is the last thing lux teaches, not the first, and a corpus that
+retrofitted it onto everything would misrepresent how the language is learned.
+
+| program | what it shows |
+|---|---|
+| `bridge` | `func main` mapped straight onto Rust's and Go's, and what a translation looks like when almost nothing has to be added |
+
+It is written to be converted rather than read. Everything in it is arithmetic,
+strings, and calling a function, so the Rust and Go that come back are the same four
+functions in the same order with `main` in the same place — plus exactly one thing the
+program didn't ask for, a four-line division guard, because `celsius * 9 / 5` could
+divide by zero and lux promised a sentence about that rather than a crash. That is a
+more useful picture of graduation than an empty one: you leave with a short list of
+what the language was doing for you, and now you can read all of it.
+
+Swift is the cousin already across — its top level is the entry point, exactly like
+lux's — so `main` there becomes an ordinary function and a call to it. Which is why the
+bridge is Rust's and Go's.
+
 **The one that ships.** Everything above was written for this directory. `keep` was
 not — it is the world `lux crawl` writes out, it lives in
 [`examples/`](../examples/keep.lux), and it is the program most people who try lux run
