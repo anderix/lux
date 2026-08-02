@@ -122,6 +122,13 @@ which is what keeps one source crossing three targets. There are no classes, no 
 generics, and no ownership. Each of those is somebody's graduation lesson: Rust
 takes over for ownership, Swift for classes, Go for goroutines.
 
+`func main` is refused, which is worth calling out because it is the first thing
+anyone arriving from another language types. lux runs a program from its first line
+and has no entry point to declare, so the name buys nothing and the error says so —
+*name this function for what it does and call it yourself, the way you call any
+other.* It reads as a wall for about ten seconds and then as one less piece of
+ceremony to explain.
+
 **Not built yet, and wanted.** Strings cannot be split or indexed, and there is no
 map type. Both are on the list ahead of anything else, pulled by programs that
 needed them rather than by a wish list. Their absence shapes three programs here:
@@ -142,98 +149,56 @@ reach for it.
 
 The point of running every program on every target is that a program which only
 works interpreted proves nothing. Every program here runs correctly under `lux run`;
-where a target disagrees or won't build, that is the finding. Run `./flex.sh` for
-the live state, which is the only account of it that can't go stale.
+where a target disagrees or won't build, that is the finding. Run `./flex.sh` for the
+live state, which is the only account of it that can't go stale, and the
+[CHANGELOG](../CHANGELOG.md) for the history — which is the argument for this
+directory existing.
 
-The corpus is what surfaced the divergences, and each was a bug in a target, not a
-limit of the language: an empty array literal's type in Go, an enum `var` taking
-its case's type, an error forwarded from a `match` arm returning one value where Go
-wanted two, an array printed without commas, a reversed range crashing Swift, value
-semantics leaking through a Go slice, an enum match dropping its wildcard case. None
-was found by the smaller `conformance/` set; each was filed as an issue, fixed in
-the target, and closed. The [CHANGELOG](../CHANGELOG.md) carries the history — which
-is the argument for this directory existing.
+Most of what it found was a target rendering something differently from the other
+three: an empty array literal's type in Go, an enum `var` taking its case's type, an
+array printed without commas, a reversed range crashing Swift, value semantics leaking
+through a Go slice, a string read out of an array refusing to compile on Rust, a
+struct spent by being named in an array literal, a whole float printing as `88` where
+the other three said `88.0`. Each was a bug in a target rather than a limit of the
+language, each was filed and fixed, and none was found by the smaller `conformance/`
+set. Two enums that refer to each other, and a variable a learner happened to name
+`none`, came the same way.
 
-The grid section found three more the same way, on its first run, and they are worth
-reading as a set because all three hid in the same blind spot. A loop that discards
-its variable with `for _ in` — the natural way to say "do this n times" — lowered to
-invalid Go ([#18](https://github.com/anderix/lux/issues/18)). Returning a string read
-out of an array wouldn't compile on Rust, because an indexed `String` is the one
-element type that isn't `Copy`
-([#20](https://github.com/anderix/lux/issues/20)) — over `[[int]]` it compiled
-anyway, which is what made it easy to miss, since it is the accessor every grid
-program writes. And a variable named `none` bound correctly and then read as the
-empty `Option` at every use site on all three targets
-([#19](https://github.com/anderix/lux/issues/19)).
+The most valuable thing it found wasn't a rendering bug at all. Running the corpus
+past where programs produce answers and into where they *fail* — dividing by zero,
+going off the end of an array, recursing without end — showed that lux's best argument
+stopped working at exactly the wrong moment. The interpreter explains those mistakes
+in words a beginner can act on; the compiled targets replaced them with a Rust panic,
+a Go goroutine trace, or a Swift register dump, and `lux convert` ran no checks at
+all, so a broken program was translated in silence and the learner met rustc — pointed
+at a generated file in `/tmp`, sometimes advised to write `mut xs`, which is precisely
+what lux forbids. That is the graduation moment at its least forgiving, and it is
+fixed: the targets now carry lux's runtime errors, and convert and build check a
+program before emitting it.
 
-One more from the same section was about cost rather than correctness, and so was the
-kind a diff will never catch. Go's value-semantics copy landed inside a loop's
-condition when the bound was a function call, so `for i in 0..rows(m)` deep-copied
-the whole grid on every iteration and an ordinary O(n²) walk ran cubic
-([#21](https://github.com/anderix/lux/issues/21)). The output was identical, which
-was exactly the problem: a learner who writes the obvious loop has no way to see what
-it cost, and slow is much harder to notice than wrong. It was also the first finding
-here the harness could not have produced, since the harness compares bytes and the
-bytes agreed — it came from reading the emitted code while writing
-[CONVERT.md](CONVERT.md), which is now a habit rather than an accident.
+Two of the instruments here are not the harness. Reading the emitted code found the
+two findings a byte-comparison structurally cannot see — a deep copy landing inside a
+loop, turning an ordinary grid walk cubic while printing identical output, and then
+the copy itself turning out to be unnecessary, since lux forbids writing through a
+parameter and Swift's copy-on-write arrays had been proving it all along. And asking
+what a *learner* would write, rather than what a well-behaved program does, found the
+two that the careful programs had walked around: adding to a list while looping over
+it, which is how anyone first writes a queue, and naming a function `main`, which is
+the first thing anyone arriving from another language types.
 
-Two more came from probing the edges of what could be written rather than from a
-program here: two enums that refer to each other compiled on Go but wanted a `Box` on
-Rust and an `indirect` on Swift that neither got
-([#17](https://github.com/anderix/lux/issues/17)), and recursion past the
-interpreter's stack aborted the process instead of reporting a lux error
-([#16](https://github.com/anderix/lux/issues/16)).
+One more lesson came from the harness itself. It carried a rule erasing the trailing
+`.0` from every output before diffing, added defensively back when no program printed
+a float — and when one finally did, that rule turned a real divergence into a pass. It
+is gone, and the corpus now compares bytes exactly. A harness that smooths over a
+difference trades a false failure today for a hidden bug tomorrow.
 
-What is open now sorts into three kinds, and the first kind is the one worth an
-evaluator's attention.
-
-**The good errors stop at the compiler.** lux's best argument is that it explains
-what went wrong in words a thirteen-year-old can act on. That argument currently ends
-at `lux build`. `lux convert` and `lux build` run *none* of the checks `lux run` runs
-— not the immutable parameter, not the stored `Result`, not the non-exhaustive
-`match`, not even an undefined variable — so a broken program is translated without
-complaint and the learner meets rustc instead, pointed at a generated file in `/tmp`
-and advised to write `mut xs: Vec<i64>`, which is precisely what lux forbids
-([#29](https://github.com/anderix/lux/issues/29)). The runtime half is the same
-story: dividing by zero is `error: division by zero` with a caret under the
-expression when you run it, and an illegal-instruction register dump on Swift when
-you build it ([#34](https://github.com/anderix/lux/issues/34)); runaway recursion is a
-lux error interpreted, a silent hang on Rust and Swift, and a gigabyte of stack on Go
-([#27](https://github.com/anderix/lux/issues/27)). Integer overflow adds a twist —
-`lux run` wraps silently and `lux build` halts, because `lux build` compiles without
-`-O` and Rust's debug profile checks overflow, so the two disagree on the same source
-([#35](https://github.com/anderix/lux/issues/35)). And the depth guard that made
-runaway recursion reportable cannot tell a runaway from a program that simply goes
-deep, so a correct function past the ceiling is told it "kept calling without
-stopping" while all three targets run it and print the answer
-([#26](https://github.com/anderix/lux/issues/26)).
-
-Taken one at a time these read as five unrelated bugs. Together they say something
-sharper: the graduation moment is exactly where lux's teaching stops working, and it
-stops hardest for the rules lux is proudest of, because immutable parameters and
-exhaustive matches are the ones no target language can describe.
-
-**Four backend gaps a correct program walks into.** A struct named in an array literal
-is moved rather than cloned on Rust, so assembling a shape out of named corners spends
-the corners ([#30](https://github.com/anderix/lux/issues/30)). A whole float prints
-without its decimal point on Go, so `88.0` reads as `88` in the one language that
-makes you convert between the two on purpose
-([#31](https://github.com/anderix/lux/issues/31)). `int()` of a float *literal* emits
-Go that doesn't compile ([#32](https://github.com/anderix/lux/issues/32)). And an
-annotated binding to `some(...)` loses its annotation on Swift, which is why nothing
-here caught it — the corpus had never written down an Option that starts out present
-([#33](https://github.com/anderix/lux/issues/33)).
-
-**One about cost.** The sequel to the cubic walk, and it came from reading emitted
-code rather than running it. Hoisting the loop bound moved the copy but did not remove
-it, and a grid handed to an accessor inside an inner loop is still deep-copied every
-time round. Swift is the one implementation that doesn't pay: its arrays are
-copy-on-write, so a parameter nobody writes to is never copied, and on identical
-source at n=800 it comes in two hundred times faster than Rust
-([#28](https://github.com/anderix/lux/issues/28)). What makes that a defect rather
-than a tradeoff is that lux refuses to compile a write through a parameter at all —
-`a parameter never changes` — so the copy is guarding against a program nobody is
-allowed to write.
+What is open is the half of the check that convert still leaves to the target
+compiler. Four of those five rules are caught by the target compiler, so the learner
+gets a poor error but not a bad program. The fifth isn't caught at all: a stored
+`Result` — refused by `lux run` as the one rule that exists specifically to keep one
+source crossing three targets — builds and runs on Rust and Swift, printing `Ok(...)`
+and `success(...)` respectively, and won't compile on Go
+([#39](https://github.com/anderix/lux/issues/39)).
 
 ## The rules
 

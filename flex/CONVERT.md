@@ -282,23 +282,48 @@ xs := append([]int{}, input...)
 Swift pays nothing to write, because its arrays are already value types. Rust names
 the cost out loud, which is the whole of Rust's argument. Go's slices are references,
 so the copy has to be constructed by hand — and for a nested value like a grid it
-takes a generic helper and a closure per level:
+takes a generic helper and a closure per level, as when `matrix` hands two grids to
+`multiply`:
 
 ```go
-copySlice(m, func(__e []int) []int { return append([]int{}, __e...) })
+copySlice(a, func(__e []int) []int { return append([]int{}, __e...) })
 ```
 
 That line is the single best answer to "why would I use a small language first." The
 learner wrote `var xs = input`. Somebody has to write the rest, and it may as well
 not be a thirteen-year-old on their second week.
 
+The copy only appears where it could actually be observed. A function that takes a
+grid and hands back a number can't leak what it was given, so `rows(m)` and `cols(m)`
+get no copy at all — Go passes the grid straight in and Rust borrows it:
+
+```rust
+let mut out: Vec<Vec<i64>> = filled(cols(&m), rows(&m), 0);
+```
+
+That `&` is the whole of the ownership lesson in one character, and it is worth
+knowing that lux decided it for you. The learner wrote `cols(m)` both times.
+
 ## What surrounds all of this
 
-Every translation opens with a prelude the program didn't ask for — a `LuxShow`
-trait in Rust, a protocol in Swift, a type switch in Go — so that printing a struct,
-an enum, or a tree reads the same on all four implementations rather than deferring
-to each language's own formatting. It is generated, it is skippable, and it is the
-reason `flex.sh` can diff bytes instead of eyeballing shapes.
+Every translation opens with a prelude the program didn't ask for. Part of it is a
+`LuxShow` trait in Rust, a protocol in Swift, a type switch in Go, so that printing a
+struct, an enum, or a tree reads the same on all four implementations rather than
+deferring to each language's own formatting — which is the reason `flex.sh` can diff
+bytes instead of eyeballing shapes.
+
+The rest of it is the safety net. Every `xs[i]` in your program becomes a call through
+a checked accessor, so that going past the end of a row says what lux would say rather
+than what the host runtime would:
+
+```go
+row := append([]int{}, luxIndex(m, i)...)
+```
+
+Reading that is worth a minute, because it is the clearest picture of what a language
+does *for* you. You wrote `m[i]`. What runs is a bounds check that knows the length,
+knows the index, and knows how to explain the difference — and it is there on every
+one of the three, in three spellings, without being asked for.
 
 The translations are not a museum piece. They are compiled and run on every pass of
 the harness, so every excerpt above is what the current compiler emits rather than
