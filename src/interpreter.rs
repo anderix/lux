@@ -124,16 +124,21 @@ struct Interp {
 }
 
 /// How deep user-function calls may nest before the interpreter reports runaway
-/// recursion. Well above anything a real program recurses to (the compiled
-/// targets go further still), and comfortably inside `INTERP_STACK` so the limit
-/// is what stops a missing base case — never a raw stack overflow.
-const MAX_CALL_DEPTH: usize = 10_000;
+/// recursion. Set well past what an accidental infinite recursion needs and past
+/// an ordinary deep walk too — a recursive pass over 20,000 items clears it — so
+/// the limit rarely catches a program that was actually right (#26). The compiled
+/// targets go further still. It sits comfortably inside `INTERP_STACK`, so the
+/// limit is what stops a runaway, never a raw stack overflow.
+const MAX_CALL_DEPTH: usize = 25_000;
 
-/// The stack the interpreter runs on. Each lux call nests several Rust frames, so
-/// the default thread stack overflows long before `MAX_CALL_DEPTH`; a large one
-/// keeps the depth limit in charge. It is reserved address space, paged in only
-/// as it's used, so the size costs almost nothing until the recursion is real.
-const INTERP_STACK: usize = 1 << 30; // 1 GiB
+/// The stack the interpreter runs on. Each lux call nests several Rust frames, and
+/// an unoptimised debug build spends about 60 KB of stack per lux call, so the
+/// default thread stack overflows long before `MAX_CALL_DEPTH`. This holds 25,000
+/// such frames with room to spare — the debug build is the binding case, since a
+/// release build's frames are far smaller — so the depth limit stays in charge. It
+/// is reserved address space, paged in only as it's used, so the size costs almost
+/// nothing until the recursion is real.
+const INTERP_STACK: usize = 3 << 30; // 3 GiB
 
 /// The line-by-line narrator behind `lux trace`. It holds the source so it can
 /// reprint each executing line, and writes to stderr — so the program's own
@@ -2594,24 +2599,26 @@ fn result_not_printed(span: Span) -> LuxError {
     )
 }
 
-/// The error for recursion that never bottoms out. The interpreter counts how
-/// deep the calls are nested and stops at `MAX_CALL_DEPTH`, so a missing base
-/// case surfaces as an ordinary lux diagnostic — naming the function and pointing
-/// at the base case — instead of a raw stack overflow that aborts with no message.
+/// The error for a call stack that reaches `MAX_CALL_DEPTH`. The interpreter counts
+/// how deep the calls are nested and stops there, so a runaway recursion surfaces as
+/// an ordinary lux diagnostic — instead of a raw stack overflow that aborts with no
+/// message. Depth alone can't tell a missing base case from a program that honestly
+/// goes this deep, so the message names the limit and offers both readings rather
+/// than diagnosing a bug that may not be there (#26).
 fn call_stack_too_deep(name: &str, span: Span) -> LuxError {
     LuxError::new(
         format!(
-            "`{}` kept calling without stopping — more than {} calls deep",
+            "`{}` reached lux's limit of {} nested calls",
             name, MAX_CALL_DEPTH
         ),
         span,
     )
     .with_note(
-        "a function that calls itself needs a base case it reaches — a point where it returns instead of calling again",
+        "usually this means a missing base case — a function that calls itself with no line that returns instead of calling again. If the program is right and simply nests this deep, it's the interpreter's limit, not a bug: `lux build` compiles it to run past it.",
     )
     .with_learn(
         "functions",
-        "recursion needs a base case, or it calls itself forever",
+        "recursion needs a base case it reaches, or it calls itself forever",
     )
 }
 

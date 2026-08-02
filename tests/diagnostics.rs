@@ -70,8 +70,11 @@ fn a_return_inside_a_match_arm_explains_arms_are_values() {
 /// Recursion with no reachable base case — the classic beginner mistake, and the
 /// one place the interpreter used to show its own host language: a raw stack
 /// overflow, `SIGABRT`, exit 134, and not one word about the program that was run.
-/// It now stops itself at a depth limit and reports an ordinary lux error that
-/// names the function and points at the base case, exiting 1 like every other.
+/// It now stops itself at a depth limit and reports an ordinary lux error, exiting
+/// 1 like every other. Depth alone can't prove a missing base case, so the message
+/// names the limit and offers both readings — a missing base case, or a program
+/// that honestly nests this deep, which `lux build` will run past (#26) — rather
+/// than diagnosing a bug that might not be there.
 #[test]
 fn runaway_recursion_reports_a_lux_error_instead_of_aborting() {
     let src = "func fact(n: int) -> int {\n    return n * fact(n - 1)\n}\nprint(fact(5))\n";
@@ -93,8 +96,14 @@ fn runaway_recursion_reports_a_lux_error_instead_of_aborting() {
     );
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(
-        err.contains("`fact`") && err.contains("base case"),
-        "should name the function and point at the base case, got:\n{err}"
+        err.contains("`fact`") && err.contains("limit"),
+        "should name the function and the limit it reached, got:\n{err}"
+    );
+    // Both readings: the likely missing base case, and the escape hatch for a
+    // program that really is this deep.
+    assert!(
+        err.contains("base case") && err.contains("lux build"),
+        "should offer both a missing base case and `lux build` for a deep one, got:\n{err}"
     );
     assert!(
         !err.contains("stack overflow") && !err.contains("aborting"),
@@ -102,13 +111,14 @@ fn runaway_recursion_reports_a_lux_error_instead_of_aborting() {
     );
 }
 
-/// The depth limit sits well above any real recursion, so a correct, terminating
-/// program that simply goes deep still runs — the interpreter clears thousands of
-/// frames on the large stack it runs on, converging with the compiled targets
-/// rather than refusing what they accept.
+/// The depth limit sits well past any ordinary recursion — a recursive walk over
+/// 20,000 items clears it — so a correct, terminating program that simply goes deep
+/// still runs, converging with the compiled targets rather than refusing what they
+/// accept. 0.15.1 set the limit at 10,000, low enough to reach by accident on a
+/// real file; it now runs a walk this deep to completion (#26).
 #[test]
 fn deep_but_terminating_recursion_still_runs() {
-    let src = "func d(n: int) -> int {\n    if n == 0 { return 0 }\n    return 1 + d(n - 1)\n}\nprint(d(5000))\n";
+    let src = "func d(n: int) -> int {\n    if n == 0 { return 0 }\n    return 1 + d(n - 1)\n}\nprint(d(20000))\n";
     let path = std::env::temp_dir().join(format!("lux-diag-{}-deep.lux", std::process::id()));
     std::fs::write(&path, src).unwrap();
     let out = Command::new(env!("CARGO_BIN_EXE_lux"))
@@ -118,8 +128,8 @@ fn deep_but_terminating_recursion_still_runs() {
         .output()
         .unwrap();
     let _ = std::fs::remove_file(&path);
-    assert!(out.status.success(), "d(5000) should run to completion");
-    assert_eq!(String::from_utf8_lossy(&out.stdout), "5000\n");
+    assert!(out.status.success(), "d(20000) should run to completion");
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "20000\n");
 }
 
 /// The "unknown function" note names the built-ins a mistyped call might have

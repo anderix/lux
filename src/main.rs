@@ -270,6 +270,11 @@ fn sub_usage(cmd: &str) {
             println!("usage: lux build <file.lux>");
             println!();
             println!("Writes ./<name> beside you; needs rustc installed.");
+            println!();
+            println!("`lux run` is where a program is watched as it runs: it stops runaway");
+            println!("recursion with an error, where a built binary hits the machine's own stack");
+            println!("limit instead — a hang or a crash with no lux message. Run a program with");
+            println!("`lux run` while you're still finding its bugs; build it once it works.");
         }
         "convert" => {
             println!("lux convert — translate a program to another language's source");
