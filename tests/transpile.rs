@@ -242,6 +242,63 @@ fn a_nested_empty_array_literal_compiles_everywhere() {
     );
 }
 
+/// `parseInt`/`parseFloat` accept surrounding whitespace on every backend, the way
+/// the interpreter's `.trim()` does — a number read from a column-aligned file or a
+/// paste has spaces around it, and Swift used to return `none` for it (#41).
+#[test]
+fn parse_trims_surrounding_whitespace_everywhere() {
+    let src = "print(match parseInt(\" 42\") { some(let n) => string(n)  none => \"none\" })\nprint(match parseFloat(\"2.5 \") { some(let f) => string(f)  none => \"none\" })\n";
+    for backend in ["rust", "go", "swift"] {
+        if let Some(out) = build_run("parsetrim", backend, src) {
+            assert_eq!(
+                String::from_utf8_lossy(&out.stdout),
+                "42\n2.5\n",
+                "{backend}: parse should trim surrounding whitespace"
+            );
+        }
+    }
+}
+
+/// When stdout and stderr are merged — a pipe, `2>&1`, `tee` — a warning stays with
+/// the output it follows rather than jumping to the top. Swift block-buffers stdout
+/// off a terminal and writes stderr through, so without a flush the `eprint` lines
+/// all landed first (#51); the fix flushes stdout ahead of each one.
+#[test]
+fn swift_interleaves_stdout_and_stderr_when_merged() {
+    if !tool_available("swiftc", "--version") {
+        eprintln!("skipping: swiftc not on PATH");
+        return;
+    }
+    let src = "print(\"out 1\")\neprint(\"err 1\")\nprint(\"out 2\")\neprint(\"err 2\")\n";
+    let program = parser::parse(lexer::lex(src).expect("lex")).expect("parse");
+    let tmp = std::env::temp_dir();
+    let sw = tmp.join("lux_streams.swift");
+    std::fs::write(&sw, convert::to_swift(&program)).expect("write swift");
+    let bin = tmp.join("lux_streams_sw");
+    let c = Command::new("swiftc")
+        .arg(&sw)
+        .arg("-o")
+        .arg(&bin)
+        .output()
+        .expect("swiftc");
+    assert!(
+        c.status.success(),
+        "swift compile:\n{}",
+        String::from_utf8_lossy(&c.stderr)
+    );
+    // Merge the streams the way a pipe does, and check program order is preserved.
+    let out = Command::new("sh")
+        .arg("-c")
+        .arg(format!("{} 2>&1", bin.display()))
+        .output()
+        .expect("run merged");
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "out 1\nerr 1\nout 2\nerr 2\n",
+        "a warning should stay with the line it follows when the streams are merged"
+    );
+}
+
 // --- Rust ------------------------------------------------------------------
 
 #[test]

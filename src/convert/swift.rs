@@ -54,6 +54,11 @@ struct Gen {
     /// out-of-range value the way the interpreter and the other targets do — Swift's
     /// `Int(Double)` traps on `inf`/`NaN`, a crash the learner can't read (#52).
     uses_lux_int: bool,
+    /// `parseInt`/`parseFloat` trim surrounding whitespace through `luxTrim` before
+    /// converting — Swift's `Int(_:)`/`Double(_:)` reject a leading or trailing
+    /// space the interpreter and the other targets accept, silently returning `none`
+    /// for input a column-aligned file or a paste routinely has (#41).
+    uses_lux_parse: bool,
     /// Integer `/` and `%` route through guard helpers that report a lux error on a
     /// zero divisor and exit 1, so a learner meets `division by zero` rather than
     /// Swift's illegal-instruction trap and register dump (#34). Emitted only when
@@ -87,6 +92,7 @@ pub fn to_swift(program: &[Stmt]) -> String {
         uses_lux_show: false,
         uses_lux_float: false,
         uses_lux_int: false,
+        uses_lux_parse: false,
         uses_lux_div: false,
         uses_lux_mod: false,
         uses_lux_bounds: false,
@@ -224,6 +230,19 @@ impl Gen {
                  }\n\n",
             );
         }
+        if self.uses_lux_parse {
+            // Trim surrounding whitespace before a parse, matching Rust's `.trim()`
+            // and Go's `strings.TrimSpace`; `Character.isWhitespace` is stdlib, so no
+            // Foundation is pulled in for a program that only parses numbers.
+            head.push_str(
+                "func luxTrim(_ s: String) -> Substring {\n\
+                 \tvar t = Substring(s)\n\
+                 \twhile let c = t.first, c.isWhitespace { t = t.dropFirst() }\n\
+                 \twhile let c = t.last, c.isWhitespace { t = t.dropLast() }\n\
+                 \treturn t\n\
+                 }\n\n",
+            );
+        }
         if self.uses_lux_show {
             // The protocol name steps aside from any user type of the same name, so
             // the prelude and a `struct LuxShow` can't collide (#37).
@@ -298,6 +317,11 @@ impl Gen {
             head.push_str(
                 "func eprint(_ items: Any...) {\n\
                  \tlet line = items.map { \"\\($0)\" }.joined(separator: \" \")\n\
+                 \t// Flush stdout first, so a warning lands after the output it follows\n\
+                 \t// rather than jumping ahead of it when both streams are piped into\n\
+                 \t// one — Swift block-buffers stdout off a terminal but writes stderr\n\
+                 \t// through, so without this the warnings pile up at the top (#51).\n\
+                 \tfflush(stdout)\n\
                  \tFileHandle.standardError.write(Data((line + \"\\n\").utf8))\n\
                  }\n\n",
             );
@@ -1134,12 +1158,14 @@ impl Gen {
             // Int(String) / Double(String) are failable, yielding the Optional
             // that is lux's Option here.
             "parseInt" => {
+                self.uses_lux_parse = true;
                 let e = self.emit_expr(&args[0]);
-                format!("Int({})", e)
+                format!("Int(luxTrim({}))", e)
             }
             "parseFloat" => {
+                self.uses_lux_parse = true;
                 let e = self.emit_expr(&args[0]);
-                format!("Double({})", e)
+                format!("Double(luxTrim({}))", e)
             }
             "length" => {
                 let arg = &args[0];
