@@ -724,8 +724,8 @@ the start, the top level is only your definitions; the work moves inside.
 <!-- more -->
 You never needed `main` to write lux, and you still don't: the file-is-the-program
 style is the honest, everyday one, and this whole page was written in it. `main`
-is a travel adapter, not a promotion. Rust and Go require the `main` you just
-learned:
+is the one thing Rust and Go ask for that lux doesn't — a named place to start —
+so this lesson is really theirs:
 
 ```rust
 // Rust
@@ -741,7 +741,7 @@ func main() {
 }
 ```
 
-Swift is the surprise. Like lux, it lets the file be the program, so its
+Swift isn't on that list. Like lux, Swift lets the file be the program, so its
 hello-world needs no `main` at all:
 
 ```swift
@@ -749,10 +749,10 @@ hello-world needs no `main` at all:
 print("Hello, world!")
 ```
 
-So Swift is lux's closest cousin here, not its opposite. When you run `lux convert
-swift` on a program that has a `main`, lux writes it as a function and calls it, to
-keep the shape you wrote in plain sight — but a Swift programmer would more often
-just let the file be the program, the way you did to begin with.
+That is not a smaller `main` — it is the same file-is-the-program model you have
+used since your first line. So Swift is lux's closest cousin: your everyday lux
+already converts to idiomatic Swift, with no `main` to add. `main` is the bridge
+to Rust and Go; to Swift, you were already across.
 
 None of that is a mystery now. `fn` and `func` you know; `main` is the start, the
 thing lux just taught you; the print call is the print call. Even the line of
@@ -840,8 +840,22 @@ The sections below are notes on lux itself, not part of `lux learn`.
 
 ### Scope
 
-The teaching surface above is the whole language. The interpreter grew toward
-it in milestones, simplest first:
+The teaching surface above is the whole language, and it ends where it does on
+purpose. lux includes only what reconciles across the targets — `let`, `for`,
+`func`, `match`, `Option` all mean the same thing in Rust, Go, and Swift, so lux
+can teach each once and honestly say "you already know this." `main` (milestone 14)
+is the first idea that *looks* shared — every language has an entry point — but
+doesn't reconcile: Rust and Go run a function named `main`, Swift runs the file.
+That irreconcilable difference is the language's edge, not a gap in it. So `main`
+is both the right last feature (the bridge, the first place the shapes part) and
+the terminus: one step further — Swift's `@main`, Rust's ownership, Go's
+goroutines — and lux would have to model one language's private dialect and lie
+about the others. Everything past `main` is per-language, and belongs in the
+transition guides, never in lux. (This is the language-shape axis; the stdlib
+conveniences lux withholds so learners pull them out themselves — a map type,
+string split, imports — are a separate, deliberate story.)
+
+The interpreter grew toward that surface in milestones, simplest first:
 
 1. **`lux run` core** — `print`, `let`/`var`, the four basic types, arithmetic,
    strings, `if`/`else`, `while`.
@@ -931,6 +945,22 @@ the kind worth meeting head-on instead of hiding.
   argument, a return. The only place left with nothing to infer from is a truly
   standalone `[]`, like `print([])`, which emits `[]any{}`: it compiles and prints
   the same empty list, just with the loosest element type.
+- **Swift has no entry-point `main`, so a user `func main` is emitted as an
+  ordinary function and called.** Swift's entry point is top-level code (in the
+  single file `swiftc` compiles) or a `@main` type — a bare `func main` is just a
+  function it never runs, verified. So a lux program with a top-level `main`
+  converts to Swift as `func main() { ... }` plus one top-level `main()` call: valid,
+  runs, and compiles under a plain `swiftc file.swift`. The idiomatic `@main struct`
+  was rejected on test — in a single file it needs `swiftc -parse-as-library`
+  (plain `swiftc file.swift` fails with "'main' attribute cannot be used in a module
+  that contains top-level code"), and since `lux build` is Rust-only, the learner
+  runs `swiftc` themselves, so we'd be handing them Swift that fails the obvious
+  invocation. Hoisting `main`'s body to top level instead would be idiomatic but
+  drops any early `return` (illegal at Swift's top level). The `func`-and-call form
+  is the honest one anyway: it says what is true, that Swift's `main` is a plain
+  function. This is why the `main` learn topic scopes the graduation to Rust and
+  Go — Swift, like lux, lets the file be the program, so it has no `main` step to
+  teach, and `@main` belongs in the Swift transition guide, not here.
 
 `examples/keep.lux`, the crawl world, is the program every learner is handed, so
 it must build everywhere: as of 0.14.3 it converts and compiles on all three
