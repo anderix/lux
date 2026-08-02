@@ -1720,3 +1720,50 @@ print(c)
 "#;
     assert_prints_everywhere(src, "annotsome", "some(5)\nsome(7)\nnone\n");
 }
+
+/// A read-only array parameter is passed without a per-call copy — the accessor
+/// pattern (`cols(m)` asking a grid its width every pass of a loop) that ran an
+/// order slower than it needed to (#28). A scalar-returning function can't leak
+/// its parameter's backing, so Go passes the slice as-is and Rust borrows it.
+/// Correctness has to survive the change: a callee that copies the parameter into
+/// a local and mutates the local must leave the caller's own array untouched,
+/// since lux forbids writing through a parameter and the copy happens inside.
+#[test]
+fn a_read_only_array_parameter_is_passed_without_a_copy() {
+    let src = r#"
+func width(m: [[int]]) -> int {
+    return length(m[0])
+}
+func sumWith(xs: [int]) -> int {
+    var ys = xs
+    ys[0] = 999
+    var s = 0
+    for y in ys { s += y }
+    return s
+}
+var grid = [[1, 2, 3], [4, 5, 6]]
+var row = [10, 20, 30]
+print(width(grid))
+print(sumWith(row))
+print(grid)
+print(row)
+"#;
+    // sumWith mutates its own copy of xs, so row is untouched: it sums 999+20+30.
+    assert_prints_everywhere(
+        src,
+        "roparam",
+        "3\n1049\n[[1, 2, 3], [4, 5, 6]]\n[10, 20, 30]\n",
+    );
+
+    let program = parser::parse(lexer::lex(src).expect("lex")).expect("parse");
+    let go = convert::to_go(&program);
+    assert!(
+        go.contains("width(grid)") && go.contains("sumWith(row)"),
+        "Go should pass a read-only array argument as-is, not deep-copied:\n{go}"
+    );
+    let rust = convert::to_rust(&program);
+    assert!(
+        rust.contains("fn width(m: &Vec<Vec<i64>>)") && rust.contains("width(&grid)"),
+        "Rust should borrow a read-only array parameter:\n{rust}"
+    );
+}

@@ -625,6 +625,25 @@ impl Gen {
         self.line(format!("return {}", e));
     }
 
+    /// Does calling `name` let a slice-bearing argument escape into the caller's
+    /// value, so the argument must still be deep-copied at the call site? A function
+    /// whose return type is a scalar (or Unit) hands nothing slice-backed back, so
+    /// none of its parameters can escape — and since lux forbids a callee writing
+    /// through a parameter, the argument can be passed as-is, sharing backing. That
+    /// turns the accessor-in-a-loop pattern (`cols(m)` asking a grid its width every
+    /// pass) from a per-call grid copy into no copy at all (#28). Any other return
+    /// type might carry a parameter's backing out, so its arguments keep their copy.
+    /// An unknown name is a built-in, handled on its own path.
+    fn callee_returns_scalar(&self, name: &str) -> bool {
+        match self.t.env.funcs.get(name) {
+            Some((_, ret)) => {
+                let rt = ret.as_ref().map(ty_from_ann).unwrap_or(Ty::Unit);
+                rt.is_scalar() || rt == Ty::Unit
+            }
+            None => false,
+        }
+    }
+
     /// Does a value of this type share mutable backing in Go — i.e. hold a slice,
     /// directly or inside a struct — so that lux's value semantics need a deep copy
     /// when it flows into a new place? An array is a slice; a struct needs a copy if
@@ -1588,10 +1607,15 @@ impl Gen {
                     .funcs
                     .get(name)
                     .map(|(ps, _)| ps.iter().map(|p| ty_from_ann(&p.ty)).collect());
+                // A scalar-returning callee can't leak an argument's backing, so its
+                // place arguments pass without a copy — still typed, so an empty array
+                // literal keeps its element type (#28).
+                let readonly = self.callee_returns_scalar(name);
                 let parts: Vec<String> = args
                     .iter()
                     .enumerate()
                     .map(|(i, a)| match &param_tys {
+                        Some(ts) if i < ts.len() && readonly => self.emit_expr_typed(a, &ts[i]),
                         Some(ts) if i < ts.len() => self.emit_copied(a, &ts[i]),
                         _ => self.emit_expr(a),
                     })

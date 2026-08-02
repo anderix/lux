@@ -41,6 +41,12 @@ struct Gen {
     /// `Shape.circle(radius: 5)` — rather than Rust's `{:?}` (`P { x: 1, y: 2 }`,
     /// `Circle(5)`). Emitted only when the program prints a compound value.
     uses_lux_show: bool,
+    /// The current function's array parameters emitted as `&Vec<…>` rather than by
+    /// value — a read-only borrow, so a caller passing a grid to an accessor doesn't
+    /// clone it every call (#28). Only functions that return a scalar qualify, since
+    /// nothing slice-backed can then escape the callee, and lux already forbids
+    /// writing through a parameter. Set on entry to such a function, cleared on exit.
+    ref_params: std::collections::HashSet<String>,
 }
 
 /// Reading one line, returning `None` at end of input — the helper `readLine()`
@@ -105,6 +111,7 @@ pub fn to_rust(program: &[Stmt]) -> String {
         boxed: Vec::new(),
         mutated: mutated_roots(program),
         uses_lux_show: false,
+        ref_params: std::collections::HashSet::new(),
     };
 
     for stmt in program {
@@ -402,15 +409,64 @@ impl Gen {
         self.blank();
     }
 
+    /// Does calling `name` return a scalar (or nothing)? Such a function can't hand
+    /// any slice-backing back to its caller, so its array parameters are read-only
+    /// borrows — see `param_is_ref` and `ref_params`. An unknown name is a built-in,
+    /// which takes its arguments by value on its own path.
+    fn returns_scalar(&self, name: &str) -> bool {
+        match self.t.env.funcs.get(name) {
+            Some((_, ret)) => {
+                let rt = ret.as_ref().map(ty_from_ann).unwrap_or(Ty::Unit);
+                rt.is_scalar() || rt == Ty::Unit
+            }
+            None => false,
+        }
+    }
+
+    /// Is the `idx`-th parameter of `callee` emitted as a borrow? Only an array
+    /// parameter of a scalar-returning function is: arrays are the values whose
+    /// per-call clone actually hurts (a grid asked its size inside a loop, #28), and
+    /// they read through a borrow cleanly — indexing, `len`, iteration, printing all
+    /// auto-deref — where a matched enum or a string would need more care.
+    fn param_is_ref(&self, callee: &str, idx: usize) -> bool {
+        if !self.returns_scalar(callee) {
+            return false;
+        }
+        self.t
+            .env
+            .funcs
+            .get(callee)
+            .and_then(|(ps, _)| ps.get(idx))
+            .is_some_and(|p| matches!(ty_from_ann(&p.ty), Ty::Array(_)))
+    }
+
     fn emit_func(&mut self, name: &str, params: &[Param], ret: Option<&TypeAnn>, body: &[Stmt]) {
+        // An array parameter of a scalar-returning function is borrowed, not owned,
+        // so a caller never clones it to pass it. Note which ones for the length of
+        // this function, so a read of one derefs where it needs an owned value.
+        let by_ref = ret
+            .map(ty_from_ann)
+            .map(|rt| rt.is_scalar() || rt == Ty::Unit)
+            .unwrap_or(true);
+        let this_refs: std::collections::HashSet<String> = params
+            .iter()
+            .filter(|p| by_ref && matches!(ty_from_ann(&p.ty), Ty::Array(_)))
+            .map(|p| rust_ident(&to_snake(&p.name)))
+            .collect();
+        // Restore on exit, so a nested function or the top-level `main` doesn't
+        // inherit this function's borrowed names.
+        let saved_refs = std::mem::replace(&mut self.ref_params, this_refs);
         let ps: Vec<String> = params
             .iter()
             .map(|p| {
-                format!(
-                    "{}: {}",
-                    rust_ident(&to_snake(&p.name)),
-                    ty_text(&ty_from_ann(&p.ty))
-                )
+                let pty = ty_from_ann(&p.ty);
+                let ident = rust_ident(&to_snake(&p.name));
+                let text = ty_text(&pty);
+                if self.ref_params.contains(&ident) {
+                    format!("{}: &{}", ident, text)
+                } else {
+                    format!("{}: {}", ident, text)
+                }
             })
             .collect();
         let r = ret
@@ -431,6 +487,7 @@ impl Gen {
             self.emit_stmt(stmt);
         }
         self.t.pop_scope();
+        self.ref_params = saved_refs;
         self.indent -= 1;
         self.line("}".into());
         self.blank();
@@ -629,6 +686,13 @@ impl Gen {
             Ty::Range => (self.emit_expr(iter), Ty::Int),
             Ty::Array(t) => {
                 let base = self.emit_expr(iter);
+                // A borrowed array parameter derefs before the clone, or `.clone()`
+                // clones the `&Vec` rather than the array it points at.
+                let base = if matches!(iter, Expr::Ident(..)) && self.ref_params.contains(&base) {
+                    format!("(*{})", base)
+                } else {
+                    base
+                };
                 // Iterate a clone, so the loop walks a snapshot of the row as it
                 // was when the loop began — and the borrow is released, letting the
                 // body add to or assign into the original. `.iter().cloned()` would
@@ -816,7 +880,17 @@ impl Gen {
     fn emit_moved(&mut self, a: &Expr) -> String {
         let clone = !is_copy(&self.t.type_of(a)) && is_place(a, &self.t);
         let s = self.emit_expr(a);
-        if clone { format!("{}.clone()", s) } else { s }
+        if clone {
+            // A borrowed array parameter is a `&Vec<…>`; an owned copy has to deref
+            // it first, or `.clone()` would clone the reference and leave a `&Vec`.
+            if matches!(a, Expr::Ident(..)) && self.ref_params.contains(&s) {
+                format!("(*{}).clone()", s)
+            } else {
+                format!("{}.clone()", s)
+            }
+        } else {
+            s
+        }
     }
 
     /// An argument in `print` or string concatenation, where a bare string
@@ -981,7 +1055,27 @@ impl Gen {
                 format!("Err({})", e)
             }
             _ => {
-                let parts: Vec<String> = args.iter().map(|a| self.emit_moved(a)).collect();
+                let parts: Vec<String> = args
+                    .iter()
+                    .enumerate()
+                    .map(|(i, a)| {
+                        // An array parameter of a scalar-returning callee is borrowed,
+                        // so pass a reference and skip the clone. A borrowed array
+                        // parameter is already a `&Vec`, so it passes straight through;
+                        // any other array value is borrowed with `&`. Every other slot
+                        // takes an owned value, cloning a place as before.
+                        if self.param_is_ref(name, i) {
+                            let s = self.emit_expr(a);
+                            if matches!(a, Expr::Ident(..)) && self.ref_params.contains(&s) {
+                                s
+                            } else {
+                                format!("&{}", s)
+                            }
+                        } else {
+                            self.emit_moved(a)
+                        }
+                    })
+                    .collect();
                 format!("{}({})", rust_ident(&to_snake(name)), parts.join(", "))
             }
         }
