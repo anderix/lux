@@ -1,0 +1,159 @@
+// logic — two kinds of expression that contain each other.
+//
+//   lux run logic.lux
+//
+// `expr` in this directory evaluates arithmetic, and one enum was enough for it
+// because every part of an arithmetic tree is another arithmetic tree. Add a
+// condition and that stops being true: a number can depend on a test — "the larger
+// of these two" — and a test compares numbers. Neither type can be described
+// without the other.
+//
+// That is mutual recursion at the type level, and it is not an exotic case. It is
+// what every real language's syntax tree looks like the moment it grows past a
+// single kind of node, and a learner writing a calculator that can branch arrives
+// at it without being told.
+//
+// The two `match` functions below are mutually recursive in the same way, because
+// the shape of the code follows the shape of the data. That correspondence is most
+// of the argument for enums.
+
+enum Num {
+    lit(v: int)
+    add(left: Num, right: Num)
+    sub(left: Num, right: Num)
+    mul(left: Num, right: Num)
+    pick(test: Cond, yes: Num, no: Num)
+}
+
+enum Cond {
+    less(left: Num, right: Num)
+    same(left: Num, right: Num)
+    both(left: Cond, right: Cond)
+    either(left: Cond, right: Cond)
+    opposite(inner: Cond)
+}
+
+// Evaluating a number can need a condition answered first — the `pick` case — and
+// evaluating a condition needs numbers. The two functions call each other exactly
+// where the two types name each other.
+func value(n: Num) -> int {
+    return match n {
+        lit(let v) => v
+        add(let l, let r) => value(l) + value(r)
+        sub(let l, let r) => value(l) - value(r)
+        mul(let l, let r) => value(l) * value(r)
+        pick(let test, let yes, let no) => choose(holds(test), value(yes), value(no))
+    }
+}
+
+// lux has no ternary, and a `match` arm is a value rather than a block, so the
+// choice is a two-line function. Both sides are evaluated before the pick, which
+// is worth knowing and is why this is written out rather than hidden.
+func choose(test: bool, yes: int, no: int) -> int {
+    if test {
+        return yes
+    }
+    return no
+}
+
+func holds(c: Cond) -> bool {
+    return match c {
+        less(let l, let r) => value(l) < value(r)
+        same(let l, let r) => value(l) == value(r)
+        both(let l, let r) => holds(l) && holds(r)
+        either(let l, let r) => holds(l) || holds(r)
+        opposite(let inner) => holds(inner) == false
+    }
+}
+
+// Printing crosses between the two types the same way evaluating does.
+func showNum(n: Num) -> string {
+    return match n {
+        lit(let v) => string(v)
+        add(let l, let r) => "(" + showNum(l) + " + " + showNum(r) + ")"
+        sub(let l, let r) => "(" + showNum(l) + " - " + showNum(r) + ")"
+        mul(let l, let r) => "(" + showNum(l) + " * " + showNum(r) + ")"
+        pick(let test, let yes, let no) => "(if " + showCond(test) + " then " + showNum(yes) + " else " + showNum(no) + ")"
+    }
+}
+
+func showCond(c: Cond) -> string {
+    return match c {
+        less(let l, let r) => showNum(l) + " < " + showNum(r)
+        same(let l, let r) => showNum(l) + " = " + showNum(r)
+        both(let l, let r) => "(" + showCond(l) + " and " + showCond(r) + ")"
+        either(let l, let r) => "(" + showCond(l) + " or " + showCond(r) + ")"
+        opposite(let inner) => "not " + showCond(inner)
+    }
+}
+
+// How deep the tree goes, counting through both types.
+func depth(n: Num) -> int {
+    return match n {
+        lit(let v) => 1
+        add(let l, let r) => 1 + deeper(depth(l), depth(r))
+        sub(let l, let r) => 1 + deeper(depth(l), depth(r))
+        mul(let l, let r) => 1 + deeper(depth(l), depth(r))
+        pick(let test, let yes, let no) => 1 + deeper(condDepth(test), deeper(depth(yes), depth(no)))
+    }
+}
+
+func condDepth(c: Cond) -> int {
+    return match c {
+        less(let l, let r) => 1 + deeper(depth(l), depth(r))
+        same(let l, let r) => 1 + deeper(depth(l), depth(r))
+        both(let l, let r) => 1 + deeper(condDepth(l), condDepth(r))
+        either(let l, let r) => 1 + deeper(condDepth(l), condDepth(r))
+        opposite(let inner) => 1 + condDepth(inner)
+    }
+}
+
+func deeper(a: int, b: int) -> int {
+    if a > b {
+        return a
+    }
+    return b
+}
+
+func report(label: string, n: Num) {
+    print(label)
+    print("  reads as", showNum(n))
+    print("  value   ", value(n))
+    print("  depth   ", depth(n))
+}
+
+let two = Num.lit(v: 2)
+let seven = Num.lit(v: 7)
+
+report("plain arithmetic:", Num.mul(left: Num.add(left: two, right: seven), right: Num.lit(v: 3)))
+print("")
+
+// The larger of two numbers, which is the smallest thing that needs both types.
+let larger = Num.pick(test: Cond.less(left: two, right: seven), yes: seven, no: two)
+report("the larger of 2 and 7:", larger)
+print("")
+
+// A condition built from conditions, and a number built from the result.
+let inRange = Cond.both(left: Cond.less(left: two, right: seven), right: Cond.opposite(inner: Cond.same(left: two, right: seven)))
+report("2 < 7 and 2 is not 7:", Num.pick(test: inRange, yes: Num.lit(v: 1), no: Num.lit(v: 0)))
+print("")
+
+// The two types alternating all the way down: a pick whose test compares a pick.
+let nested = Num.pick(
+    test: Cond.less(left: larger, right: Num.mul(left: seven, right: two)),
+    yes: Num.add(left: larger, right: Num.lit(v: 100)),
+    no: Num.sub(left: larger, right: Num.lit(v: 100))
+)
+report("a test that contains a pick:", nested)
+print("")
+
+// Printed as the structure it is, rather than through `showNum` — the nesting of
+// the two types made visible, and identical on all four implementations.
+print("as a value:")
+print(larger)
+print("")
+print("conditions on their own:")
+print(inRange)
+print("does it hold?", holds(inRange))
+print(Cond.either(left: Cond.same(left: two, right: two), right: Cond.less(left: seven, right: two)))
+print("does it hold?", holds(Cond.either(left: Cond.same(left: two, right: two), right: Cond.less(left: seven, right: two))))

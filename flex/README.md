@@ -74,6 +74,16 @@ first real exercise of `[[T]]` across the four implementations.
 | `queens` | backtracking, where value semantics remove the undo step and its classic bug |
 | `maze` | breadth-first search, a queue that never discards, and a room the eye reads wrong |
 
+**The other shapes.** An array holds more of the same thing. These are the three ways
+lux holds something else: a number that isn't whole, a record whose parts aren't
+alike, and a pair of types that can't be described apart.
+
+| program | what it shows |
+|---|---|
+| `stats` | `int` and `float` refusing to mix, and why `total / count` is the wrong average |
+| `points` | structs — a row of them, and one holding a row — plus distances kept squared so they stay whole |
+| `logic` | two enums that contain each other, which is what a syntax tree becomes past one node type |
+
 **Programs that do work.** Small filters that run in a pipe, exercising `args`,
 `readLine`, stdout and stderr as separate channels, and the two different ways a
 line can come back empty.
@@ -121,7 +131,9 @@ are no globals to reach up for, which is why `roman` keeps its tables inside the
 function that walks them. There is no `break`, so a loop keeps its own answer to
 "am I done?", which is a fair description of what `break` does anywhere. `+=` on an
 array adds one element rather than joining two, so `bst` carries a four-line
-`joinRows` to stitch a walk back together.
+`joinRows` to stitch a walk back together. A float literal has no exponent form —
+`1.0e10` doesn't parse — which `stats` never needs but is worth knowing before you
+reach for it.
 
 ## What this found
 
@@ -169,25 +181,52 @@ Rust and an `indirect` on Swift that neither got
 interpreter's stack aborted the process instead of reporting a lux error
 ([#16](https://github.com/anderix/lux/issues/16)).
 
-Two of what is open now sit where that second fix landed. The interpreter stops
-runaway recursion at a fixed depth, but it cannot tell a runaway from a program that
-simply goes deep, so a correct function that recurses past the ceiling is told it
-"kept calling without stopping" — every clause of which is false for that program,
-and all three compiled targets run it
-([#26](https://github.com/anderix/lux/issues/26)). And the guard itself is
-interpreter-only, so genuine infinite recursion behaves four different ways: a lux
-error under `lux run`, a silent hang on Rust and Swift, which optimize the self-call
-into a loop, and a gigabyte of stack followed by a runtime dump on Go
-([#27](https://github.com/anderix/lux/issues/27)). That second one is the graduation
-moment at its least forgiving — a program that told you what was wrong when you ran
-it just stops saying anything once you build it.
+What is open now sorts into three kinds, and the first kind is the one worth an
+evaluator's attention.
 
-The third is the sequel to the cubic walk, and it came the same way, from reading
-emitted code rather than running it. Hoisting the loop bound moved the copy but did
-not remove it, and a grid handed to an accessor inside an inner loop is still
-deep-copied every time round. Swift is the one implementation that doesn't pay:
-its arrays are copy-on-write, so a parameter nobody writes to is never copied, and on
-identical source at n=800 it comes in two hundred times faster than Rust
+**The good errors stop at the compiler.** lux's best argument is that it explains
+what went wrong in words a thirteen-year-old can act on. That argument currently ends
+at `lux build`. `lux convert` and `lux build` run *none* of the checks `lux run` runs
+— not the immutable parameter, not the stored `Result`, not the non-exhaustive
+`match`, not even an undefined variable — so a broken program is translated without
+complaint and the learner meets rustc instead, pointed at a generated file in `/tmp`
+and advised to write `mut xs: Vec<i64>`, which is precisely what lux forbids
+([#29](https://github.com/anderix/lux/issues/29)). The runtime half is the same
+story: dividing by zero is `error: division by zero` with a caret under the
+expression when you run it, and an illegal-instruction register dump on Swift when
+you build it ([#34](https://github.com/anderix/lux/issues/34)); runaway recursion is a
+lux error interpreted, a silent hang on Rust and Swift, and a gigabyte of stack on Go
+([#27](https://github.com/anderix/lux/issues/27)). Integer overflow adds a twist —
+`lux run` wraps silently and `lux build` halts, because `lux build` compiles without
+`-O` and Rust's debug profile checks overflow, so the two disagree on the same source
+([#35](https://github.com/anderix/lux/issues/35)). And the depth guard that made
+runaway recursion reportable cannot tell a runaway from a program that simply goes
+deep, so a correct function past the ceiling is told it "kept calling without
+stopping" while all three targets run it and print the answer
+([#26](https://github.com/anderix/lux/issues/26)).
+
+Taken one at a time these read as five unrelated bugs. Together they say something
+sharper: the graduation moment is exactly where lux's teaching stops working, and it
+stops hardest for the rules lux is proudest of, because immutable parameters and
+exhaustive matches are the ones no target language can describe.
+
+**Four backend gaps a correct program walks into.** A struct named in an array literal
+is moved rather than cloned on Rust, so assembling a shape out of named corners spends
+the corners ([#30](https://github.com/anderix/lux/issues/30)). A whole float prints
+without its decimal point on Go, so `88.0` reads as `88` in the one language that
+makes you convert between the two on purpose
+([#31](https://github.com/anderix/lux/issues/31)). `int()` of a float *literal* emits
+Go that doesn't compile ([#32](https://github.com/anderix/lux/issues/32)). And an
+annotated binding to `some(...)` loses its annotation on Swift, which is why nothing
+here caught it — the corpus had never written down an Option that starts out present
+([#33](https://github.com/anderix/lux/issues/33)).
+
+**One about cost.** The sequel to the cubic walk, and it came from reading emitted
+code rather than running it. Hoisting the loop bound moved the copy but did not remove
+it, and a grid handed to an accessor inside an inner loop is still deep-copied every
+time round. Swift is the one implementation that doesn't pay: its arrays are
+copy-on-write, so a parameter nobody writes to is never copied, and on identical
+source at n=800 it comes in two hundred times faster than Rust
 ([#28](https://github.com/anderix/lux/issues/28)). What makes that a defect rather
 than a tradeoff is that lux refuses to compile a write through a parameter at all —
 `a parameter never changes` — so the copy is guarding against a program nobody is

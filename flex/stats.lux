@@ -1,0 +1,161 @@
+// stats — the numbers everyone asks of a row of numbers.
+//
+//   lux run stats.lux
+//
+// Mean, median, range, and spread. It is here because it is the first program a
+// first course writes that cannot be done in whole numbers, and lux will not let
+// you pretend otherwise: `int` and `float` don't mix, so every crossing between
+// them is a `float(...)` you had to type on purpose.
+//
+// That refusal is the lesson. `sum / count` on two ints is integer division, and
+// it silently answers 3 where the truth is 3.5 — the classic wrong average, and
+// the reason the first block below prints both.
+//
+// There is no `sqrt` built-in, so the standard deviation ends with Newton's
+// method: guess, average the guess with what it divides into, repeat. It converges
+// in a handful of passes and it is worth watching, so it prints its own steps.
+
+func total(xs: [int]) -> int {
+    var sum = 0
+    for x in xs {
+        sum += x
+    }
+    return sum
+}
+
+func mean(xs: [int]) -> float {
+    return float(total(xs)) / float(length(xs))
+}
+
+func smallest(xs: [int]) -> int {
+    var lo = xs[0]
+    for x in xs {
+        if x < lo {
+            lo = x
+        }
+    }
+    return lo
+}
+
+func largest(xs: [int]) -> int {
+    var hi = xs[0]
+    for x in xs {
+        if x > hi {
+            hi = x
+        }
+    }
+    return hi
+}
+
+// Insertion sort, because the median needs order and the row is short. The
+// parameter is copied into a local first, so the caller's row is untouched — the
+// same shape every sort in this directory has.
+func sorted(input: [int]) -> [int] {
+    var xs = input
+    for i in 1..length(xs) {
+        var j = i
+        while j > 0 && xs[j - 1] > xs[j] {
+            let hold = xs[j - 1]
+            xs[j - 1] = xs[j]
+            xs[j] = hold
+            j -= 1
+        }
+    }
+    return xs
+}
+
+// An even-length row has no middle element, so the median is the average of the
+// two that straddle the middle — which is a float even when both are whole.
+func median(xs: [int]) -> float {
+    let row = sorted(xs)
+    let n = length(row)
+    let mid = n / 2
+    if n % 2 == 1 {
+        return float(row[mid])
+    }
+    return float(row[mid - 1] + row[mid]) / 2.0
+}
+
+func absolute(x: float) -> float {
+    if x < 0.0 {
+        return 0.0 - x
+    }
+    return x
+}
+
+// Newton's method for a square root. Each pass replaces the guess with the average
+// of the guess and s/guess: if the guess is too low, s/guess is too high, and the
+// truth is somewhere between. The two close on it from both sides.
+func root(s: float, trace: bool) -> float {
+    if s == 0.0 {
+        return 0.0
+    }
+    var guess = s
+    var settled = false
+    while settled == false {
+        let next = (guess + s / guess) / 2.0
+        if absolute(next - guess) < 0.0000001 {
+            settled = true
+        }
+        guess = next
+        if trace {
+            print("    guess", guess)
+        }
+    }
+    return guess
+}
+
+// Spread measured as the average squared distance from the mean. Squaring is what
+// keeps a value below the mean from cancelling one above it.
+func variance(xs: [int]) -> float {
+    let m = mean(xs)
+    var sum = 0.0
+    for x in xs {
+        let gap = float(x) - m
+        sum += gap * gap
+    }
+    return sum / float(length(xs))
+}
+
+let scores = [88, 92, 79, 95, 61, 88, 74, 100, 83, 88]
+
+print("scores      ", scores)
+print("sorted      ", sorted(scores))
+print("count       ", length(scores))
+print("total       ", total(scores))
+print("")
+
+// The whole point of the type rule, side by side.
+print("total / count in whole numbers:", total(scores) / length(scores))
+print("total / count as a real average:", mean(scores))
+print("")
+
+print("smallest    ", smallest(scores))
+print("largest     ", largest(scores))
+print("range       ", largest(scores) - smallest(scores))
+print("median      ", median(scores))
+print("variance    ", variance(scores))
+print("")
+
+print("standard deviation, converging:")
+print("  from a first guess of", variance(scores))
+let spread = root(variance(scores), true)
+print("  settled at", spread)
+print("")
+
+// An even-length row, so the median lands between two values rather than on one.
+let pair = [10, 20, 30, 41]
+print("even-length row  ", pair)
+print("its median       ", median(pair))
+print("its mean         ", mean(pair))
+print("")
+
+// A row of one is the smallest thing that still has every statistic, and none of
+// them need a special case to answer.
+let single = [7]
+print("a single value   ", single)
+print("mean             ", mean(single))
+print("median           ", median(single))
+print("variance         ", variance(single))
+print("root of 0        ", root(0.0, false))
+print("root of 2        ", root(2.0, false))

@@ -1,0 +1,144 @@
+// points — a bag of points, and the questions you ask a bag of points.
+//
+//   lux run points.lux
+//
+// A struct is the other way to hold more than one thing, and it earns its keep
+// exactly where an array stops: an array says "more of the same", a struct says
+// "these belong together and they aren't alike". A point is two ints that would be
+// meaningless apart, which is the smallest honest case for one.
+//
+// The corpus already holds arrays of arrays. This is arrays of structs, and structs
+// holding arrays, which is the other half of how data actually nests.
+//
+// Distances here are kept squared and never rooted. That isn't a workaround for the
+// missing `sqrt` — it is what you should do anyway, because comparing a² to b² gives
+// the same answer as comparing a to b, and it stays in whole numbers.
+
+struct Point {
+    x: int
+    y: int
+}
+
+struct Bounds {
+    lo: Point
+    hi: Point
+}
+
+struct Shape {
+    name: string
+    corners: [Point]
+}
+
+func squaredGap(a: Point, b: Point) -> int {
+    let dx = a.x - b.x
+    let dy = a.y - b.y
+    return dx * dx + dy * dy
+}
+
+// The box that just contains everything. Starting from the first point rather than
+// from zero is what makes it correct for points that are all negative.
+func bounds(ps: [Point]) -> Bounds {
+    var loX = ps[0].x
+    var loY = ps[0].y
+    var hiX = ps[0].x
+    var hiY = ps[0].y
+    for p in ps {
+        if p.x < loX {
+            loX = p.x
+        }
+        if p.y < loY {
+            loY = p.y
+        }
+        if p.x > hiX {
+            hiX = p.x
+        }
+        if p.y > hiY {
+            hiY = p.y
+        }
+    }
+    return Bounds(lo: Point(x: loX, y: loY), hi: Point(x: hiX, y: hiY))
+}
+
+// The average of the corners, which is a float even when every corner is whole.
+func centre(ps: [Point]) -> [float] {
+    var sumX = 0
+    var sumY = 0
+    for p in ps {
+        sumX += p.x
+        sumY += p.y
+    }
+    let n = float(length(ps))
+    return [float(sumX) / n, float(sumY) / n]
+}
+
+// Every pair compared once, by keeping the second index ahead of the first.
+func closestGap(ps: [Point]) -> int {
+    var best = squaredGap(ps[0], ps[1])
+    for i in 0..length(ps) {
+        for j in (i + 1)..length(ps) {
+            let gap = squaredGap(ps[i], ps[j])
+            if gap < best {
+                best = gap
+            }
+        }
+    }
+    return best
+}
+
+func perimeterSquared(s: Shape) -> [int] {
+    var out: [int] = []
+    let n = length(s.corners)
+    for i in 0..n {
+        let here = s.corners[i]
+        let next = s.corners[(i + 1) % n]
+        out += squaredGap(here, next)
+    }
+    return out
+}
+
+// Named corners, then a shape built out of them. The names are the point of writing
+// it this way — `origin` and `far` mean something that `Point(x: 0, y: 0)` doesn't,
+// and both are still readable afterwards because naming a value doesn't spend it.
+let origin = Point(x: 0, y: 0)
+let far = Point(x: 4, y: 3)
+let rect = [origin, Point(x: 4, y: 0), far, Point(x: 0, y: 3)]
+
+print("origin      ", origin)
+print("far         ", far)
+print("rectangle   ", rect)
+print("origin again", origin)
+print("")
+
+print("bounds      ", bounds(rect))
+print("centre      ", centre(rect))
+print("closest gap²", closestGap(rect))
+print("corner gaps²", perimeterSquared(Shape(name: "rect", corners: rect)))
+print("")
+
+// A struct holding an array, which is the nesting that goes the other way.
+let tri = Shape(name: "triangle", corners: [origin, Point(x: 6, y: 0), Point(x: 0, y: 8)])
+print("shape       ", tri)
+print("its bounds  ", bounds(tri.corners))
+print("its gaps²   ", perimeterSquared(tri))
+print("")
+
+// Value semantics through two levels: a copy of the shape gets its own corners, so
+// moving one of them cannot reach back into the original.
+var moved = tri
+moved.corners[1].x = 60
+print("original    ", tri.corners)
+print("copy, moved ", moved.corners)
+print("")
+
+// Points that are all negative, where a bounding box started at zero would be wrong.
+let southwest = [Point(x: 0 - 5, y: 0 - 2), Point(x: 0 - 1, y: 0 - 9), Point(x: 0 - 7, y: 0 - 4)]
+print("all negative", southwest)
+print("bounds      ", bounds(southwest))
+print("centre      ", centre(southwest))
+print("")
+
+// Two points in the same place: the gap is zero, and nothing special had to be
+// written to make that come out right.
+let twins = [far, far]
+print("twins       ", twins)
+print("their gap²  ", closestGap(twins))

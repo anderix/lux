@@ -43,10 +43,13 @@ invocation () {
     esac
 }
 
-# Go's fmt prints a whole float without the trailing .0 the other three keep.
-# No program here prints a float today, but the corpus grows and the seam is
-# real, so the normalization stays. See conformance/README.md.
-norm () { sed -E 's/([0-9])\.0([^0-9]|$)/\1\2/g'; }
+# Outputs are compared byte for byte, with nothing normalized away. There used to
+# be a rule here erasing the trailing `.0` Go drops from a whole float, written
+# defensively back when no program printed a float at all. `stats` prints several,
+# and the rule turned that divergence into a pass — so it's gone and the divergence
+# is filed instead. A harness that smooths over a difference trades a false failure
+# today for a hidden bug tomorrow, and hiding a finding is the one thing this
+# directory must not do.
 
 build () { # <target> <program>
     local target="$1" prog="$2"
@@ -75,6 +78,7 @@ PROGRAMS=(fizzbuzz fib gcd sieve collatz roman
           bubble selection mergesort quicksort
           binsearch list bst expr machine safe
           pascal matrix lcs tictactoe queens maze
+          stats points logic
           catn head wcl uniqc hist)
 
 if [ $# -gt 0 ]; then
@@ -106,11 +110,11 @@ echo
 echo "comparing behaviour"
 for prog in "${PROGRAMS[@]}"; do
     cmd="$(invocation "$prog")"
-    ref="$(eval "${cmd//BIN/lux run \"$HERE/$prog.lux\"}" 2>&1 | norm)"
+    ref="$(eval "${cmd//BIN/lux run \"$HERE/$prog.lux\"}" 2>&1)"
     for target in "${TARGETS[@]}"; do
         bin="$WORK/$prog.$target.bin"
         [ -x "$bin" ] || continue
-        out="$(eval "${cmd//BIN/$bin}" 2>&1 | norm)"
+        out="$(eval "${cmd//BIN/$bin}" 2>&1)"
         if [ "$out" = "$ref" ]; then
             printf '  MATCH   %-5s %s\n' "$target" "$prog"
             PASS=$((PASS + 1))
