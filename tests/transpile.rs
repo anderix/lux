@@ -57,8 +57,12 @@ fn assert_prints_everywhere(src: &str, tag: &str, expected: &str) {
         let rs = tmp.join(format!("lux_{tag}.rs"));
         std::fs::write(&rs, &rust).expect("write rust");
         let bin = tmp.join(format!("lux_{tag}_rs"));
+        // Compile the way `lux build` does — overflow checks off, so integer
+        // arithmetic wraps like the interpreter and the other targets (#35).
         let out = Command::new("rustc")
             .arg(&rs)
+            .arg("-C")
+            .arg("overflow-checks=off")
             .arg("-o")
             .arg(&bin)
             .output()
@@ -1783,6 +1787,8 @@ fn build_run(tag: &str, backend: &str, src: &str) -> Option<std::process::Output
             let bin = tmp.join(format!("lux_{tag}_rs"));
             let c = Command::new("rustc")
                 .arg(&rs)
+                .arg("-C")
+                .arg("overflow-checks=off")
                 .arg("-o")
                 .arg(&bin)
                 .output()
@@ -1894,5 +1900,34 @@ fn a_user_type_named_luxshow_does_not_collide_with_the_printer() {
     assert!(
         swift.contains("protocol LuxShow_") && swift.contains("struct LuxShow:"),
         "Swift should rename its protocol and keep the user's struct:\n{swift}"
+    );
+}
+
+/// Integer overflow wraps on every backend, so all four agree — where before Swift
+/// trapped, the rest wrapped, and `lux run` disagreed with `lux build` over an
+/// optimization flag nobody chose (#35). Doubling past the top of a 64-bit int
+/// wraps to the smallest, and once more to zero; the interpreter, Go (native),
+/// Rust (compiled with overflow checks off), and Swift (masking operators) all land
+/// on the same bytes. Overflow is remote for a learner, so keeping the four in step
+/// beats trapping a case they'll almost never reach.
+#[test]
+fn integer_overflow_wraps_the_same_on_every_backend() {
+    let src = r#"
+var x = 1
+var i = 0
+while i < 63 {
+    x = x * 2
+    i += 1
+}
+print(x)
+print(x * 2)
+print(x + x)
+"#;
+    assert_prints_everywhere(src, "overflow", "-9223372036854775808\n0\n0\n");
+    // Swift reaches for its masking operators rather than trapping.
+    let swift = convert::to_swift(&parser::parse(lexer::lex(src).expect("lex")).expect("parse"));
+    assert!(
+        swift.contains("x &* 2") && swift.contains("x &+ x"),
+        "Swift should use wrapping operators for integer arithmetic:\n{swift}"
     );
 }

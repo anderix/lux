@@ -2052,7 +2052,11 @@ impl Interp {
 
 fn unary(op: UnOp, v: Value, span: Span) -> Result<Value, LuxError> {
     match (op, v) {
-        (UnOp::Neg, Value::Int(n)) => Ok(Value::Int(-n)),
+        // lux ints wrap on overflow, matching the compiled targets — Go wraps, and
+        // Rust and Swift are compiled to wrap — so all four agree rather than one
+        // trapping and the rest wrapping (#35). Negating the smallest int is the one
+        // case that would overflow, so it wraps here too.
+        (UnOp::Neg, Value::Int(n)) => Ok(Value::Int(n.wrapping_neg())),
         (UnOp::Neg, Value::Float(f)) => Ok(Value::Float(-f)),
         (UnOp::Neg, other) => Err(LuxError::new(
             format!("cannot negate {}", named(other.type_name())),
@@ -2211,9 +2215,14 @@ fn append_or_add(current: Value, new: Value, span: Span) -> Result<Value, LuxErr
     }
 }
 
+// Integer arithmetic wraps on overflow, so the interpreter agrees with the compiled
+// targets — Go wraps natively, and Rust and Swift are compiled to wrap — rather than
+// one leg trapping while the rest wrap. Overflow past a 64-bit int is remote for a
+// learner, and keeping the four in step matters more than trapping a case they'll
+// almost never reach (#35). Float arithmetic is unchecked, as it is everywhere.
 fn add(a: &Value, b: &Value, span: Span) -> Result<Value, LuxError> {
     match (a, b) {
-        (Value::Int(x), Value::Int(y)) => Ok(Value::Int(x + y)),
+        (Value::Int(x), Value::Int(y)) => Ok(Value::Int(x.wrapping_add(*y))),
         (Value::Float(x), Value::Float(y)) => Ok(Value::Float(x + y)),
         (Value::Str(x), Value::Str(y)) => Ok(Value::Str(format!("{}{}", x, y))),
         _ => Err(mix_or_type_error("add", a, b, span)),
@@ -2222,7 +2231,7 @@ fn add(a: &Value, b: &Value, span: Span) -> Result<Value, LuxError> {
 
 fn sub(a: &Value, b: &Value, span: Span) -> Result<Value, LuxError> {
     match (a, b) {
-        (Value::Int(x), Value::Int(y)) => Ok(Value::Int(x - y)),
+        (Value::Int(x), Value::Int(y)) => Ok(Value::Int(x.wrapping_sub(*y))),
         (Value::Float(x), Value::Float(y)) => Ok(Value::Float(x - y)),
         _ => Err(mix_or_type_error("subtract", a, b, span)),
     }
@@ -2230,7 +2239,7 @@ fn sub(a: &Value, b: &Value, span: Span) -> Result<Value, LuxError> {
 
 fn mul(a: &Value, b: &Value, span: Span) -> Result<Value, LuxError> {
     match (a, b) {
-        (Value::Int(x), Value::Int(y)) => Ok(Value::Int(x * y)),
+        (Value::Int(x), Value::Int(y)) => Ok(Value::Int(x.wrapping_mul(*y))),
         (Value::Float(x), Value::Float(y)) => Ok(Value::Float(x * y)),
         _ => Err(mix_or_type_error("multiply", a, b, span)),
     }
@@ -2239,7 +2248,9 @@ fn mul(a: &Value, b: &Value, span: Span) -> Result<Value, LuxError> {
 fn div(a: &Value, b: &Value, span: Span) -> Result<Value, LuxError> {
     match (a, b) {
         (Value::Int(_), Value::Int(0)) => Err(LuxError::new("division by zero", span)),
-        (Value::Int(x), Value::Int(y)) => Ok(Value::Int(x / y)),
+        // `wrapping_div` so the one overflowing case — the smallest int divided by -1
+        // — wraps rather than panicking, matching the wrapping targets (#35).
+        (Value::Int(x), Value::Int(y)) => Ok(Value::Int(x.wrapping_div(*y))),
         (Value::Float(x), Value::Float(y)) => Ok(Value::Float(x / y)),
         _ => Err(mix_or_type_error("divide", a, b, span)),
     }
@@ -2248,7 +2259,7 @@ fn div(a: &Value, b: &Value, span: Span) -> Result<Value, LuxError> {
 fn modulo(a: &Value, b: &Value, span: Span) -> Result<Value, LuxError> {
     match (a, b) {
         (Value::Int(_), Value::Int(0)) => Err(LuxError::new("remainder by zero", span)),
-        (Value::Int(x), Value::Int(y)) => Ok(Value::Int(x % y)),
+        (Value::Int(x), Value::Int(y)) => Ok(Value::Int(x.wrapping_rem(*y))),
         _ => Err(LuxError::new(
             format!(
                 "% needs two ints, but got {} and {}",

@@ -748,7 +748,23 @@ impl Gen {
                     let p = bin_prec(*op);
                     let l = self.emit_child(lhs, p, false);
                     let r = self.emit_child(rhs, p, true);
-                    format!("{} {} {}", l, op_str(*op), r)
+                    // Integer +, -, * wrap on overflow, so Swift takes its masking
+                    // operators rather than trapping — matching the interpreter and
+                    // the other targets, which all wrap (#35). String and float `+`
+                    // keep the plain operator; the masking forms share the same
+                    // precedence, so nothing about parenthesising changes.
+                    let sym = if matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul)
+                        && self.t.type_of(lhs) == Ty::Int
+                    {
+                        match op {
+                            BinOp::Add => "&+",
+                            BinOp::Sub => "&-",
+                            _ => "&*",
+                        }
+                    } else {
+                        op_str(*op)
+                    };
+                    format!("{} {} {}", l, sym, r)
                 }
             }
             Expr::Index { base, index, .. } => {

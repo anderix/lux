@@ -406,8 +406,14 @@ fn build_cmd(rest: &[String]) {
         );
         exit(1);
     }
+    // Compile with overflow checks off, so integer arithmetic wraps the way `lux
+    // run` and the other targets do — otherwise a debug rustc would trap on an
+    // overflow the interpreter wraps, and `lux build` would disagree with `lux run`
+    // over an optimization flag nobody chose (#35).
     let status = Command::new("rustc")
         .arg(&rs_path)
+        .arg("-C")
+        .arg("overflow-checks=off")
         .arg("-o")
         .arg(stem)
         .status();
