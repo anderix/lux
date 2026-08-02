@@ -4,6 +4,68 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.1] - 2026-08-02
+
+A pass of the flex method — a corpus run through `lux run` and its compiled Rust,
+Go, and Swift, every byte diffed — from the far side of the map: non-ASCII text,
+the file and process built-ins, non-finite floats, and the two streams at once.
+Thirteen findings, closing the gap between what the reference implementation does
+and what the targets do. The flex corpus reaches 96/0. Plus the corrections the
+0.17.0 `main` lesson earned once its Swift claims were checked.
+
+### Fixed
+
+- **Strings count and compare by Unicode scalar on Swift.** `length` of a family
+  emoji was 1 where the interpreter, Rust, and Go all say 5, and two spellings of an
+  accented letter compared equal where the others saw two strings — Swift measured
+  graphemes and compared canonically. It now counts `unicodeScalars` and compares
+  them, matching the code-point order the others get from their bytes. `lux learn
+  strings` states the seam (#49). `length(a + b)` is parenthesised so `.count` binds
+  to the whole thing (#50).
+- **The Result rule holds where the value is produced, on every path.** A stored
+  Result was refused by `lux run` but built and printed `Ok(...)`/`success(...)`
+  anyway; a Result parameter ran interpreted, built on Rust and Swift, and emitted
+  invalid Go. Both are refused now with the interpreter's own message before anything
+  is emitted (#39, #42).
+- **I/O errors name what was attempted, the same way everywhere.** `readFile`,
+  `writeFile`, and `run` built four different failure strings; Swift's leaked
+  Objective-C vocabulary and was factually wrong on a permission denial. Every target
+  now builds `could not read/write/run <path>: <reason>`, always naming the path;
+  Swift reads and writes through POSIX to get an accurate reason (#43). A missing
+  program on Swift is now an `err`, not an `ok` with the wrapper's status 127 (#48).
+- **Floats render positionally everywhere.** Small values printed in exponent form
+  on the targets (`1e-5`), which lux can't parse back; a non-finite value printed
+  three ways (Go `+Inf`, Swift `-nan`). All render through a `luxFloat` helper
+  matching the interpreter — positional, decimal point kept, `inf`/`-inf`/`NaN`
+  normalised (#47, #52). `int()` of a non-finite saturates instead of trapping
+  (Swift) or going undefined (Go), the way the interpreter's `as i64` does (#52).
+- **The `help:` trail survives to compiled binaries.** The runtime errors 0.16.x
+  moved onto the targets kept their diagnosis but dropped the `help:` line — the part
+  that names the rule and its `lux learn` topic. It's a constant string, so the
+  bounds guard emits it again (#40).
+- **Two Go codegen gaps.** A loop that names its variable but never reads it now
+  drops to `for range xs` instead of emitting an unused-variable error (#44); a
+  nested empty array literal keeps its element type instead of degrading to `[]any`
+  (#45).
+- **Two silent-wrong-answer sleepers on Swift.** `parseInt`/`parseFloat` now trim
+  surrounding whitespace the other three accept, instead of returning `none` for a
+  number with a stray space (#41); and `eprint` flushes stdout first, so a warning
+  stays with the line it follows when the streams are merged into a pipe, rather than
+  jumping to the top (#51).
+
+### Changed
+
+- **A Result parameter is refused on `lux run` too.** Where the interpreter used to
+  accept a `Result`-typed parameter and run, it now refuses it — the same rule the
+  `let` case enforces — so `lux run` agrees with the targets rather than accepting
+  what Go can't emit (#42).
+- **The `main` lesson tells the truth about Swift.** `main` is the shape Rust, Go,
+  Java, and C require; Swift, like lux, lets the file be the program, so it has no
+  `main` step. The graduation lesson is scoped to Rust and Go, and no longer implies
+  every language requires a `main`. Also fixed a card-rendering bug that had been
+  dropping content after a topic's first code fence (the `main` card's `func main`
+  example, and `arrays`' grid example), with a test to guard it.
+
 ## [0.17.0] - 2026-08-02
 
 lux gains the one piece of ceremony the C-family languages start with — and it
