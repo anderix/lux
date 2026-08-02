@@ -38,7 +38,13 @@ fi
 # same line runs the interpreter and every compiled translation.
 invocation () {
     case "$1" in
-        head)  echo "seq 1 100 | BIN 3" ;;
+        # Run twice: a good count, then a typo'd one. The second is what a learner
+        # actually types, and until it was added `head`'s eprint — one of only two in
+        # the corpus — was unreachable in every run this harness had ever done. Note
+        # it does not cover #51: `head` warns before it prints anything, so Swift's
+        # habit of flushing all of stderr ahead of stdout happens to give the same
+        # order. Catching that needs a warning in the middle, which nothing here does.
+        head)  echo "seq 1 100 | BIN 3; seq 1 100 | BIN xyz" ;;
         catn)  echo "printf 'alpha\nbeta\ngamma\n' | BIN" ;;
         # Not all ASCII, on purpose. `wcl` counts characters, and what counts as one
         # is the thing the four implementations disagree about hardest — Swift counts
@@ -50,14 +56,24 @@ invocation () {
         # Stray spaces on purpose: real input has them, whether it came from a
         # column-aligned file, a paste, or a person typing. `parseInt` trims, so the
         # program's answer shouldn't change — and where it does, that's a finding.
-        hist)  echo "printf '3\n 9\nnope\n14 \n' | BIN" ;;
-        # The keep is walked all the way to the chamber on purpose. The file write
-        # and the ending are the parts most likely to diverge, and the walk passes
-        # through the chamber twice, so one run covers both branches of "is there a
-        # copy already?" — it writes the-secret.txt the first time and reports it
-        # saved the second. That only holds because each leg runs in a clean
-        # directory; see `rundir` below.
-        keep)  echo "printf 'north\ntake key\nopen door\nsouth\neast\ntake torch\ndown\nlook\nup\nwest\nnorth\nnorth\nlook\nquit\n' | BIN" ;;
+        # Run twice, the second with nothing numeric in it. `hist`'s "no numbers"
+        # warning and its "nothing to chart" line were unreachable in every run this
+        # harness had done — an audit of which output lines the corpus inputs actually
+        # produce turned them up as the only two left unreached anywhere.
+        hist)  echo "printf '3\n 9\nnope\n14 \n' | BIN; printf 'nope\nalso nope\n' | BIN" ;;
+        # A full tour, not a stroll. The first version of this walk read plausibly
+        # and never reached the cellar or the vault at all — four of its commands
+        # were no-ops answered with "You can't go that way", so the torch, the gold
+        # and two of the five rooms went untested while the run looked healthy.
+        #
+        # This one visits every room and takes every branch: help, an unknown
+        # command, a wall, the locked door before the key and after, taking a thing
+        # twice, opening an open door, the vault in the dark and then with the torch,
+        # and the gold twice. It also passes through the chamber twice, so one run
+        # covers both sides of "is there a copy already?" — writing the-secret.txt
+        # and then finding it. That last part only holds because each leg runs in a
+        # clean directory; see `rundir` below.
+        keep)  echo "printf 'help\ndance\nsouth\nnorth\nopen door\nnorth\ntake key\ntake key\nopen door\nopen door\neast\ndown\ntake gold\nup\ntake torch\ndown\ntake gold\ntake gold\nup\nwest\nnorth\nlook\nsouth\nquit\n' | BIN" ;;
         *)     echo "BIN" ;;
     esac
 }
