@@ -1739,15 +1739,27 @@ impl Interp {
         let func = match self.funcs.get(name) {
             Some(f) => Rc::clone(f),
             None => {
-                return Err(LuxError::new(format!("unknown function `{}`", name), span)
-                    .with_note(format!(
+                let err = LuxError::new(format!("unknown function `{}`", name), span);
+                // A near miss — a typo or a case slip like `parseint` or `readline`
+                // — is redirected to the name that was meant, which is what a stuck
+                // learner actually needs. Only when nothing is close does the note
+                // fall back to naming what exists, so someone reaching for a missing
+                // function sees the built-ins rather than concluding lux lacks it.
+                let candidates = BUILTINS
+                    .iter()
+                    .copied()
+                    .chain(self.funcs.keys().map(String::as_str));
+                let err = match nearest_name(name, candidates) {
+                    Some(near) => err.with_note(format!("did you mean `{}`?", near)),
+                    None => err.with_note(format!(
                         "define it with `func`, or use a built-in: {}",
                         BUILTINS.join(", ")
-                    ))
-                    .with_learn(
-                        "functions",
-                        "a function takes values in and hands one result back",
-                    ));
+                    )),
+                };
+                return Err(err.with_learn(
+                    "functions",
+                    "a function takes values in and hands one result back",
+                ));
             }
         };
 
@@ -2601,6 +2613,39 @@ fn call_stack_too_deep(name: &str, span: Span) -> LuxError {
         "functions",
         "recursion needs a base case, or it calls itself forever",
     )
+}
+
+/// The closest candidate name within a small edit distance of `name`, or `None`
+/// when nothing is near enough to suggest. The threshold tightens for short names,
+/// where a distance of two is more likely a coincidence than a typo — `sum` should
+/// not be "did you mean `run`?" — while a longer word like `parseint` still reaches
+/// `parseInt`.
+fn nearest_name<'a>(name: &str, candidates: impl Iterator<Item = &'a str>) -> Option<&'a str> {
+    let max = if name.chars().count() <= 4 { 1 } else { 2 };
+    candidates
+        .map(|c| (edit_distance(name, c), c))
+        .filter(|&(d, _)| d <= max)
+        .min_by_key(|&(d, _)| d)
+        .map(|(_, c)| c)
+}
+
+/// Levenshtein distance: the fewest single-character inserts, deletes, or
+/// substitutions that turn one word into the other. Two rolling rows rather than
+/// the full table, since only the previous row is ever read.
+fn edit_distance(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    let mut cur = vec![0usize; b.len() + 1];
+    for i in 1..=a.len() {
+        cur[0] = i;
+        for j in 1..=b.len() {
+            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
+            cur[j] = (prev[j] + 1).min(cur[j - 1] + 1).min(prev[j - 1] + cost);
+        }
+        std::mem::swap(&mut prev, &mut cur);
+    }
+    prev[b.len()]
 }
 
 /// The comma-separated case names of an enum, for "did you mean" notes.

@@ -153,3 +153,38 @@ fn the_unknown_function_note_lists_every_builtin() {
         );
     }
 }
+
+/// A near miss — a typo or a case slip — is redirected to the name that was meant,
+/// which is the one thing a stuck learner needs at that moment: `parseint` reaches
+/// `parseInt`, and a mistyped user function reaches its own real name. A short name
+/// that only coincidentally lands near a built-in is left to the list instead, so
+/// the suggestion never guesses at a name that isn't there.
+#[test]
+fn a_near_miss_call_suggests_the_name_meant() {
+    let err = err_of("typo", "print(parseint(\"5\"))\n");
+    assert!(
+        err.contains("did you mean `parseInt`?"),
+        "a case slip should suggest parseInt, got:\n{err}"
+    );
+
+    let err = err_of(
+        "userfn",
+        "func evalExpr(n: int) -> int {\n    return n\n}\nprint(evalexpr(5))\n",
+    );
+    assert!(
+        err.contains("did you mean `evalExpr`?"),
+        "should suggest the user's own function, got:\n{err}"
+    );
+
+    // `sum` is two edits from `run`, but too short to be a confident guess: the
+    // note should name the built-ins, not reach for one.
+    let err = err_of("shorttypo", "print(sum(1, 2))\n");
+    assert!(
+        !err.contains("did you mean"),
+        "should not guess for a short coincidental match, got:\n{err}"
+    );
+    assert!(
+        err.contains("parseInt"),
+        "should fall back to the built-in list, got:\n{err}"
+    );
+}
