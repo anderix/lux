@@ -44,6 +44,12 @@ struct Gen {
     /// array leaks the module name (`[main.P(...)]`); `luxShow` fixes both and keeps
     /// every backend rendering the same way. Emitted only when a compound is printed.
     uses_lux_show: bool,
+    /// Integer `/` and `%` route through guard helpers that report a lux error on a
+    /// zero divisor and exit 1, so a learner meets `division by zero` rather than
+    /// Swift's illegal-instruction trap and register dump (#34). Emitted only when
+    /// used, and they pull in Foundation for the stderr handle.
+    uses_lux_div: bool,
+    uses_lux_mod: bool,
 }
 
 /// Translate a whole program to Swift source text.
@@ -59,6 +65,8 @@ pub fn to_swift(program: &[Stmt]) -> String {
         uses_run: false,
         mutated: mutated_roots(program),
         uses_lux_show: false,
+        uses_lux_div: false,
+        uses_lux_mod: false,
     };
 
     for stmt in program {
@@ -144,8 +152,12 @@ impl Gen {
     /// need, the `String: Error` conformance a string-carrying `Result` needs,
     /// and the helpers themselves — to the already-emitted body.
     fn assemble(&self, program: &[Stmt]) -> String {
-        let uses_io =
-            self.uses_read_file || self.uses_write_file || self.uses_eprint || self.uses_run;
+        let uses_io = self.uses_read_file
+            || self.uses_write_file
+            || self.uses_eprint
+            || self.uses_run
+            || self.uses_lux_div
+            || self.uses_lux_mod;
         // readFile/writeFile/run all produce a `Result<_, String>`, so they pull
         // in the same conformance an annotated one would.
         let needs_error = needs_string_error(program)
@@ -253,6 +265,32 @@ impl Gen {
                  \t\tstdout: String(data: outData, encoding: .utf8) ?? \"\",\n\
                  \t\tstderr: String(data: errData, encoding: .utf8) ?? \"\"\n\
                  \t))\n\
+                 }\n\n",
+            );
+        }
+        if self.uses_lux_div {
+            // Report a zero divisor as a lux error and exit 1, rather than trapping
+            // on the illegal instruction Swift raises for `a / 0`.
+            head.push_str(
+                "func luxDiv(_ a: Int, _ b: Int) -> Int {\n\
+                 \tif b == 0 {\n\
+                 \t\tfflush(stdout)\n\
+                 \t\tFileHandle.standardError.write(Data(\"error: division by zero\\n\".utf8))\n\
+                 \t\texit(1)\n\
+                 \t}\n\
+                 \treturn a / b\n\
+                 }\n\n",
+            );
+        }
+        if self.uses_lux_mod {
+            head.push_str(
+                "func luxMod(_ a: Int, _ b: Int) -> Int {\n\
+                 \tif b == 0 {\n\
+                 \t\tfflush(stdout)\n\
+                 \t\tFileHandle.standardError.write(Data(\"error: remainder by zero\\n\".utf8))\n\
+                 \t\texit(1)\n\
+                 \t}\n\
+                 \treturn a % b\n\
                  }\n\n",
             );
         }
@@ -686,10 +724,26 @@ impl Gen {
             // Swift's `+` already concatenates strings, so string and numeric
             // `+` need no distinction here.
             Expr::Binary { op, lhs, rhs, .. } => {
-                let p = bin_prec(*op);
-                let l = self.emit_child(lhs, p, false);
-                let r = self.emit_child(rhs, p, true);
-                format!("{} {} {}", l, op_str(*op), r)
+                if matches!(op, BinOp::Div | BinOp::Mod) && self.t.type_of(lhs) == Ty::Int {
+                    // Integer `/` and `%` guard the divisor, so a zero reports a lux
+                    // error instead of trapping. Operands are call arguments, so no
+                    // precedence parens; a nested division recurses here (#34).
+                    let l = self.emit_expr(lhs);
+                    let r = self.emit_expr(rhs);
+                    let helper = if *op == BinOp::Div {
+                        self.uses_lux_div = true;
+                        "luxDiv"
+                    } else {
+                        self.uses_lux_mod = true;
+                        "luxMod"
+                    };
+                    format!("{}({}, {})", helper, l, r)
+                } else {
+                    let p = bin_prec(*op);
+                    let l = self.emit_child(lhs, p, false);
+                    let r = self.emit_child(rhs, p, true);
+                    format!("{} {} {}", l, op_str(*op), r)
+                }
             }
             Expr::Index { base, index, .. } => {
                 let b = self.emit_expr(base);

@@ -47,7 +47,35 @@ struct Gen {
     /// nothing slice-backed can then escape the callee, and lux already forbids
     /// writing through a parameter. Set on entry to such a function, cleared on exit.
     ref_params: std::collections::HashSet<String>,
+    /// Integer `/` and `%` route through guard helpers that report a lux error on a
+    /// zero divisor instead of panicking, so a learner meets `division by zero`
+    /// rather than a Rust panic trace (#34). Emitted only when used.
+    uses_lux_div: bool,
+    uses_lux_mod: bool,
 }
+
+/// Integer division and remainder that report a lux error on a zero divisor and
+/// exit 1, the way the interpreter does, rather than letting Rust panic with a
+/// backtrace about code the learner didn't write (#34).
+const LUX_DIV_HELPER: &str = "\
+fn lux_div(a: i64, b: i64) -> i64 {
+    if b == 0 {
+        eprintln!(\"error: division by zero\");
+        std::process::exit(1);
+    }
+    a / b
+}
+";
+
+const LUX_MOD_HELPER: &str = "\
+fn lux_mod(a: i64, b: i64) -> i64 {
+    if b == 0 {
+        eprintln!(\"error: remainder by zero\");
+        std::process::exit(1);
+    }
+    a % b
+}
+";
 
 /// Reading one line, returning `None` at end of input — the helper `readLine()`
 /// lowers to. Pulled out so a loop over input reads as one clean call.
@@ -112,6 +140,8 @@ pub fn to_rust(program: &[Stmt]) -> String {
         mutated: mutated_roots(program),
         uses_lux_show: false,
         ref_params: std::collections::HashSet::new(),
+        uses_lux_div: false,
+        uses_lux_mod: false,
     };
 
     for stmt in program {
@@ -153,6 +183,14 @@ pub fn to_rust(program: &[Stmt]) -> String {
     g.line("}".into());
 
     let mut preamble = String::new();
+    if g.uses_lux_div {
+        preamble.push_str(LUX_DIV_HELPER);
+        preamble.push('\n');
+    }
+    if g.uses_lux_mod {
+        preamble.push_str(LUX_MOD_HELPER);
+        preamble.push('\n');
+    }
     if g.uses_run {
         preamble.push_str(RUN_HELPER);
         preamble.push('\n');
@@ -775,6 +813,21 @@ impl Gen {
                     let l = self.display_arg(lhs);
                     let r = self.display_arg(rhs);
                     format!("format!(\"{{}}{{}}\", {}, {})", l, r)
+                } else if matches!(op, BinOp::Div | BinOp::Mod) && self.t.type_of(lhs) == Ty::Int {
+                    // Integer `/` and `%` guard the divisor, so a zero reports a lux
+                    // error instead of panicking. Operands are call arguments, so
+                    // they need no precedence parens. Nesting handles itself — a
+                    // divisor that is itself a division recurses through here (#34).
+                    let l = self.emit_expr(lhs);
+                    let r = self.emit_expr(rhs);
+                    let helper = if *op == BinOp::Div {
+                        self.uses_lux_div = true;
+                        "lux_div"
+                    } else {
+                        self.uses_lux_mod = true;
+                        "lux_mod"
+                    };
+                    format!("{}({}, {})", helper, l, r)
                 } else {
                     let p = bin_prec(*op);
                     let mut l = self.emit_child(lhs, p, false);

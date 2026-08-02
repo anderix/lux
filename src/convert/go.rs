@@ -84,6 +84,11 @@ struct Gen {
     /// literal — a Go constant that `int(...)` can't truncate at compile time —
     /// reaches the conversion as a runtime value. Emitted only when used.
     uses_lux_int: bool,
+    /// Integer `/` and `%` route through guard helpers that report a lux error on a
+    /// zero divisor and exit 1, so a learner meets `division by zero` rather than a
+    /// Go runtime panic and goroutine trace (#34). Emitted only when used.
+    uses_lux_div: bool,
+    uses_lux_mod: bool,
 }
 
 /// Translate a whole program to Go source text.
@@ -114,6 +119,8 @@ pub fn to_go(program: &[Stmt]) -> String {
         bound_id: 0,
         uses_lux_float: false,
         uses_lux_int: false,
+        uses_lux_div: false,
+        uses_lux_mod: false,
     };
 
     for stmt in program {
@@ -304,6 +311,30 @@ impl Gen {
             // constant, which `int(...)` refuses to truncate; handed in as a
             // float64 argument it's an ordinary value the conversion accepts.
             head.push_str("func luxInt(f float64) int {\n\treturn int(f)\n}\n\n");
+        }
+        if self.uses_lux_div {
+            // Report a zero divisor as a lux error and exit 1, rather than Go's
+            // runtime panic and goroutine trace.
+            head.push_str(
+                "func luxDiv(a, b int) int {\n\
+                 \tif b == 0 {\n\
+                 \t\tfmt.Fprintln(os.Stderr, \"error: division by zero\")\n\
+                 \t\tos.Exit(1)\n\
+                 \t}\n\
+                 \treturn a / b\n\
+                 }\n\n",
+            );
+        }
+        if self.uses_lux_mod {
+            head.push_str(
+                "func luxMod(a, b int) int {\n\
+                 \tif b == 0 {\n\
+                 \t\tfmt.Fprintln(os.Stderr, \"error: remainder by zero\")\n\
+                 \t\tos.Exit(1)\n\
+                 \t}\n\
+                 \treturn a % b\n\
+                 }\n\n",
+            );
         }
         if self.uses_lux_show {
             head.push_str(&self.lux_show_fn());
@@ -1270,10 +1301,28 @@ impl Gen {
             // Go's `+` already concatenates strings, so string and numeric `+`
             // need no distinction here.
             Expr::Binary { op, lhs, rhs, .. } => {
-                let p = bin_prec(*op);
-                let l = self.emit_child(lhs, p, false);
-                let r = self.emit_child(rhs, p, true);
-                format!("{} {} {}", l, op_str(*op), r)
+                if matches!(op, BinOp::Div | BinOp::Mod) && self.t.type_of(lhs) == Ty::Int {
+                    // Integer `/` and `%` guard the divisor, so a zero reports a lux
+                    // error instead of a runtime panic. Operands are call arguments,
+                    // so no precedence parens; a nested division recurses here (#34).
+                    self.uses_fmt = true;
+                    self.uses_os = true;
+                    let l = self.emit_expr(lhs);
+                    let r = self.emit_expr(rhs);
+                    let helper = if *op == BinOp::Div {
+                        self.uses_lux_div = true;
+                        "luxDiv"
+                    } else {
+                        self.uses_lux_mod = true;
+                        "luxMod"
+                    };
+                    format!("{}({}, {})", helper, l, r)
+                } else {
+                    let p = bin_prec(*op);
+                    let l = self.emit_child(lhs, p, false);
+                    let r = self.emit_child(rhs, p, true);
+                    format!("{} {} {}", l, op_str(*op), r)
+                }
             }
             Expr::Index { base, index, .. } => {
                 let b = self.emit_expr(base);

@@ -1767,3 +1767,106 @@ print(row)
         "Rust should borrow a read-only array parameter:\n{rust}"
     );
 }
+
+/// Compile `src` on one backend and run the result, handing back the process
+/// output — used where the program is meant to fail at runtime, so the streams and
+/// exit status matter rather than a clean print. Returns `None` when the toolchain
+/// isn't present. Panics if the program doesn't compile, since that's a backend
+/// bug, not the runtime behaviour under test.
+fn build_run(tag: &str, backend: &str, src: &str) -> Option<std::process::Output> {
+    let program = parser::parse(lexer::lex(src).expect("lex")).expect("parse");
+    let tmp = std::env::temp_dir();
+    match backend {
+        "rust" if tool_available("rustc", "--version") => {
+            let rs = tmp.join(format!("lux_{tag}.rs"));
+            std::fs::write(&rs, convert::to_rust(&program)).expect("write rust");
+            let bin = tmp.join(format!("lux_{tag}_rs"));
+            let c = Command::new("rustc")
+                .arg(&rs)
+                .arg("-o")
+                .arg(&bin)
+                .output()
+                .expect("rustc");
+            assert!(
+                c.status.success(),
+                "{tag}: rust compile:\n{}",
+                String::from_utf8_lossy(&c.stderr)
+            );
+            Some(Command::new(&bin).output().expect("run"))
+        }
+        "swift" if tool_available("swiftc", "--version") => {
+            let sw = tmp.join(format!("lux_{tag}.swift"));
+            std::fs::write(&sw, convert::to_swift(&program)).expect("write swift");
+            let bin = tmp.join(format!("lux_{tag}_sw"));
+            let c = Command::new("swiftc")
+                .arg(&sw)
+                .arg("-o")
+                .arg(&bin)
+                .output()
+                .expect("swiftc");
+            assert!(
+                c.status.success(),
+                "{tag}: swift compile:\n{}",
+                String::from_utf8_lossy(&c.stderr)
+            );
+            Some(Command::new(&bin).output().expect("run"))
+        }
+        "go" if tool_available("go", "version") => {
+            let dir = tmp.join(format!("lux_{tag}_go"));
+            std::fs::create_dir_all(&dir).expect("mkdir");
+            std::fs::write(dir.join("go.mod"), "module luxtest\n\ngo 1.21\n").expect("go.mod");
+            std::fs::write(dir.join("main.go"), convert::to_go(&program)).expect("write go");
+            let bin = dir.join("bin");
+            let c = Command::new("go")
+                .arg("build")
+                .arg("-o")
+                .arg(&bin)
+                .current_dir(&dir)
+                .env("GOCACHE", tmp.join("lux_go_cache"))
+                .output()
+                .expect("go build");
+            assert!(
+                c.status.success(),
+                "{tag}: go compile:\n{}",
+                String::from_utf8_lossy(&c.stderr)
+            );
+            Some(Command::new(&bin).output().expect("run"))
+        }
+        _ => None,
+    }
+}
+
+/// Dividing by zero is one of the two runtime mistakes a beginner actually makes,
+/// and after `lux build` it used to surface as the host runtime showing through —
+/// a Rust panic trace, a Go goroutine dump, a Swift register dump. Each backend now
+/// guards integer `/` and `%`, so a zero divisor reports `division by zero` and
+/// exits, the way the interpreter does, and the output printed before it survives
+/// (#34). The three targets already detected the zero; only the message was wrong.
+#[test]
+fn dividing_by_zero_reports_a_lux_error_on_every_backend() {
+    let src = "func divide(a: int, b: int) -> int {\n    return a / b\n}\nprint(\"before\")\nprint(divide(10, 0))\n";
+    for backend in ["rust", "swift", "go"] {
+        let Some(out) = build_run("divzero", backend, src) else {
+            continue;
+        };
+        assert!(
+            !out.status.success(),
+            "{backend}: dividing by zero should fail, not succeed"
+        );
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            err.contains("division by zero"),
+            "{backend}: should name the fault in lux's words, got:\n{err}"
+        );
+        assert!(
+            !err.contains("panic")
+                && !err.contains("Illegal instruction")
+                && !err.contains("goroutine"),
+            "{backend}: should not leak the host runtime's crash, got:\n{err}"
+        );
+        assert!(
+            String::from_utf8_lossy(&out.stdout).contains("before"),
+            "{backend}: output printed before the fault should survive"
+        );
+    }
+}
