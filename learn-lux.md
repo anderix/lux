@@ -140,6 +140,15 @@ but the constant across all of them is that text is data you measure, join, and
 take apart — never something the language quietly turns into a number for you,
 which is why lux makes you ask for `string(...)`.
 
+One character is a Unicode *scalar* — the numbered building block text is made
+of — and most letters are exactly one. But some things you see as a single mark
+are built from several: an accented letter typed as a letter plus a separate
+accent, a flag, a family emoji. `length` counts the pieces, so a family emoji
+measures more than one, and two spellings of the same-looking letter are two
+different strings that won't compare equal. Every language meets this seam once
+its text stops being plain ASCII; lux counts scalars everywhere and doesn't hide
+it.
+
 > see: arrays — a string is a sequence of characters, measured the way an array is · conversions — going the other way, reading a number out of text with `parseInt`
 
 <!-- topic: input -->

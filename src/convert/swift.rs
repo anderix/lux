@@ -806,7 +806,35 @@ impl Gen {
             // Swift's `+` already concatenates strings, so string and numeric
             // `+` need no distinction here.
             Expr::Binary { op, lhs, rhs, .. } => {
-                if matches!(op, BinOp::Div | BinOp::Mod) && self.t.type_of(lhs) == Ty::Int {
+                if matches!(
+                    op,
+                    BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge
+                ) && self.t.type_of(lhs) == Ty::Str
+                {
+                    // Compare strings by Unicode scalar, the way the interpreter, Rust,
+                    // and Go do. Swift's own `==` and `<` fold canonically-equivalent
+                    // spellings together and order by grapheme, so two byte-different
+                    // strings could compare equal and a sort could disagree (#49).
+                    let l0 = self.emit_expr(lhs);
+                    let r0 = self.emit_expr(rhs);
+                    let paren = |e: &Expr, s: String| {
+                        if matches!(e, Expr::Binary { .. } | Expr::Unary { .. }) {
+                            format!("({})", s)
+                        } else {
+                            s
+                        }
+                    };
+                    let a = format!("{}.unicodeScalars", paren(lhs, l0));
+                    let b = format!("{}.unicodeScalars", paren(rhs, r0));
+                    match op {
+                        BinOp::Eq => format!("{}.elementsEqual({})", a, b),
+                        BinOp::Ne => format!("!{}.elementsEqual({})", a, b),
+                        BinOp::Lt => format!("{}.lexicographicallyPrecedes({})", a, b),
+                        BinOp::Gt => format!("{}.lexicographicallyPrecedes({})", b, a),
+                        BinOp::Le => format!("!{}.lexicographicallyPrecedes({})", b, a),
+                        _ => format!("!{}.lexicographicallyPrecedes({})", a, b),
+                    }
+                } else if matches!(op, BinOp::Div | BinOp::Mod) && self.t.type_of(lhs) == Ty::Int {
                     // Integer `/` and `%` guard the divisor, so a zero reports a lux
                     // error instead of trapping. Operands are call arguments, so no
                     // precedence parens; a nested division recurses here (#34).
@@ -1028,8 +1056,23 @@ impl Gen {
                 format!("Double({})", e)
             }
             "length" => {
-                let e = self.emit_expr(&args[0]);
-                format!("{}.count", e)
+                let arg = &args[0];
+                let e = self.emit_expr(arg);
+                // Parenthesise a compound argument so `.count` binds to the whole
+                // value, not just its right operand — `length(a + b)` (#50).
+                let base = if matches!(arg, Expr::Binary { .. }) {
+                    format!("({})", e)
+                } else {
+                    e
+                };
+                if self.t.type_of(arg) == Ty::Str {
+                    // A lux string is a sequence of Unicode scalars, like the other
+                    // three targets; Swift's `.count` is grapheme clusters, so a family
+                    // emoji would measure 1 here and 5 everywhere else (#49).
+                    format!("{}.unicodeScalars.count", base)
+                } else {
+                    format!("{}.count", base)
+                }
             }
             "some" => {
                 let e = self.emit_expr(&args[0]);
