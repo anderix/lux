@@ -200,6 +200,48 @@ fn floats_render_the_same_way_everywhere() {
     assert_prints_everywhere(src, "fltinf", "inf -inf NaN\n9223372036854775807\n");
 }
 
+/// The `help:` trail — the line that names the rule and its `lux learn` topic — is
+/// a constant string, so it survives to the compiled targets rather than being
+/// dropped with the source location a binary can't carry (#40). It's the line that
+/// does the teaching, so keeping it is what keeps a built program's errors trails
+/// rather than pointers.
+#[test]
+fn the_help_trail_survives_to_the_compiled_targets() {
+    let src = "let xs = [1, 2, 3]\nprint(xs[9])\n";
+    for backend in ["rust", "go", "swift"] {
+        if let Some(out) = build_run("helptrail", backend, src) {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            assert!(
+                stderr.contains("help: `lux learn arrays`"),
+                "{backend}: the help trail should survive to the binary, got:\n{stderr}"
+            );
+        }
+    }
+}
+
+/// A named loop variable the body never reads compiles on Go — it drops to `for
+/// range xs`, since Go rejects a `for _, v` whose `v` is unused, and naming the
+/// item you walk over is the ordinary spelling even when you only count (#44).
+#[test]
+fn go_compiles_a_named_but_unused_loop_variable() {
+    let src = "let xs = [1, 2, 3]\nvar c = 0\nfor item in xs {\n    c += 1\n}\nprint(c)\n";
+    if let Some(out) = build_run("unusedloop", "go", src) {
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "3\n");
+    }
+}
+
+/// A ragged grid written as a literal — an empty inner array beside a non-empty one
+/// — keeps its element type on every backend, rather than degrading to `[]any` on
+/// Go and failing to compile (#45).
+#[test]
+fn a_nested_empty_array_literal_compiles_everywhere() {
+    assert_prints_everywhere(
+        "let week: [[int]] = [[], [9, 10], [14], [], [11]]\nprint(week)\n",
+        "ragged",
+        "[[], [9, 10], [14], [], [11]]\n",
+    );
+}
+
 // --- Rust ------------------------------------------------------------------
 
 #[test]

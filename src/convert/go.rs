@@ -21,7 +21,7 @@ use crate::ast::*;
 
 use super::{
     Ty, Types, bin_prec, escape, expr_mentions, format_float, go_ident, is_place, op_str,
-    to_pascal, ty_from_ann,
+    stmts_mention, to_pascal, ty_from_ann,
 };
 
 use std::collections::HashSet;
@@ -397,6 +397,7 @@ impl Gen {
                  \t\t} else {\n\
                  \t\t\tfmt.Fprintf(os.Stderr, \"note: valid indices are 0 to %d\\n\", n-1)\n\
                  \t\t}\n\
+                 \t\tfmt.Fprintln(os.Stderr, \"help: `lux learn arrays` — the first element is 0, so the last is length minus 1\")\n\
                  \t\tos.Exit(1)\n\
                  \t}\n\
                  \treturn i\n\
@@ -894,10 +895,17 @@ impl Gen {
     /// `[]int{}` rather than Go's untyped `[]any{}`, which won't assign to a typed
     /// slice. Every other value emits exactly as `emit_expr` would.
     fn emit_expr_typed(&mut self, value: &Expr, expected: &Ty) -> String {
-        if let (Expr::Array(els, _), Ty::Array(elem)) = (value, expected)
-            && els.is_empty()
-        {
-            return format!("[]{}{{}}", self.ty_text(elem));
+        if let (Expr::Array(els, _), Ty::Array(elem)) = (value, expected) {
+            if els.is_empty() {
+                return format!("[]{}{{}}", self.ty_text(elem));
+            }
+            // A non-empty array with a declared element type carries that type into
+            // each element, so a nested empty literal keeps its type — `[[], [1]]` as
+            // `[[int]]` emits `[][]int{[]int{}, []int{1}}` rather than degrading the
+            // empty inner one to `[]any{}` and forcing the whole thing to `[][]any`
+            // (#45). The recursion reaches any depth of ragged nesting.
+            let parts: Vec<String> = els.iter().map(|e| self.emit_expr_typed(e, elem)).collect();
+            return format!("[]{}{{{}}}", self.ty_text(elem), parts.join(", "));
         }
         self.emit_expr(value)
     }
@@ -1023,6 +1031,17 @@ impl Gen {
     }
 
     fn emit_for(&mut self, var: &str, iter: &Expr, body: &[Stmt]) {
+        // A named loop variable the body never reads is dropped to `for range xs`,
+        // the same bare form `for _ in` already lowers to — Go rejects a `for _, v`
+        // whose `v` goes unused just as it rejects an unused local, and naming the
+        // thing you walk over is the common spelling even when the body only counts
+        // (#44). The C-style range loop is exempt: its counter is read in the
+        // condition and increment, so Go never sees it as unused.
+        let bind = if var != "_" && !stmts_mention(body, var) {
+            "_"
+        } else {
+            var
+        };
         let (header, elem_ty) = match self.t.type_of(iter) {
             // A range becomes a counted loop; lux ranges are end-exclusive.
             Ty::Range => {
@@ -1064,11 +1083,11 @@ impl Gen {
             }
             Ty::Array(t) => {
                 let it = self.emit_expr(iter);
-                (Self::range_header(var, &it), *t)
+                (Self::range_header(bind, &it), *t)
             }
             _ => {
                 let it = self.emit_expr(iter);
-                (Self::range_header(var, &it), Ty::Unknown)
+                (Self::range_header(bind, &it), Ty::Unknown)
             }
         };
         self.line(header);

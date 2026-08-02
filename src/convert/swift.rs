@@ -405,6 +405,7 @@ impl Gen {
                  \t\t} else {\n\
                  \t\t\tFileHandle.standardError.write(Data(\"note: valid indices are 0 to \\(n - 1)\\n\".utf8))\n\
                  \t\t}\n\
+                 \t\tFileHandle.standardError.write(Data(\"help: `lux learn arrays` — the first element is 0, so the last is length minus 1\\n\".utf8))\n\
                  \t\tFoundation.exit(1)\n\
                  \t}\n\
                  \treturn i\n\

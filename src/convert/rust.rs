@@ -119,6 +119,7 @@ fn lux_check(i: i64, len: usize) -> usize {
         } else {
             eprintln!(\"note: valid indices are 0 to {}\", len - 1);
         }
+        eprintln!(\"help: `lux learn arrays` — the first element is 0, so the last is length minus 1\");
         std::process::exit(1);
     }
     i as usize
