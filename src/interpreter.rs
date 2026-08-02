@@ -2150,7 +2150,7 @@ fn navigate_mut<'a>(
 
 /// A readable name for a place, for error and trace text — `w.doorOpen`,
 /// `items[…]` (the index isn't spelled out, only that there is one).
-fn describe_place(e: &Expr) -> String {
+pub(crate) fn describe_place(e: &Expr) -> String {
     match e {
         Expr::Ident(n, _) => n.clone(),
         Expr::Field { base, field, .. } => format!("{}.{}", describe_place(base), field),
@@ -2534,7 +2534,7 @@ fn fully_determined(v: &Value) -> bool {
 /// outside-world ones, then the two parsers. `some`, `ok`, and `err` are left out
 /// deliberately: they construct an `Option` or `Result` value, not the kind of
 /// function a mistyped call is reaching for.
-const BUILTINS: [&str; 14] = [
+pub(crate) const BUILTINS: [&str; 14] = [
     "print",
     "eprint",
     "string",
@@ -2638,7 +2638,10 @@ fn call_stack_too_deep(name: &str, span: Span) -> LuxError {
 /// where a distance of two is more likely a coincidence than a typo — `sum` should
 /// not be "did you mean `run`?" — while a longer word like `parseint` still reaches
 /// `parseInt`.
-fn nearest_name<'a>(name: &str, candidates: impl Iterator<Item = &'a str>) -> Option<&'a str> {
+pub(crate) fn nearest_name<'a>(
+    name: &str,
+    candidates: impl Iterator<Item = &'a str>,
+) -> Option<&'a str> {
     let max = if name.chars().count() <= 4 { 1 } else { 2 };
     candidates
         .map(|c| (edit_distance(name, c), c))
@@ -2681,7 +2684,7 @@ fn already_defined(name: &str, span: Span) -> LuxError {
 }
 
 /// "1 value" / "2 values" — small helper for argument-count errors.
-fn count(n: usize, noun: &str) -> String {
+pub(crate) fn count(n: usize, noun: &str) -> String {
     if n == 1 {
         format!("{} {}", n, noun)
     } else {

@@ -112,7 +112,13 @@ fn convert_cmd(rest: &[String]) {
             exit(1);
         }
     };
-    let (_, program) = load(path);
+    let (source, program) = load(path);
+    // Refuse a broken program with lux's own error before emitting, so the learner
+    // never meets rustc about a file they didn't write (#29).
+    if let Err(err) = check::check_before_emit(&program) {
+        diagnostic::report(path, &source, &err);
+        exit(1);
+    }
     let out = match lang {
         "rust" => convert::to_rust(&program),
         "swift" => convert::to_swift(&program),
@@ -389,7 +395,13 @@ fn build_cmd(rest: &[String]) {
         eprintln!("usage: lux build <file.lux>");
         exit(1);
     };
-    let (_, program) = load(path);
+    let (source, program) = load(path);
+    // Same pre-emit checks as `lux convert`: a broken program is refused in lux's
+    // words here, not by rustc after it's translated (#29).
+    if let Err(err) = check::check_before_emit(&program) {
+        diagnostic::report(path, &source, &err);
+        exit(1);
+    }
     let rust = convert::to_rust(&program);
 
     // Write the generated Rust beside a stem-named binary, hand it to rustc.

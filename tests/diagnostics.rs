@@ -219,3 +219,90 @@ fn a_top_level_function_named_main_is_refused() {
         "should not fall through to a raw parser error, got:\n{err}"
     );
 }
+
+/// Run a program through `lux convert` and hand back its stderr, asserting it was
+/// refused. `lux convert` and `lux build` used to skip every check `lux run` makes,
+/// so a broken program met rustc instead of a lux error (#29); these pin that the
+/// structural checks now run before anything is emitted.
+fn convert_err(tag: &str, lang: &str, src: &str) -> String {
+    let path = std::env::temp_dir().join(format!("lux-conv-{}-{}.lux", std::process::id(), tag));
+    std::fs::write(&path, src).unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_lux"))
+        .arg("convert")
+        .arg(lang)
+        .arg(&path)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let _ = std::fs::remove_file(&path);
+    assert!(
+        !out.status.success(),
+        "`{src}` should be refused by convert, but was emitted"
+    );
+    String::from_utf8_lossy(&out.stderr).into_owned()
+}
+
+/// The write-through-a-parameter rule is lux's own and no target language phrases
+/// it in lux's terms, so it's the one the issue leads with: `lux convert` now
+/// refuses it with the very message `lux run` gives, rather than translating it and
+/// leaving rustc to complain about a `mut` the learner never wrote.
+#[test]
+fn convert_refuses_a_write_through_a_parameter_like_run_does() {
+    let src = "func poke(xs: [int]) -> int {\n    xs[0] = 99\n    return xs[0]\n}\nprint(poke([1, 2, 3]))\n";
+    let conv = convert_err("cparam", "rust", src);
+    assert!(
+        conv.contains("`xs` is a parameter, and a parameter never changes"),
+        "convert should refuse the parameter write in lux's words, got:\n{conv}"
+    );
+    // The same error `lux run` produces — the point of the fix is that they match.
+    let run = err_of("rparam", src);
+    assert!(
+        run.contains("`xs` is a parameter, and a parameter never changes"),
+        "run and convert should report the same rule, got run:\n{run}"
+    );
+}
+
+#[test]
+fn convert_refuses_an_unknown_function() {
+    let conv = convert_err("cunknown", "go", "print(frobnicate(3))\n");
+    assert!(
+        conv.contains("unknown function `frobnicate`"),
+        "convert should name the unknown function, got:\n{conv}"
+    );
+}
+
+#[test]
+fn convert_refuses_the_wrong_argument_count() {
+    let conv = convert_err(
+        "cargc",
+        "swift",
+        "func add(a: int, b: int) -> int {\n    return a + b\n}\nprint(add(1))\n",
+    );
+    assert!(
+        conv.contains("`add` expects 2 values but got 1"),
+        "convert should catch the arity mismatch, got:\n{conv}"
+    );
+}
+
+/// Soundness: a `var` that rebinds a parameter's name makes a write to that name
+/// legal, so convert must not refuse it. The check excludes any rebound name rather
+/// than track scopes, so it can never turn away a valid program.
+#[test]
+fn convert_allows_a_var_that_shadows_a_parameter() {
+    let src = "func f(x: int) -> int {\n    var x = 5\n    x = 6\n    return x\n}\nprint(f(1))\n";
+    let path = std::env::temp_dir().join(format!("lux-conv-{}-shadow.lux", std::process::id()));
+    std::fs::write(&path, src).unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_lux"))
+        .arg("convert")
+        .arg("rust")
+        .arg(&path)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let _ = std::fs::remove_file(&path);
+    assert!(
+        out.status.success(),
+        "a var shadowing a parameter is legal and must convert, stderr:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
