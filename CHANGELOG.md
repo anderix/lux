@@ -4,6 +4,73 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.1] - 2026-08-01
+
+A follow-on to 0.15.0 by the same method that produced it: writing a corpus of
+small programs and running each through `lux run` and its compiled Go, Rust, and
+Swift, then diffing every byte. A new set of grid programs — an array of arrays,
+the shape most of a first course's interesting problems arrive in — put `[[T]]`
+through the four implementations for the first time and surfaced six more
+divergences, each a bug in a target or the interpreter rather than a limit of the
+language. All six are fixed, and nothing a working program did has changed.
+
+### Fixed
+
+- **Mutually recursive enums compile on Rust and Swift.** A self-referential enum
+  already compiled everywhere, but two enums that refer to each other — an `Expr`
+  that holds a `Fn` that holds an `Expr`, the shape any syntax tree takes once it
+  grows past a single type — ran interpreted and on Go yet failed on Rust
+  ("recursive types have infinite size") and Swift ("not marked indirect"). Go was
+  fine because its enum lowers to an interface, already a pointer. The pass that
+  places Rust's `Box` and Swift's `indirect` looked for an enum that names itself;
+  it now follows the enum reference graph, so a field whose type cycles back gets
+  the indirection wherever the cycle runs. Direct self-reference falls out of the
+  same test, so the existing recursive types are unchanged.
+- **A variable named `none` means the variable.** `none` names the empty `Option`,
+  but a program that binds it as an ordinary name — `let none = 5` — meant the local
+  under `lux run` and then read as the built-in at every use site on all three
+  targets, compiling nowhere. Name resolution now takes the local first, the way it
+  already did for the other eight built-in names, and a non-`Copy` value bound to
+  `none` carries value semantics like any other place.
+- **Go: a discarded loop variable compiles.** `for _ in 0..n` — the natural way to
+  say "do this n times" — lowered `_` into all three slots of Go's C-style `for`,
+  each of them invalid (`_ := 0`, `_ < n`, `_++`); the array form `for _ in xs`
+  lowered to `for _, _ := range xs`, which has no new name on the left. A range now
+  gets a throwaway counter and an array iterates with Go's bare `for range xs`.
+  It's the spelling lux's own emitter writes for an unread loop variable, so the Go
+  backend had to accept it back.
+- **Rust: a string read out of an array and returned compiles.** `return row[c]`
+  over a grid of strings couldn't move a `String` out of a `Vec` index; a returned
+  value now copies a place the same way a binding or a call argument already did.
+  Over `[[int]]` it compiled anyway, because an int element is `Copy` — which is what
+  made it easy to miss, since it's the accessor every grid program writes.
+- **Go: a computed loop bound is evaluated once, not every pass.** lux evaluates a
+  range's bound once, but Go's C-`for` re-checks its condition every iteration, so a
+  bound that's a call — `for i in 0..rows(m)` — ran every pass; and since 0.15.0
+  deep-copies a grid handed to a function, an ordinary O(n²) walk went cubic. The
+  bound is now hoisted to a variable before the loop, and only a literal, which
+  can't change, stays in the condition. Same output, an order of magnitude less
+  work.
+- **Runaway recursion reports a lux error instead of aborting.** Recursion with no
+  reachable base case — the classic beginner mistake — was the one place the
+  interpreter fell through to its host language: a raw stack overflow, `SIGABRT`,
+  exit 134, and not a word about the program that ran. The interpreter now counts
+  how deep calls nest and stops at a limit with an ordinary lux error that names the
+  function and points at the base case, exiting 1 like every other. To keep that
+  limit in charge it runs on a larger stack, which also lets a correct program that
+  simply recurses deep run where it used to abort — thousands of frames where the
+  ceiling used to sit near two thousand.
+- **The unknown-function note lists every built-in, and suggests a near miss.** A
+  call to a name that doesn't exist names the built-ins it might have meant — the
+  one place a stuck learner is told what exists — but the list had drifted three
+  names behind the real set: `input`, `parseInt`, and `parseFloat` all work and are
+  taught, and none appeared, so a learner reaching for a number-from-text parser saw
+  a list with no parser on it. The note now renders a single source rather than a
+  retyped list, so it can't drift again. And a near miss — a typo or a case slip
+  like `parseint` or `readline`, the built-ins and the program's own functions alike
+  — is redirected to the name that was meant, with the list kept for a name that's
+  genuinely absent.
+
 ## [0.15.0] - 2026-08-01
 
 The release that makes the three targets behave *identically* to `lux run` — not
