@@ -229,16 +229,24 @@ by the interpreter, compiles on Rust and Swift, and emits Go that isn't valid sy
 ([#42](https://github.com/anderix/lux/issues/42)). Between them the rule leaks in both
 directions at once.
 
-**Two values that differ rather than two diagnostics.** `parseInt` and `parseFloat`
-accept surrounding whitespace everywhere except Swift, so a program reading `" 42"` —
-which is what a column-aligned file or anything a person typed gives you — quietly
-reports "not a number" on one leg out of four
-([#41](https://github.com/anderix/lux/issues/41)). And the `err` string from
+**Four that differ in what the program computes, not in what the tool says.** These
+are the ones to worry about, because nothing announces them. `parseInt` and
+`parseFloat` accept surrounding whitespace everywhere except Swift, so a program
+reading `" 42"` — which is what a column-aligned file or anything a person typed gives
+you — quietly reports "not a number" on one leg out of four
+([#41](https://github.com/anderix/lux/issues/41)). Printing a float agrees across the
+ordinary range and comes apart at both ends: Go switches to exponent form at a million
+and above, all three compiled targets switch below about a ten-thousandth, and Rust
+spells it `1e-5` where the other two write `1e-05`
+([#47](https://github.com/anderix/lux/issues/47)) — which also means `print` emits text
+lux itself cannot parse back, since it has no exponent literal. The `err` string from
 `readFile` or `writeFile` reads four different ways, with Swift's leaking
 `NSCocoaErrorDomain` at a thirteen-year-old and telling them a file doesn't exist when
 what actually happened was permission denied
-([#43](https://github.com/anderix/lux/issues/43)). Both are values the program prints,
-not messages the tool emits, so both sit inside the promise rather than beside it.
+([#43](https://github.com/anderix/lux/issues/43)). And `run` of a program that isn't
+installed takes the `err` arm on three legs and the `ok` arm on Swift, with status 127
+— so the branch a learner wrote for "you need to install that first" is the one that
+never runs ([#48](https://github.com/anderix/lux/issues/48)).
 
 **The lesson is dropped from the runtime errors.** Carrying lux's runtime errors onto
 the compiled targets was the biggest fix the corpus has prompted, and the diagnosis and

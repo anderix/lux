@@ -150,6 +150,16 @@ print("its median       ", median(pair))
 print("its mean         ", mean(pair))
 print("")
 
+// The same questions asked of much bigger numbers. None of the arithmetic changes,
+// which is the point worth checking rather than assuming: the first thing to shift
+// when the magnitude does is how the answer prints.
+let populations = [8300000, 3900000, 2700000, 1500000, 980000]
+print("populations      ", populations)
+print("mean             ", mean(populations))
+print("median           ", median(populations))
+print("standard dev     ", root(variance(populations), false))
+print("")
+
 // A row of one is the smallest thing that still has every statistic, and none of
 // them need a special case to answer.
 let single = [7]
