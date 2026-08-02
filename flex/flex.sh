@@ -40,7 +40,12 @@ invocation () {
     case "$1" in
         head)  echo "seq 1 100 | BIN 3" ;;
         catn)  echo "printf 'alpha\nbeta\ngamma\n' | BIN" ;;
-        wcl)   echo "printf 'one\ntwo\nthree and more\n' | BIN" ;;
+        # Not all ASCII, on purpose. `wcl` counts characters, and what counts as one
+        # is the thing the four implementations disagree about hardest — Swift counts
+        # what you can see, the others count Unicode scalars. Every other string in
+        # this corpus is ASCII, so the first accented name or emoji a learner types
+        # would land outside everything ever tested.
+        wcl)   echo "printf 'one\nwe won 🇨🇦\ncafé costs 3\n' | BIN" ;;
         uniqc) echo "printf 'a\na\nb\na\na\na\n' | BIN" ;;
         # Stray spaces on purpose: real input has them, whether it came from a
         # column-aligned file, a paste, or a person typing. `parseInt` trims, so the

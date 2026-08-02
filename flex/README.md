@@ -251,7 +251,7 @@ by the interpreter, compiles on Rust and Swift, and emits Go that isn't valid sy
 ([#42](https://github.com/anderix/lux/issues/42)). Between them the rule leaks in both
 directions at once.
 
-**Four that differ in what the program computes, not in what the tool says.** These
+**Five that differ in what the program computes, not in what the tool says.** These
 are the ones to worry about, because nothing announces them. `parseInt` and
 `parseFloat` accept surrounding whitespace everywhere except Swift, so a program
 reading `" 42"` — which is what a column-aligned file or anything a person typed gives
@@ -268,7 +268,12 @@ what actually happened was permission denied
 ([#43](https://github.com/anderix/lux/issues/43)). And `run` of a program that isn't
 installed takes the `err` arm on three legs and the `ok` arm on Swift, with status 127
 — so the branch a learner wrote for "you need to install that first" is the one that
-never runs ([#48](https://github.com/anderix/lux/issues/48)).
+never runs ([#48](https://github.com/anderix/lux/issues/48)). And the moment a string stops
+being ASCII the four stop agreeing about what a character is: Swift counts what you
+can see, the other three count Unicode scalars, so `length` of a flag or a family emoji
+differs, and two spellings of `é` that render identically compare equal on Swift and
+unequal everywhere else ([#49](https://github.com/anderix/lux/issues/49)). That last
+one is a language decision rather than a backend fix, and the issue argues it as one.
 
 **The lesson is dropped from the runtime errors.** Carrying lux's runtime errors onto
 the compiled targets was the biggest fix the corpus has prompted, and the diagnosis and
@@ -277,12 +282,14 @@ and that is the constant string naming the rule you got wrong and the `lux learn
 that explains it ([#40](https://github.com/anderix/lux/issues/40)). What reaches the
 compiled targets is the diagnosis without the lesson.
 
-**Two Go gaps in code a beginner writes on the way past.** Counting a row by walking it
+**Three gaps in code a beginner writes on the way past.** Counting a row by walking it
 — `for item in basket { total += 1 }` — names a variable the body never reads, which Go
 refuses ([#44](https://github.com/anderix/lux/issues/44)). And a ragged grid written
 down rather than built up — `[[], [9, 10], [14]]` — loses the empty row's type and
 degrades the whole literal to `[]any`
-([#45](https://github.com/anderix/lux/issues/45)).
+([#45](https://github.com/anderix/lux/issues/45)). On Swift, measuring a joined string
+— `length(first + " " + last)` — emits `a + b.count` and won't compile, because the
+argument never gets parenthesized ([#50](https://github.com/anderix/lux/issues/50)).
 
 ## The rules
 
