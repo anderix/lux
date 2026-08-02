@@ -286,6 +286,11 @@ impl Gen {
         if self.uses_lux_show {
             imports.push("reflect");
         }
+        // luxFloat classifies infinities and NaN before formatting; luxInt saturates
+        // against the int bounds.
+        if needs_lux_float || self.uses_lux_int {
+            imports.push("math");
+        }
         if self.uses_strconv || needs_lux_float {
             imports.push("strconv");
         }
@@ -316,8 +321,17 @@ impl Gen {
             // path uses, so a printed float and a float literal read the same.
             head.push_str(
                 "func luxFloat(f float64) string {\n\
-                 \ts := strconv.FormatFloat(f, 'g', -1, 64)\n\
-                 \tif !strings.ContainsAny(s, \".eEnN\") {\n\
+                 \tif math.IsInf(f, 1) {\n\
+                 \t\treturn \"inf\"\n\
+                 \t}\n\
+                 \tif math.IsInf(f, -1) {\n\
+                 \t\treturn \"-inf\"\n\
+                 \t}\n\
+                 \tif math.IsNaN(f) {\n\
+                 \t\treturn \"NaN\"\n\
+                 \t}\n\
+                 \ts := strconv.FormatFloat(f, 'f', -1, 64)\n\
+                 \tif !strings.Contains(s, \".\") {\n\
                  \t\treturn s + \".0\"\n\
                  \t}\n\
                  \treturn s\n\
@@ -328,7 +342,23 @@ impl Gen {
             // Truncate a float to an int at runtime. A float literal is a Go
             // constant, which `int(...)` refuses to truncate; handed in as a
             // float64 argument it's an ordinary value the conversion accepts.
-            head.push_str("func luxInt(f float64) int {\n\treturn int(f)\n}\n\n");
+            // Non-finite and out-of-range values are saturated — `int(f)` of those
+            // is undefined in Go and gave i64::MIN for inf here — matching the
+            // interpreter's `as i64` and the other targets (#52).
+            head.push_str(
+                "func luxInt(f float64) int {\n\
+                 \tif math.IsNaN(f) {\n\
+                 \t\treturn 0\n\
+                 \t}\n\
+                 \tif f >= float64(math.MaxInt64) {\n\
+                 \t\treturn math.MaxInt64\n\
+                 \t}\n\
+                 \tif f <= float64(math.MinInt64) {\n\
+                 \t\treturn math.MinInt64\n\
+                 \t}\n\
+                 \treturn int(f)\n\
+                 }\n\n",
+            );
         }
         if self.uses_lux_div {
             // Report a zero divisor as a lux error and exit 1, rather than Go's

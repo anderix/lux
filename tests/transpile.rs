@@ -183,6 +183,23 @@ fn io_errors_name_the_path_on_every_backend() {
     }
 }
 
+/// Floats print positionally at every magnitude, never in exponent notation —
+/// the only form lux can read back, since it has no exponent literal (#47) — and
+/// `inf`/`-inf`/`NaN` render the same three ways everywhere (#52). The interpreter
+/// is the reference, and all three targets now match it exactly.
+#[test]
+fn floats_render_the_same_way_everywhere() {
+    assert_prints_everywhere(
+        "print(0.00001)\nprint(0.0000001)\nprint(1000000.0)\nprint(123456789.5)\n",
+        "fltpos",
+        "0.00001\n0.0000001\n1000000.0\n123456789.5\n",
+    );
+    // A non-finite value normalises the same way on each leg, and int() saturates
+    // rather than trapping (Swift) or going undefined (Go).
+    let src = "func over(a: float, b: float) -> float {\n    return a / b\n}\nprint(over(1.0, 0.0), over(-1.0, 0.0), over(0.0, 0.0))\nprint(int(over(1.0, 0.0)))\n";
+    assert_prints_everywhere(src, "fltinf", "inf -inf NaN\n9223372036854775807\n");
+}
+
 // --- Rust ------------------------------------------------------------------
 
 #[test]

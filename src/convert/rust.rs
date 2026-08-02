@@ -63,7 +63,25 @@ struct Gen {
     /// checked write (`xs[lux_check(i, xs.len())]`) that stays assignable, rather
     /// than the read helper, which yields a borrow.
     assigning: bool,
+    /// `print` and `string` of a float route through a `lux_float` helper so the
+    /// output stays positional (`0.00001`, not `1e-5`) and lux can read it back —
+    /// Rust's `{:?}` on an f64 uses exponent notation at the extremes (#47).
+    uses_lux_float: bool,
 }
+
+/// Render a float the way the interpreter does: positional, with a decimal point,
+/// never exponent notation — which is the only form lux can parse back, since it
+/// has no exponent literal (#47). A whole value keeps its `.0`; `{}` on an f64 is
+/// already positional and prints `inf`/`-inf`/`NaN`, unlike `{:?}`.
+const LUX_FLOAT_HELPER: &str = "\
+fn lux_float(f: f64) -> String {
+    if f.is_finite() && f == f.trunc() {
+        format!(\"{:.1}\", f)
+    } else {
+        format!(\"{}\", f)
+    }
+}
+";
 
 /// Integer division and remainder that report a lux error on a zero divisor and
 /// exit 1, the way the interpreter does, rather than letting Rust panic with a
@@ -179,6 +197,7 @@ pub fn to_rust(program: &[Stmt]) -> String {
         uses_lux_bounds: false,
         assigning: false,
         show_name: dodge_type_name("LuxShow", program),
+        uses_lux_float: false,
     };
 
     for stmt in program {
@@ -230,6 +249,10 @@ pub fn to_rust(program: &[Stmt]) -> String {
     }
 
     let mut preamble = String::new();
+    if g.uses_lux_float {
+        preamble.push_str(LUX_FLOAT_HELPER);
+        preamble.push('\n');
+    }
     if g.uses_lux_div {
         preamble.push_str(LUX_DIV_HELPER);
         preamble.push('\n');
@@ -1135,14 +1158,16 @@ impl Gen {
                 self.uses_lux_show = true;
                 fmt.push_str("{}");
                 parts.push(self.print_show_arg(a));
+            } else if ty == Ty::Float {
+                // A float renders through `lux_float`, positional at every magnitude,
+                // so the output is text lux can read back — `{:?}` would print `1e-5`
+                // for a small value (#47).
+                self.uses_lux_float = true;
+                fmt.push_str("{}");
+                parts.push(format!("lux_float({})", self.emit_expr(a)));
             } else {
-                // `{:?}` on an f64 keeps the decimal point (`9.0`), matching how lux
-                // prints floats; plain scalars use `{}`.
-                fmt.push_str(if ty == Ty::Float || !ty.is_scalar() {
-                    "{:?}"
-                } else {
-                    "{}"
-                });
+                // `{:?}` keeps a compound's decimal points; plain scalars use `{}`.
+                fmt.push_str(if !ty.is_scalar() { "{:?}" } else { "{}" });
                 parts.push(self.display_arg(a));
             }
         }
@@ -1197,12 +1222,14 @@ impl Gen {
                 format!("run({}, {})", p, a)
             }
             "string" => {
-                // `{:?}` keeps a whole float's decimal point, the way lux's
-                // `string(2.0)` yields "2.0" rather than "2".
+                // A float goes through `lux_float`, so `string(2.0)` is "2.0" and a
+                // small value stays positional rather than `1e-5` (#47); everything
+                // else is `to_string`.
                 let is_float = self.t.type_of(&args[0]) == Ty::Float;
                 let e = self.emit_expr(&args[0]);
                 if is_float {
-                    format!("format!(\"{{:?}}\", {})", e)
+                    self.uses_lux_float = true;
+                    format!("lux_float({})", e)
                 } else {
                     format!("({}).to_string()", e)
                 }

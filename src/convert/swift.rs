@@ -44,6 +44,16 @@ struct Gen {
     /// array leaks the module name (`[main.P(...)]`); `luxShow` fixes both and keeps
     /// every backend rendering the same way. Emitted only when a compound is printed.
     uses_lux_show: bool,
+    /// `print` and `string` of a float route through `luxFloat`, which keeps the
+    /// output positional at every magnitude and normalises `inf`/`-inf`/`NaN` —
+    /// Swift's `String(Double)` uses exponent notation for small values, text lux
+    /// can't read back, and writes `-nan` (#47). Also used by `luxShow` for a float
+    /// inside an array, so it's emitted whenever either is.
+    uses_lux_float: bool,
+    /// `int` of a float routes through `luxInt`, which saturates a non-finite or
+    /// out-of-range value the way the interpreter and the other targets do — Swift's
+    /// `Int(Double)` traps on `inf`/`NaN`, a crash the learner can't read (#52).
+    uses_lux_int: bool,
     /// Integer `/` and `%` route through guard helpers that report a lux error on a
     /// zero divisor and exit 1, so a learner meets `division by zero` rather than
     /// Swift's illegal-instruction trap and register dump (#34). Emitted only when
@@ -75,6 +85,8 @@ pub fn to_swift(program: &[Stmt]) -> String {
         uses_run: false,
         mutated: mutated_roots(program),
         uses_lux_show: false,
+        uses_lux_float: false,
+        uses_lux_int: false,
         uses_lux_div: false,
         uses_lux_mod: false,
         uses_lux_bounds: false,
@@ -194,6 +206,23 @@ impl Gen {
         if uses_io {
             // Foundation supplies the file reading/writing and the stderr handle.
             head.push_str("import Foundation\n\n");
+        }
+        // luxShow renders a float inside an array through luxFloat, so printing a
+        // plain float and printing an array of floats share one helper.
+        if self.uses_lux_float || self.uses_lux_show {
+            head.push_str(LUX_FLOAT_HELPER);
+        }
+        if self.uses_lux_int {
+            // Saturate rather than trap: `inf` to Int.max, `-inf` to Int.min, `NaN`
+            // to 0, matching the interpreter's `as i64` and the other targets.
+            head.push_str(
+                "func luxInt(_ f: Double) -> Int {\n\
+                 \tif f.isNaN { return 0 }\n\
+                 \tif f >= Double(Int.max) { return Int.max }\n\
+                 \tif f <= Double(Int.min) { return Int.min }\n\
+                 \treturn Int(f)\n\
+                 }\n\n",
+            );
         }
         if self.uses_lux_show {
             // The protocol name steps aside from any user type of the same name, so
@@ -999,6 +1028,11 @@ impl Gen {
             self.uses_lux_show = true;
             let e = self.print_show_expr(a, &ty);
             format!("({}).luxShow()", e)
+        } else if ty == Ty::Float {
+            // A float renders through `luxFloat`, positional and lux-readable, rather
+            // than Swift's `String(Double)` exponent form for small values (#47).
+            self.uses_lux_float = true;
+            format!("luxFloat({})", self.emit_expr(a))
         } else {
             self.emit_expr(a)
         }
@@ -1068,15 +1102,29 @@ impl Gen {
                 let a = self.emit_expr(&args[1]);
                 format!("run({}, {})", p, a)
             }
-            // Swift's `String(...)` keeps a whole float's decimal point, the way
-            // lux's `string(2.0)` yields "2.0".
+            // A float goes through `luxFloat` so `string(2.0)` is "2.0" and a small
+            // value stays positional rather than `1e-05` (#47); everything else uses
+            // Swift's `String(...)`.
             "string" => {
                 let e = self.emit_expr(&args[0]);
-                format!("String({})", e)
+                if self.t.type_of(&args[0]) == Ty::Float {
+                    self.uses_lux_float = true;
+                    format!("luxFloat({})", e)
+                } else {
+                    format!("String({})", e)
+                }
             }
             "int" => {
                 let e = self.emit_expr(&args[0]);
-                format!("Int({})", e)
+                // A float goes through `luxInt`, which saturates `inf`/`NaN`/huge like
+                // the other three rather than trapping as Swift's `Int(Double)` does
+                // (#52); an int argument is already an Int.
+                if self.t.type_of(&args[0]) == Ty::Float {
+                    self.uses_lux_int = true;
+                    format!("luxInt({})", e)
+                } else {
+                    format!("Int({})", e)
+                }
             }
             "float" => {
                 let e = self.emit_expr(&args[0]);
@@ -1173,11 +1221,52 @@ impl Gen {
     }
 }
 
+/// Render a float the way the interpreter does: positional, with a decimal point,
+/// never exponent notation — the only form lux can parse back, since it has no
+/// exponent literal (#47). `String(Double)` uses exponent form for small values, so
+/// `luxExpand` rewrites any `1e-05` into `0.00001` from the same shortest digits;
+/// infinities and NaN are normalised to `inf`/`-inf`/`NaN`, dropping Swift's `-nan`.
+/// Stdlib only — no Foundation — so a float-only program stays dependency-free.
+const LUX_FLOAT_HELPER: &str = "\
+func luxFloat(_ f: Double) -> String {
+    if f.isNaN { return \"NaN\" }
+    if f.isInfinite { return f < 0 ? \"-inf\" : \"inf\" }
+    var s = String(f)
+    if let e = s.firstIndex(where: { $0 == \"e\" || $0 == \"E\" }) {
+        let exp = Int(s[s.index(after: e)...]) ?? 0
+        s = luxExpand(String(s[..<e]), exp)
+    }
+    if !s.contains(\".\") { s += \".0\" }
+    return s
+}
+
+func luxExpand(_ mantissa: String, _ exp: Int) -> String {
+    var m = mantissa
+    var sign = \"\"
+    if m.hasPrefix(\"-\") { sign = \"-\"; m.removeFirst() }
+    else if m.hasPrefix(\"+\") { m.removeFirst() }
+    let intLen = m.firstIndex(of: \".\").map { m.distance(from: m.startIndex, to: $0) } ?? m.count
+    var digits = m
+    if let d = digits.firstIndex(of: \".\") { digits.remove(at: d) }
+    let point = intLen + exp
+    let body: String
+    if point <= 0 {
+        body = \"0.\" + String(repeating: \"0\", count: -point) + digits
+    } else if point >= digits.count {
+        body = digits + String(repeating: \"0\", count: point - digits.count)
+    } else {
+        let idx = digits.index(digits.startIndex, offsetBy: point)
+        body = String(digits[..<idx]) + \".\" + String(digits[idx...])
+    }
+    return sign + body
+}
+";
+
 /// The `LuxShow` protocol and its conformances for the built-in types. Swift's
 /// own printing renders a struct the way lux does but drops an enum case's type
 /// and leaks the module name through an array, so print routes a compound value
 /// through this instead. A user struct or enum gets its own conformance, generated
-/// per program. `Double`'s description already carries the `.0` lux keeps.
+/// per program. A `Double` renders through `luxFloat`, positional at every scale.
 const LUX_SHOW_PREAMBLE: &str = "\
 protocol LuxShow {
     func luxShow() -> String
@@ -1188,7 +1277,7 @@ extension Int: LuxShow {
 }
 
 extension Double: LuxShow {
-    func luxShow() -> String { String(self) }
+    func luxShow() -> String { luxFloat(self) }
 }
 
 extension Bool: LuxShow {
