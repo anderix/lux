@@ -42,7 +42,10 @@ invocation () {
         catn)  echo "printf 'alpha\nbeta\ngamma\n' | BIN" ;;
         wcl)   echo "printf 'one\ntwo\nthree and more\n' | BIN" ;;
         uniqc) echo "printf 'a\na\nb\na\na\na\n' | BIN" ;;
-        hist)  echo "printf '3\n9\nnope\n14\n' | BIN" ;;
+        # Stray spaces on purpose: real input has them, whether it came from a
+        # column-aligned file, a paste, or a person typing. `parseInt` trims, so the
+        # program's answer shouldn't change — and where it does, that's a finding.
+        hist)  echo "printf '3\n 9\nnope\n14 \n' | BIN" ;;
         *)     echo "BIN" ;;
     esac
 }

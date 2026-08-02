@@ -192,13 +192,43 @@ a float — and when one finally did, that rule turned a real divergence into a 
 is gone, and the corpus now compares bytes exactly. A harness that smooths over a
 difference trades a false failure today for a hidden bug tomorrow.
 
-What is open is the half of the check that convert still leaves to the target
-compiler. Four of those five rules are caught by the target compiler, so the learner
-gets a poor error but not a bad program. The fifth isn't caught at all: a stored
-`Result` — refused by `lux run` as the one rule that exists specifically to keep one
-source crossing three targets — builds and runs on Rust and Swift, printing `Ok(...)`
-and `success(...)` respectively, and won't compile on Go
-([#39](https://github.com/anderix/lux/issues/39)).
+What is open now falls into four groups.
+
+**The `Result` rule is enforced in three places and in three different ways.** It is
+the one rule the section above calls load-bearing — a `Result` is handled where it is
+produced, which is what keeps one source crossing three targets. `lux run` enforces it.
+`lux build` does not: a stored `Result` builds and runs on Rust and Swift, printing
+`Ok(...)` and `success(...)`, and won't compile on Go
+([#39](https://github.com/anderix/lux/issues/39)). And a `Result` passed to a function
+— a binding by another name, so arguably the same thing the rule forbids — is accepted
+by the interpreter, compiles on Rust and Swift, and emits Go that isn't valid syntax
+([#42](https://github.com/anderix/lux/issues/42)). Between them the rule leaks in both
+directions at once.
+
+**Two values that differ rather than two diagnostics.** `parseInt` and `parseFloat`
+accept surrounding whitespace everywhere except Swift, so a program reading `" 42"` —
+which is what a column-aligned file or anything a person typed gives you — quietly
+reports "not a number" on one leg out of four
+([#41](https://github.com/anderix/lux/issues/41)). And the `err` string from
+`readFile` or `writeFile` reads four different ways, with Swift's leaking
+`NSCocoaErrorDomain` at a thirteen-year-old and telling them a file doesn't exist when
+what actually happened was permission denied
+([#43](https://github.com/anderix/lux/issues/43)). Both are values the program prints,
+not messages the tool emits, so both sit inside the promise rather than beside it.
+
+**The lesson is dropped from the runtime errors.** Carrying lux's runtime errors onto
+the compiled targets was the biggest fix the corpus has prompted, and the diagnosis and
+the tailored `note:` both survive it. The `help:` line doesn't, on any of the three —
+and that is the constant string naming the rule you got wrong and the `lux learn` topic
+that explains it ([#40](https://github.com/anderix/lux/issues/40)). What reaches the
+compiled targets is the diagnosis without the lesson.
+
+**Two Go gaps in code a beginner writes on the way past.** Counting a row by walking it
+— `for item in basket { total += 1 }` — names a variable the body never reads, which Go
+refuses ([#44](https://github.com/anderix/lux/issues/44)). And a ragged grid written
+down rather than built up — `[[], [9, 10], [14]]` — loses the empty row's type and
+degrades the whole literal to `[]any`
+([#45](https://github.com/anderix/lux/issues/45)).
 
 ## The rules
 
