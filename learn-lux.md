@@ -259,12 +259,28 @@ print("queue:", queue)
 
 > try: read `primes[10]` and run — lux stops you at an index past the end of the array.
 
+An array's values can themselves be arrays, which is how you get a grid — a row of
+rows, written `[[int]]` and reached with a second index.
+
+```lux
+var grid: [[int]] = [[1, 2, 3], [4, 5, 6]]
+grid[0][2] = 9
+print(grid[1][0])       // 4
+print(grid)             // [[1, 2, 9], [4, 5, 6]]
+```
+
 <!-- more -->
 An array is a *data structure* — the simplest compound type, many values of one
 type laid in a row and reached by an index that counts from 0. That zero-based
 indexing and the square brackets are nearly universal; what later languages add
 is variety — lists, slices, vectors, arrays that grow — but the mental model you
 have here, "a numbered row of values," carries straight into all of them.
+
+A grid in lux is a row of rows, not a rectangle. `[[int]]` is just an array whose
+elements are themselves arrays, so the rows can be different lengths and you grow
+one the way you grow any array. Coming from a language with fixed-size rectangular
+arrays that is the thing to unlearn: here a ragged table or a triangle is an
+ordinary value, and a board is `[[int]]` rather than one flat row you index by hand.
 
 > see: for — the loop built for walking an array · structs — the other compound type, a few different things instead of many of the same
 
@@ -711,6 +727,7 @@ start.
 | `enum` with values | `enum` with values | `enum` with values | *fake with structs* |
 | `Option` / `Result` | `Option` / `Result` | `Optional` | `(value, error)` |
 | `[int]` | `Vec<i32>` | `[Int]` | `[]int` |
+| `[[int]]` | `Vec<Vec<i32>>` | `[[Int]]` | `[][]int` |
 | `readFile` / `args` | `std::fs` / `std::env` | `Foundation` / `CommandLine` | `os` package |
 | `print` / `eprint` | `println!` / `eprintln!` | `print` / `FileHandle` | `fmt` / `os.Stderr` |
 | `run` | `process::Command` | `Process` | `os/exec` |
