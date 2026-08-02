@@ -301,5 +301,8 @@ to each language's own formatting. It is generated, it is skippable, and it is t
 reason `flex.sh` can diff bytes instead of eyeballing shapes.
 
 The translations are not a museum piece. They are compiled and run on every pass of
-the harness, and where one of them fails to build today, [the README](README.md) says
-which and links the issue.
+the harness, so every excerpt above is what the current compiler emits rather than
+what it emitted once. Reading them is also how two of the findings in
+[the README](README.md) were caught — a translation can be correct in every byte it
+prints and still be doing far more work than it needs to, which is the one thing
+`flex.sh` cannot see.

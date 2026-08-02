@@ -139,35 +139,59 @@ was found by the smaller `conformance/` set; each was filed as an issue, fixed i
 the target, and closed. The [CHANGELOG](../CHANGELOG.md) carries the history — which
 is the argument for this directory existing.
 
-The grid section found three more the same way, on its first run. A loop that
-discards its variable with `for _ in` — the natural way to say "do this n times",
-and the spelling lux's own emitter now uses — lowers to invalid Go
-([#18](https://github.com/anderix/lux/issues/18)), which is why six of these fail
-that leg. Returning a string read out of an array won't compile on Rust, because an
-indexed `String` is the one element type that isn't `Copy` and doesn't get the clone
-the emitter already gives arrays and structs
-([#20](https://github.com/anderix/lux/issues/20)) — that is `tictactoe` and `maze`,
-and it is the accessor every grid program writes. A variable named `none` binds
-correctly and then reads as the empty `Option` at every use site on all three
-targets ([#19](https://github.com/anderix/lux/issues/19)).
+The grid section found three more the same way, on its first run, and they are worth
+reading as a set because all three hid in the same blind spot. A loop that discards
+its variable with `for _ in` — the natural way to say "do this n times" — lowered to
+invalid Go ([#18](https://github.com/anderix/lux/issues/18)). Returning a string read
+out of an array wouldn't compile on Rust, because an indexed `String` is the one
+element type that isn't `Copy`
+([#20](https://github.com/anderix/lux/issues/20)) — over `[[int]]` it compiled
+anyway, which is what made it easy to miss, since it is the accessor every grid
+program writes. And a variable named `none` bound correctly and then read as the
+empty `Option` at every use site on all three targets
+([#19](https://github.com/anderix/lux/issues/19)).
 
-One more from the same section is about cost rather than correctness, and so is the
-kind a diff will never catch. Go's value-semantics copy lands inside a loop's
-condition when the bound is a function call, so `for i in 0..rows(m)` deep-copies the
-whole grid on every iteration and an ordinary O(n²) walk runs cubic
-([#21](https://github.com/anderix/lux/issues/21)). The output is identical, which is
-exactly the problem: a learner who writes the obvious loop has no way to see what it
-cost, and slow is much harder to notice than wrong.
+One more from the same section was about cost rather than correctness, and so was the
+kind a diff will never catch. Go's value-semantics copy landed inside a loop's
+condition when the bound was a function call, so `for i in 0..rows(m)` deep-copied
+the whole grid on every iteration and an ordinary O(n²) walk ran cubic
+([#21](https://github.com/anderix/lux/issues/21)). The output was identical, which
+was exactly the problem: a learner who writes the obvious loop has no way to see what
+it cost, and slow is much harder to notice than wrong. It was also the first finding
+here the harness could not have produced, since the harness compares bytes and the
+bytes agreed — it came from reading the emitted code while writing
+[CONVERT.md](CONVERT.md), which is now a habit rather than an accident.
 
 Two more came from probing the edges of what could be written rather than from a
-program here. Two enums that refer to each other run interpreted and compile on Go,
-but Rust wants a `Box` and Swift an `indirect` that neither gets
-([#17](https://github.com/anderix/lux/issues/17)) — which is why that one isn't
-listed as a wall above, despite reading like one. And recursion deeper than roughly
-1,500 frames aborts the interpreter with a stack overflow rather than a lux error,
-where all three compiled targets carry on
-([#16](https://github.com/anderix/lux/issues/16)) — so on that one axis the
-reference implementation is the weakest of the four.
+program here: two enums that refer to each other compiled on Go but wanted a `Box` on
+Rust and an `indirect` on Swift that neither got
+([#17](https://github.com/anderix/lux/issues/17)), and recursion past the
+interpreter's stack aborted the process instead of reporting a lux error
+([#16](https://github.com/anderix/lux/issues/16)).
+
+Two of what is open now sit where that second fix landed. The interpreter stops
+runaway recursion at a fixed depth, but it cannot tell a runaway from a program that
+simply goes deep, so a correct function that recurses past the ceiling is told it
+"kept calling without stopping" — every clause of which is false for that program,
+and all three compiled targets run it
+([#26](https://github.com/anderix/lux/issues/26)). And the guard itself is
+interpreter-only, so genuine infinite recursion behaves four different ways: a lux
+error under `lux run`, a silent hang on Rust and Swift, which optimize the self-call
+into a loop, and a gigabyte of stack followed by a runtime dump on Go
+([#27](https://github.com/anderix/lux/issues/27)). That second one is the graduation
+moment at its least forgiving — a program that told you what was wrong when you ran
+it just stops saying anything once you build it.
+
+The third is the sequel to the cubic walk, and it came the same way, from reading
+emitted code rather than running it. Hoisting the loop bound moved the copy but did
+not remove it, and a grid handed to an accessor inside an inner loop is still
+deep-copied every time round. Swift is the one implementation that doesn't pay:
+its arrays are copy-on-write, so a parameter nobody writes to is never copied, and on
+identical source at n=800 it comes in two hundred times faster than Rust
+([#28](https://github.com/anderix/lux/issues/28)). What makes that a defect rather
+than a tradeoff is that lux refuses to compile a write through a parameter at all —
+`a parameter never changes` — so the copy is guarding against a program nobody is
+allowed to write.
 
 ## The rules
 
