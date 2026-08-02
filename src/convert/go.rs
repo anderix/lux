@@ -401,18 +401,41 @@ impl Gen {
             head.push_str(&self.gen_struct_copy(n));
         }
         if self.uses_read_file {
-            // os.ReadFile hands back bytes; lux reads a string, so decode here.
+            // os.ReadFile hands back bytes; lux reads a string, so decode here. The
+            // failure names the operation and the path before the reason — `could not
+            // read <path>: <reason>` — the shape the interpreter and the other targets
+            // build, so one source reads the same on all four (#43). `ioReason` strips
+            // Go's own `open <path>:` wrapper so the path isn't stated twice.
             head.push_str(
                 "func readFile(path string) (string, error) {\n\
                  \tdata, err := os.ReadFile(path)\n\
-                 \treturn string(data), err\n\
+                 \tif err != nil {\n\
+                 \t\treturn \"\", fmt.Errorf(\"could not read %s: %s\", path, ioReason(err))\n\
+                 \t}\n\
+                 \treturn string(data), nil\n\
                  }\n\n",
             );
         }
         if self.uses_write_file {
             head.push_str(
                 "func writeFile(path string, contents string) error {\n\
-                 \treturn os.WriteFile(path, []byte(contents), 0644)\n\
+                 \tif err := os.WriteFile(path, []byte(contents), 0644); err != nil {\n\
+                 \t\treturn fmt.Errorf(\"could not write %s: %s\", path, ioReason(err))\n\
+                 \t}\n\
+                 \treturn nil\n\
+                 }\n\n",
+            );
+        }
+        if self.uses_read_file || self.uses_write_file {
+            // A file error from os is a *PathError whose message repeats the path
+            // (`open <path>: <reason>`); unwrap it to the bare reason, so lux's own
+            // `could not read <path>:` prefix doesn't state the path twice.
+            head.push_str(
+                "func ioReason(err error) string {\n\
+                 \tif pe, ok := err.(*os.PathError); ok {\n\
+                 \t\treturn pe.Err.Error()\n\
+                 \t}\n\
+                 \treturn err.Error()\n\
                  }\n\n",
             );
         }
@@ -490,7 +513,7 @@ impl Gen {
                  \t\tif exit, ok := err.(*exec.ExitError); ok {\n\
                  \t\t\treturn Output{status: exit.ExitCode(), stdout: stdout.String(), stderr: stderr.String()}, nil\n\
                  \t\t}\n\
-                 \t\treturn Output{}, err\n\
+                 \t\treturn Output{}, fmt.Errorf(\"could not run %s: %s\", program, err.Error())\n\
                  \t}\n\
                  \treturn Output{status: 0, stdout: stdout.String(), stderr: stderr.String()}, nil\n\
                  }\n\n",
@@ -1618,12 +1641,14 @@ impl Gen {
             "readFile" => {
                 self.uses_read_file = true;
                 self.uses_os = true;
+                self.uses_fmt = true;
                 let p = self.emit_expr(&args[0]);
                 format!("readFile({})", p)
             }
             "writeFile" => {
                 self.uses_write_file = true;
                 self.uses_os = true;
+                self.uses_fmt = true;
                 let p = self.emit_expr(&args[0]);
                 let c = self.emit_expr(&args[1]);
                 format!("writeFile({}, {})", p, c)
@@ -1634,6 +1659,7 @@ impl Gen {
             }
             "run" => {
                 self.uses_run = true;
+                self.uses_fmt = true;
                 let p = self.emit_expr(&args[0]);
                 // run's arguments are always [string]; emit the element type
                 // outright so an empty list is `[]string{}`, not Go's `[]any{}`.

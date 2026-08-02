@@ -159,6 +159,30 @@ fn a_top_level_main_runs_itself_everywhere() {
     assert_prints_everywhere(src, "mainrun", expected);
 }
 
+/// A failed `readFile` and a failed `run` name what was attempted, in lux's own
+/// shape `could not read/run <path>: <reason>`, on every backend — the path
+/// especially, so a program that touches several files says which one failed
+/// (#43). And a missing program takes the `err` arm, not a silent `ok` with a
+/// wrapper's status (#48). The reason text differs by platform, so this checks the
+/// shape and the branch, not an exact string.
+#[test]
+fn io_errors_name_the_path_on_every_backend() {
+    let src = "print(match readFile(\"no_such_file_here.txt\") {\n    ok(let t) => \"ok\"\n    err(let e) => e\n})\nprint(match run(\"no_such_prog_here\", []) {\n    ok(let o) => \"OK-\" + string(o.status)\n    err(let w) => w\n})\n";
+    for backend in ["rust", "go", "swift"] {
+        if let Some(out) = build_run("ioerr", backend, src) {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            assert!(
+                stdout.contains("could not read no_such_file_here.txt"),
+                "{backend}: readFile error should name the path, got:\n{stdout}"
+            );
+            assert!(
+                stdout.contains("could not run no_such_prog_here") && !stdout.contains("OK-"),
+                "{backend}: a missing program should take the err arm and name it, got:\n{stdout}"
+            );
+        }
+    }
+}
+
 // --- Rust ------------------------------------------------------------------
 
 #[test]

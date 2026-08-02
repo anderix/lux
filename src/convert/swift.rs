@@ -218,25 +218,50 @@ impl Gen {
             head.push_str("extension String: @retroactive Error {}\n\n");
         }
         if self.uses_read_file {
+            // Read through POSIX rather than Foundation's `String(contentsOfFile:)`,
+            // whose thrown error is Objective-C vocabulary (`NSCocoaErrorDomain`) and
+            // is factually wrong on a permission failure — it reports "file doesn't
+            // exist" for a file that exists (#43). `strerror(errno)` gives the same
+            // reason the interpreter and the other targets do, in lux's own shape.
             head.push_str(
                 "func readFile(_ path: String) -> Result<String, String> {\n\
-                 \tdo {\n\
-                 \t\treturn .success(try String(contentsOfFile: path, encoding: .utf8))\n\
-                 \t} catch {\n\
-                 \t\treturn .failure(\"\\(error)\")\n\
+                 \tlet fd = open(path, O_RDONLY)\n\
+                 \tif fd < 0 {\n\
+                 \t\treturn .failure(\"could not read \\(path): \\(String(cString: strerror(errno)))\")\n\
                  \t}\n\
+                 \tdefer { close(fd) }\n\
+                 \tvar data = [UInt8]()\n\
+                 \tvar buf = [UInt8](repeating: 0, count: 65536)\n\
+                 \twhile true {\n\
+                 \t\tlet n = read(fd, &buf, buf.count)\n\
+                 \t\tif n < 0 {\n\
+                 \t\t\treturn .failure(\"could not read \\(path): \\(String(cString: strerror(errno)))\")\n\
+                 \t\t}\n\
+                 \t\tif n == 0 { break }\n\
+                 \t\tdata.append(contentsOf: buf[0..<n])\n\
+                 \t}\n\
+                 \treturn .success(String(decoding: data, as: UTF8.self))\n\
                  }\n\n",
             );
         }
         if self.uses_write_file {
             head.push_str(
                 "func writeFile(_ path: String, _ contents: String) -> Result<Void, String> {\n\
-                 \tdo {\n\
-                 \t\ttry contents.write(toFile: path, atomically: true, encoding: .utf8)\n\
-                 \t\treturn .success(())\n\
-                 \t} catch {\n\
-                 \t\treturn .failure(\"\\(error)\")\n\
+                 \tlet fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0o644)\n\
+                 \tif fd < 0 {\n\
+                 \t\treturn .failure(\"could not write \\(path): \\(String(cString: strerror(errno)))\")\n\
                  \t}\n\
+                 \tdefer { close(fd) }\n\
+                 \tlet bytes = Array(contents.utf8)\n\
+                 \tvar off = 0\n\
+                 \twhile off < bytes.count {\n\
+                 \t\tlet n = bytes[off...].withUnsafeBytes { write(fd, $0.baseAddress, $0.count) }\n\
+                 \t\tif n < 0 {\n\
+                 \t\t\treturn .failure(\"could not write \\(path): \\(String(cString: strerror(errno)))\")\n\
+                 \t\t}\n\
+                 \t\toff += n\n\
+                 \t}\n\
+                 \treturn .success(())\n\
                  }\n\n",
             );
         }
@@ -259,9 +284,11 @@ impl Gen {
             );
         }
         if self.uses_run {
-            // /usr/bin/env gives the same PATH lookup Rust and Go do from a bare
-            // program name; the child's input is the null device. A throw means
-            // it never launched (lux's err); a non-zero exit rides in Output.
+            // Resolve a bare program name against PATH ourselves and launch it
+            // directly, so a program that isn't there is a launch failure (lux's err)
+            // — going through `/usr/bin/env` made a missing program the wrapper's
+            // status 127, an `ok` where the other three return `err` (#48). The
+            // child's input is the null device; a non-zero exit rides in Output.
             head.push_str(
                 "struct Output: Equatable {\n\
                  \tlet status: Int\n\
@@ -271,9 +298,19 @@ impl Gen {
             );
             head.push_str(
                 "func run(_ program: String, _ args: [String]) -> Result<Output, String> {\n\
+                 \tvar resolved = program\n\
+                 \tif !program.contains(\"/\") {\n\
+                 \t\tlet dirs = (ProcessInfo.processInfo.environment[\"PATH\"] ?? \"\").split(separator: \":\")\n\
+                 \t\tguard let found = dirs.map({ \"\\($0)/\\(program)\" }).first(where: {\n\
+                 \t\t\tFileManager.default.isExecutableFile(atPath: $0)\n\
+                 \t\t}) else {\n\
+                 \t\t\treturn .failure(\"could not run \\(program): No such file or directory\")\n\
+                 \t\t}\n\
+                 \t\tresolved = found\n\
+                 \t}\n\
                  \tlet process = Process()\n\
-                 \tprocess.executableURL = URL(fileURLWithPath: \"/usr/bin/env\")\n\
-                 \tprocess.arguments = [program] + args\n\
+                 \tprocess.executableURL = URL(fileURLWithPath: resolved)\n\
+                 \tprocess.arguments = args\n\
                  \tlet outPipe = Pipe()\n\
                  \tlet errPipe = Pipe()\n\
                  \tprocess.standardOutput = outPipe\n\
@@ -282,7 +319,7 @@ impl Gen {
                  \tdo {\n\
                  \t\ttry process.run()\n\
                  \t} catch {\n\
-                 \t\treturn .failure(\"\\(error)\")\n\
+                 \t\treturn .failure(\"could not run \\(program): \\(error.localizedDescription)\")\n\
                  \t}\n\
                  \tlet outData = outPipe.fileHandleForReading.readDataToEndOfFile()\n\
                  \tlet errData = errPipe.fileHandleForReading.readDataToEndOfFile()\n\

@@ -156,7 +156,7 @@ fn run(program: String, args: Vec<String>) -> Result<Output, String> {
             stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
             stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
         }),
-        Err(e) => Err(e.to_string()),
+        Err(e) => Err(format!(\"could not run {}: {}\", program, e)),
     }
 }
 ";
@@ -1159,14 +1159,22 @@ impl Gen {
             "eprint" => self.println_call("eprintln", args),
             // Each fallible call turns the target's native error into a string, so
             // the lux source stays `Result<_, string>` on this side too.
+            // The failure string names the operation and the path before the
+            // reason — `could not read <path>: <reason>` — the same shape the
+            // interpreter and the other targets build, so one source reads the same
+            // on all four (#43). The path is bound once so the closure can name it.
             "readFile" => {
                 let p = self.emit_moved(&args[0]);
-                format!("std::fs::read_to_string({}).map_err(|e| e.to_string())", p)
+                format!(
+                    "{{ let p = {p}; std::fs::read_to_string(&p).map_err(|e| format!(\"could not read {{}}: {{}}\", p, e)) }}"
+                )
             }
             "writeFile" => {
                 let p = self.emit_moved(&args[0]);
                 let c = self.emit_moved(&args[1]);
-                format!("std::fs::write({}, {}).map_err(|e| e.to_string())", p, c)
+                format!(
+                    "{{ let p = {p}; std::fs::write(&p, {c}).map_err(|e| format!(\"could not write {{}}: {{}}\", p, e)) }}"
+                )
             }
             "args" => "std::env::args().collect::<Vec<String>>()".to_string(),
             "readLine" => {
