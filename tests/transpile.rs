@@ -1931,3 +1931,18 @@ print(x + x)
         "Swift should use wrapping operators for integer arithmetic:\n{swift}"
     );
 }
+
+/// A large integer literal defaults to `i32` in Rust, so one past that range — 3
+/// billion, ordinary in a real file — overflowed the default type at compile time
+/// when it landed in an expression rather than an annotated binding. It now carries
+/// an `i64` suffix where it needs one, so the four agree; small literals stay bare.
+#[test]
+fn a_large_integer_literal_compiles_on_every_backend() {
+    let src = "print(3000000000)\nprint(3000000000 * 2)\nlet big = 5000000000\nprint(big - 1)\n";
+    assert_prints_everywhere(src, "bigint", "3000000000\n6000000000\n4999999999\n");
+    let rust = convert::to_rust(&parser::parse(lexer::lex(src).expect("lex")).expect("parse"));
+    assert!(
+        rust.contains("3000000000i64") && !rust.contains("2i64"),
+        "a literal past i32 takes an i64 suffix; a small one stays bare:\n{rust}"
+    );
+}

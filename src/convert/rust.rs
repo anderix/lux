@@ -771,7 +771,19 @@ impl Gen {
 
     fn emit_expr(&mut self, e: &Expr) -> String {
         match e {
-            Expr::Int(n, _) => n.to_string(),
+            // A bare integer literal defaults to `i32` in Rust, so one past that
+            // range needs an explicit `i64` or it overflows the default type at
+            // compile time — a large number in an expression (`3000000000 * 2`)
+            // otherwise won't build, where the interpreter and the other targets
+            // hold it fine. A binding already annotates its type; this covers the
+            // literal wherever else it lands. Small literals stay unadorned.
+            Expr::Int(n, _) => {
+                if *n >= i32::MIN as i64 && *n <= i32::MAX as i64 {
+                    n.to_string()
+                } else {
+                    format!("{}i64", n)
+                }
+            }
             Expr::Float(f, _) => format_float(*f),
             Expr::Str(s, _) => format!("\"{}\".to_string()", escape(s)),
             Expr::Bool(b, _) => b.to_string(),

@@ -4,6 +4,97 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0] - 2026-08-02
+
+Another pass of the same method — a corpus run through `lux run` and its compiled
+Go, Rust, and Swift, every byte diffed — pushed past where a program prints the
+same answer into where it *fails*: dividing by zero, overflowing an int, recursing
+without end, calling a name that isn't there. These are the mistakes a beginner
+actually makes, and they were exactly where the four implementations diverged most
+and where `lux build` handed the learner a wall of rustc. Twelve findings, all
+resolved. Some tighten what lux accepts — `func main` is refused, and `lux convert`
+and `lux build` now check a program before emitting it — so this is a minor
+release, not a patch.
+
+### Changed
+
+- **Integer overflow wraps on all four legs.** Swift trapped on overflow while the
+  interpreter, Go, and release-Rust wrapped, and `lux build` — a debug rustc with
+  overflow checks on — trapped too, so `lux run` and `lux build` disagreed over a
+  flag nobody chose. The four now agree: integer arithmetic wraps. Trapping would be
+  more honest about a silent wraparound, but it would wrap a guard-helper call around
+  every `+`, `-`, and `*` in the generated code — the most basic arithmetic a learner
+  reads — to catch a case a beginner essentially never reaches, unlike dividing by
+  zero. Keeping the four in step and the generated code readable won. The interpreter
+  wraps; Go already did; `lux build` compiles with overflow checks off so its Rust
+  wraps and matches `lux run`; Swift takes its masking operators (`&+ &- &*`). Go and
+  Rust source are exactly as readable as before.
+- **`func main` is refused, with a reason.** `main` is the first function name a
+  learner arriving from C, Java, Go, or Rust reaches for, and lux ran it fine, then
+  generated its own `main` as the entry point, so the program wouldn't build on Rust
+  or Go. It's now refused at the definition, on every command: lux runs a program
+  from its first line and has no entry point to declare.
+- **The recursion limit tells the truth, and is higher.** 0.15.1 stopped runaway
+  recursion from aborting, but the message diagnosed a missing base case as fact —
+  a lie to the learner whose program has a base case, reaches it, and simply nests
+  deep. Depth alone can't tell the two apart, so the error now names the limit and
+  offers both readings, pointing a genuinely deep program at `lux build` to run past
+  it. The limit itself was 10,000, low enough to reach by accident on a real file;
+  it's now 25,000, on a larger interpreter stack so the guard, not a stack overflow,
+  is what stops a runaway even in a debug build. `lux build --help` notes the other
+  direction: the compiled targets don't carry the guard, so a runaway there hangs or
+  crashes, which is why you run a program with `lux run` while finding its bugs.
+
+### Fixed
+
+- **`lux convert` and `lux build` check a program before emitting it.** `lux run`
+  catches a broken program and explains it in lux's words; convert and build did no
+  checking, so the same program was translated and the learner met rustc — pointed at
+  a generated file they never wrote, sometimes with advice (`mut xs`) that is exactly
+  what lux forbids. Both now run the structural checks first, refusing with the
+  interpreter's own message: a call to a function that isn't there or takes the wrong
+  number of values, and a write through a parameter. The type-directed rules are left
+  to the target compiler for now, since a static answer would risk refusing a valid
+  program.
+- **Division by zero reports a lux error on the compiled targets.** The interpreter
+  said `division by zero` and exited; the built binary showed the host runtime doing
+  it — a Rust panic trace, a Go goroutine dump, a Swift register dump. Integer `/` and
+  `%` now guard the divisor and report in lux's words on every target. The three
+  already detected the zero; only the message was wrong.
+- **Rust: a struct named in an array literal is cloned, not moved.** Naming a value
+  and then listing it — `let rect = [origin, …]` — moved it, so a later
+  `print(origin)` wouldn't compile. The array element was the one move site the clone
+  set missed.
+- **Rust: changing an array while looping over it compiles.** Adding to a list while
+  walking it — the first version of a queue or a flood fill — held the array borrowed,
+  so the append wouldn't build, where the interpreter, Swift, and Go all accept it. It
+  now iterates a snapshot, matching their semantics and releasing the borrow.
+- **A read-only array parameter isn't copied at every call.** A function that returns
+  a scalar can't leak a parameter's backing, and lux already forbids writing through a
+  parameter, so the copy that guarded an accessor like `cols(m)` was defending against
+  a write the language won't allow — and inside a loop it turned an O(n²) walk into
+  O(n³). Go now passes such an argument as-is and Rust borrows it; Swift was already
+  right, on copy-on-write.
+- **Go: a whole float prints with its decimal point.** `fmt` rendered a `float`
+  holding 88.0 as `88`, indistinguishable from an int — erasing the very distinction
+  lux enforces at every arithmetic. A float now renders lux's way, as a scalar, inside
+  an array, and through `string()`.
+- **Go: `int()` of a float literal compiles.** `int(3.9)` emitted Go that Go rejects —
+  it won't truncate a constant — so a float conversion now reaches the truncation as a
+  runtime value.
+- **Swift: an annotated `Option` binding keeps its type.** `let a: Option<int> =
+  some(5)` dropped the annotation, leaving `.some(5)` with nothing to infer from. The
+  annotation the program wrote is carried through.
+- **A user type named `LuxShow` doesn't collide with the printer.** The trait (Rust)
+  and protocol (Swift) injected for compound printing took a name a learner could also
+  choose, so a `struct LuxShow` wouldn't build. The generated name now steps aside, so
+  the learner keeps the name.
+- **Rust: a large integer literal compiles.** A bare literal defaults to `i32` in
+  Rust, so a number past that range — three billion, ordinary in a real file —
+  overflowed the default type at compile time when it landed in an expression rather
+  than an annotated binding. It now carries an `i64` suffix where it needs one; small
+  literals stay bare.
+
 ## [0.15.1] - 2026-08-01
 
 A follow-on to 0.15.0 by the same method that produced it: writing a corpus of
