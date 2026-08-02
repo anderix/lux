@@ -19,6 +19,9 @@ first year — who would rather read working programs than a feature list.
 
 Each program runs through `lux run` and through its compiled Go, Rust, and Swift
 translations, and the four outputs are diffed. The interpreter is the reference.
+Every leg is built the way a learner would build it — `lux build` for Rust, a plain
+`go build` or `swiftc` for the other two, no optimization flags — because a corpus
+that tests a configuration nobody runs is measuring the wrong thing.
 Every program here is deterministic, because lux has no way to produce a random
 number and that is [deliberate](https://github.com/anderix/lux/issues/3) — so the
 comparison needs no seeding and no tolerance. Same bytes, or a failure.

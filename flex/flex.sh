@@ -6,6 +6,10 @@
 # compiled Go, Rust, and Swift translations, and the outputs are diffed. The
 # interpreter is the reference; a target that disagrees is wrong.
 #
+# Each leg is built the way a learner would build it — `lux build` for Rust, and a
+# plain `go build` or `swiftc` for the other two. No optimization flags: a corpus
+# that tests a configuration nobody runs is measuring the wrong thing.
+#
 # Every program here is deterministic — lux has no way to produce a random
 # number, deliberately (anderix/lux#3) — so this needs no seeding and no
 # tolerance. Same bytes or a failure.
@@ -63,12 +67,18 @@ build () { # <target> <program>
                 2>>"$WORK/$prog.$target.err" || return 1
             ;;
         rust)
-            lux convert rust "$HERE/$prog.lux" > "$src.rs" 2>"$WORK/$prog.$target.err" || return 1
-            rustc --crate-name "$prog" --edition 2021 -O -o "$bin" "$src.rs" 2>>"$WORK/$prog.$target.err" || return 1
+            # `lux build` is the whole Rust leg, because it is the single command a
+            # learner is given for turning a program into a binary. Driving rustc by
+            # hand here would test a configuration nobody produces — which it did,
+            # with -O, until an overflow turned out to behave differently under the
+            # two (anderix/lux#35).
+            mkdir -p "$src" || return 1
+            ( cd "$src" && lux build "$HERE/$prog.lux" ) >"$WORK/$prog.$target.err" 2>&1 || return 1
+            mv "$src/$prog" "$bin" 2>/dev/null || return 1
             ;;
         swift)
             lux convert swift "$HERE/$prog.lux" > "$src.swift" 2>"$WORK/$prog.$target.err" || return 1
-            swiftc -O -o "$bin" "$src.swift" 2>>"$WORK/$prog.$target.err" || return 1
+            swiftc -o "$bin" "$src.swift" 2>>"$WORK/$prog.$target.err" || return 1
             ;;
     esac
     return 0
