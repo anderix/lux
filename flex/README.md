@@ -146,12 +146,13 @@ which is what keeps one source crossing three targets. There are no classes, no 
 generics, and no ownership. Each of those is somebody's graduation lesson: Rust
 takes over for ownership, Swift for classes, Go for goroutines.
 
-`func main` is refused, which is worth calling out because it is the first thing
-anyone arriving from another language types. lux runs a program from its first line
-and has no entry point to declare, so the name buys nothing and the error says so —
-*name this function for what it does and call it yourself, the way you call any
-other.* It reads as a wall for about ten seconds and then as one less piece of
-ceremony to explain.
+`main` is not on this list, and the story of how it got off is worth a paragraph.
+For one release `func main` was refused outright — lux runs a program from its first
+line, so an entry point bought nothing but a build-time collision. It is now the
+program's entry point: define one and lux calls it, exactly as the compiled targets
+do. What changed is not the capability but where it sits. It is taught last, as the
+bridge out rather than the ceremony you open with, and every program in this
+directory is deliberately main-free because that is how lux itself teaches.
 
 **Not built yet, and wanted.** Strings cannot be split or indexed, and there is no
 map type. Both are on the list ahead of anything else, pulled by programs that
