@@ -6,12 +6,13 @@ All notable changes to lux are recorded here. The format follows
 
 ## [0.17.0] - 2026-08-02
 
-lux gains the one piece of ceremony every other language starts with — and it
+lux gains the one piece of ceremony the C-family languages start with — and it
 arrives last, as the bridge out. A program never needed a `main`, and still
 doesn't: with none, the file is the program and runs top to bottom, the beginner's
 whole world. But a top-level `func main` is now the program's entry point, and lux
-runs it for you — the shape Rust, Go, Swift, Java, and C all require, met here for
-the first time with everything else already understood. Where 0.16.0 refused
+runs it for you — the shape Rust, Go, Java, and C require (Swift, like lux, lets
+the file be the program), met here for the first time with everything else already
+understood. Where 0.16.0 refused
 `func main` to spare a learner a build-time collision, it now accepts it and teaches
 it: the same hello-world you started with, this time with `main` around it and every
 character still yours.

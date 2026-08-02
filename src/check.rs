@@ -58,9 +58,10 @@ pub fn check_before_emit(program: &[Stmt]) -> Result<(), LuxError> {
 /// The rules that make a top-level `func main` the program's entry point. lux
 /// doesn't need one — with no `main`, the file is the program and runs top to
 /// bottom, the starting gift a beginner never has to earn. But `main` is the shape
-/// every other language requires, so lux accepts it too, as the last lesson before
-/// leaving: define it and lux runs it for you, exactly as Rust, Go, Swift, Java, and
-/// C do. That "runs it for you" is one idea seen from three sides, and each side is
+/// the C-family languages require, so lux accepts it too, as the last lesson before
+/// leaving: define it and lux runs it for you, exactly as Rust, Go, Java, and C do
+/// (Swift, like lux, lets the file be the program — it has no entry-point `main`).
+/// That "runs it for you" is one idea seen from three sides, and each side is
 /// a rule here, each phrased to teach it. `main` takes no values and returns nothing
 /// (it is where a program starts, not a function whose result is used); nothing else
 /// runs beside it at the top level (once you name the start, there is nowhere for

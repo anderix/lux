@@ -245,10 +245,10 @@ fn run_with(
                 interp.validate_type_decls(program)?;
                 interp.register_funcs(program)?;
                 // With a top-level `func main`, main is the entry point and lux runs
-                // it — the graduation shape every other language requires (checked in
+                // it — the graduation shape the C-family languages require (checked in
                 // `check::check`, which guarantees nothing else runs at the top level
                 // beside it). With no `main`, the file is the program and runs top to
-                // bottom, the way a first program does.
+                // bottom, the way a first program does — and the way Swift stays.
                 let has_main = program
                     .iter()
                     .any(|s| matches!(s, Stmt::Func { name, .. } if name == "main"));

@@ -259,16 +259,6 @@ print("queue:", queue)
 
 > try: read `primes[10]` and run — lux stops you at an index past the end of the array.
 
-An array's values can themselves be arrays, which is how you get a grid — a row of
-rows, written `[[int]]` and reached with a second index.
-
-```lux
-var grid: [[int]] = [[1, 2, 3], [4, 5, 6]]
-grid[0][2] = 9
-print(grid[1][0])       // 4
-print(grid)             // [[1, 2, 9], [4, 5, 6]]
-```
-
 <!-- more -->
 An array is a *data structure* — the simplest compound type, many values of one
 type laid in a row and reached by an index that counts from 0. That zero-based
@@ -281,6 +271,14 @@ elements are themselves arrays, so the rows can be different lengths and you gro
 one the way you grow any array. Coming from a language with fixed-size rectangular
 arrays that is the thing to unlearn: here a ragged table or a triangle is an
 ordinary value, and a board is `[[int]]` rather than one flat row you index by hand.
+You reach an element with a second index, and assign through it the same way.
+
+```lux
+var grid: [[int]] = [[1, 2, 3], [4, 5, 6]]
+grid[0][2] = 9
+print(grid[1][0])       // 4
+print(grid)             // [[1, 2, 9], [4, 5, 6]]
+```
 
 > see: for — the loop built for walking an array · structs — the other compound type, a few different things instead of many of the same
 
@@ -693,30 +691,21 @@ lux can't quite manage — a room that remembers, a command typed in plain Engli
 <!-- topic: main -->
 ## main — where a program starts
 
-Your very first lux program was one line:
-
-```lux
-print("Hello, world!")
-```
-
-Nothing came before it. The file was the program, and it still is — that is
-lux's starting gift, and it never goes away. But every language you are about to
-meet asks for one thing lux never did: a place that says *start here*. It is
-called `main`, and now that you understand everything else, it is the last piece
-worth meeting — because this time you will understand the whole of it.
-
-In lux it looks like this:
+Your very first lux program was a single line — `print("Hello, world!")` — with
+nothing before it: the file was the program, and it still is. That is lux's
+starting gift, and it never goes away. But many of the languages you are about to
+meet — Rust, Go, Java, C — ask for one thing lux never did: a named place to
+start, and they call it `main`. In lux it is an ordinary-looking function with one
+special job. It is where your program begins, and you do not call it — lux runs it
+for you. That is what "where a program starts" means: the one function the
+language calls, so you don't. Name the start, and the top level holds only your
+definitions; the work moves inside.
 
 ```lux
 func main() {
     print("Hello, world!")
 }
 ```
-
-The same program, dressed to travel. `main` is where your program begins, and
-you do not call it — lux runs it for you. That is exactly what "where a program
-starts" means: the one function the language calls, so you don't. Once you name
-the start, the top level is only your definitions; the work moves inside.
 
 > try: put a `print` line *outside* main. lux stops you — once there is a start,
 > loose code has nowhere left to run.
@@ -901,7 +890,8 @@ The interpreter grew toward that surface in milestones, simplest first:
     world and the way every concept above is taught; the starter world and the
     lessons stay main-free on purpose, so this arrives as the single new idea it is.
     A *top-level* `func main` becomes the program's entry point and lux runs it —
-    the shape Rust, Go, Swift, Java, and C all require — with three rules that are
+    the shape Rust, Go, Java, and C require, though not Swift, which like lux lets
+    the file be the program — with three rules that are
     one idea (it is where a program starts, run by the language): it takes no values,
     returns nothing, and shares the top level with nothing but definitions, and you
     don't call it yourself. The rules live in `check::check` so they hold on `run`,

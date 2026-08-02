@@ -233,6 +233,33 @@ fn every_more_page_has_prose() {
     }
 }
 
+/// A card is parsed as one concept paragraph, one example fence, and a `try` hint;
+/// anything an author writes after that first fence — a second code block, a second
+/// paragraph — is silently dropped from `lux learn <topic>`. So a card region may
+/// hold at most one fenced block, or the card is quietly showing less than it says.
+/// (The `main` card was authored with two and lost its `func main` example until
+/// this caught it; the deeper prose belongs on the `more` page, which does render
+/// several blocks.)
+#[test]
+fn no_card_hides_content_after_its_first_fence() {
+    const DOC: &str = include_str!("../learn-lux.md");
+    let region = DOC.split("<!-- learn:end -->").next().unwrap_or(DOC);
+    for chunk in region.split("<!-- topic:").skip(1) {
+        let id = chunk.split("-->").next().unwrap_or("").trim();
+        // The card is everything before the `more` page begins.
+        let card = chunk.split("<!-- more -->").next().unwrap_or(chunk);
+        let fences = card
+            .lines()
+            .filter(|l| l.trim_start().starts_with("```"))
+            .count();
+        assert!(
+            fences <= 2,
+            "card `{id}` has {fences} fence lines (>1 code block); content after the \
+             first fence is dropped from the card — move it to the more page"
+        );
+    }
+}
+
 #[test]
 fn basics_names_real_topics() {
     // The skeleton page is furniture, not a topic. It covers only the universal
