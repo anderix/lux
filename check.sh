@@ -11,9 +11,11 @@
 #   ./check.sh          fmt, clippy, build, cargo test, conformance, flex  (full)
 #   ./check.sh fast     fmt, clippy, build, cargo test only    (the tight loop)
 #
-# Exits non-zero on the first failure, so it drops cleanly into a pre-push hook
-# or CI. A missing target compiler isn't a failure — that leg is skipped, the
-# same as the suites do on their own.
+# The gated checks exit non-zero on the first failure, so this drops cleanly into
+# a pre-push hook or CI. The flex corpus is the exception: it reports its tally but
+# never fails the run, because finding a divergence is its job, not a regression
+# (#22). A missing target compiler isn't a failure either — that leg is skipped,
+# the same as the suites do on their own.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
@@ -43,11 +45,21 @@ fi
 # Test the binary just built, never a stale installed one.
 export PATH="$ROOT/target/debug:$PATH"
 
+# conformance/ is the baseline: its programs cover the language, and red there
+# means something regressed — so it gates.
 echo "==> conformance corpus"
 bash conformance/conformance.sh
 
-echo "==> flex corpus"
-bash flex/flex.sh
+# flex/ is the frontier: its job is to find divergences by running programs nobody
+# has written before, so going red is a finding to file, not a push blocker (#22).
+# It runs here for visibility — the tally prints on every check — but never fails
+# the gate, so a discovery in flex can't block work that has nothing to do with it.
+echo "==> flex corpus (reports findings, does not gate)"
+if bash flex/flex.sh; then
+    flex_note=""
+else
+    flex_note=" Flex reported divergences above — findings to file, not push blockers."
+fi
 
 echo
-echo "All checks passed."
+echo "All gated checks passed.${flex_note}"
