@@ -112,7 +112,7 @@ pub(crate) struct Types {
 }
 
 impl Types {
-    fn new(program: &[Stmt]) -> Self {
+    pub(crate) fn new(program: &[Stmt]) -> Self {
         let mut env = Env {
             structs: HashMap::new(),
             enums: HashMap::new(),
@@ -204,7 +204,7 @@ impl Types {
         false
     }
 
-    fn type_of(&self, e: &Expr) -> Ty {
+    pub(crate) fn type_of(&self, e: &Expr) -> Ty {
         match e {
             Expr::Int(..) => Ty::Int,
             Expr::Float(..) => Ty::Float,

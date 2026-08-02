@@ -6,15 +6,24 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::ast::{Expr, Param, Stmt};
+use crate::ast::{Expr, Param, Stmt, TypeAnn, TypeKind};
+use crate::convert::{Ty, Types};
 use crate::diagnostic::{LuxError, Span};
-use crate::interpreter::{BUILTINS, count, describe_place, nearest_name};
+use crate::interpreter::{
+    BUILTINS, count, describe_place, nearest_name, result_not_parameter, result_not_printed,
+    result_not_stored,
+};
 
 /// Run every whole-program check, returning the first failure. Kept to rules that
 /// are true of a declaration on its own — no evaluation, no type inference — so a
 /// pass here means nothing about whether the program is otherwise correct.
 pub fn check(program: &[Stmt]) -> Result<(), LuxError> {
-    entry_point(program)
+    entry_point(program)?;
+    // A `Result` parameter is the store-a-Result rule seen at a binding, and it's
+    // syntactic — the annotation says `Result<…>` — so it's refused on every path,
+    // making `lux run` agree with the targets rather than accepting what Go can't
+    // emit (#42).
+    reject_result_parameter(program)
 }
 
 /// The checks `lux run` makes that `lux convert` and `lux build` must make too,
@@ -25,14 +34,16 @@ pub fn check(program: &[Stmt]) -> Result<(), LuxError> {
 /// switch off at exactly that moment, and hardest for the lux-specific rules the
 /// target compilers describe worst.
 ///
-/// Only the checks decidable from the program's structure, with no type inference:
-/// a call to a function that isn't there or is passed the wrong number of values,
-/// and a write through a parameter — the rule the issue leads with, and one no
-/// target language phrases in lux's terms. The type-directed rules (mixing `int`
-/// and `float`, storing a `Result`, a return type that doesn't match) are left to
-/// the target compiler for now: a static answer to them would lean on inference
-/// that assumes a well-formed program, and refusing a valid one is worse than the
-/// wall of rustc it was meant to prevent.
+/// Mostly the checks decidable from the program's structure, with no type
+/// inference: a call to a function that isn't there or is passed the wrong number
+/// of values, and a write through a parameter — the rule the issue leads with, and
+/// one no target language phrases in lux's terms. The one type-directed rule that
+/// belongs here is a stored `Result` (#39) — see `reject_result_flow` for why it's
+/// safe where the others aren't. The remaining type-directed rules (mixing `int`
+/// and `float`, a return type that doesn't match) are left to the target compiler
+/// for now: a static answer to them would lean on inference that assumes a
+/// well-formed program, and refusing a valid one is worse than the wall of rustc it
+/// was meant to prevent.
 pub fn check_before_emit(program: &[Stmt]) -> Result<(), LuxError> {
     let funcs: HashMap<&str, usize> = program
         .iter()
@@ -52,6 +63,14 @@ pub fn check_before_emit(program: &[Stmt]) -> Result<(), LuxError> {
         .collect();
     check_calls(program, &funcs, &types)?;
     check_param_writes(program)?;
+    // The store-a-Result rule is the one type-directed check that moves across to
+    // convert/build (#39): unlike mixing int and float or a wrong return type, it
+    // isn't caught by the target compiler — the program builds and prints `Ok(…)`
+    // on Rust and `success(…)` on Swift, the one value lux says can never be
+    // printed. It also can't false-positive: a `Result` is never storable, so
+    // there's no valid program to turn away. It's the rule that keeps one source
+    // crossing three targets, so it's enforced where the value is produced.
+    reject_result_flow(program, &Types::new(program))?;
     Ok(())
 }
 
@@ -532,6 +551,148 @@ fn find_param_write(stmts: &[Stmt], protected: &HashSet<&str>) -> Result<(), Lux
             Stmt::Func { .. } => {}
             _ => {}
         }
+    }
+    Ok(())
+}
+
+// ----- the Result rule: not a parameter, not stored, not printed -------------
+
+/// Report the first `Result`-typed parameter, in any function. A `Result` is
+/// handled where it's produced, so it can't be handed in as a value — the same
+/// rule the `let` case enforces, checked here from the annotation alone (#42).
+fn reject_result_parameter(stmts: &[Stmt]) -> Result<(), LuxError> {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Func { params, body, .. } => {
+                for p in params {
+                    if is_result_ann(&p.ty) {
+                        return Err(result_not_parameter(p.span));
+                    }
+                }
+                reject_result_parameter(body)?;
+            }
+            Stmt::If {
+                then_body,
+                else_body,
+                ..
+            } => {
+                reject_result_parameter(then_body)?;
+                if let Some(e) = else_body {
+                    reject_result_parameter(e)?;
+                }
+            }
+            Stmt::While { body, .. } | Stmt::For { body, .. } => reject_result_parameter(body)?,
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn is_result_ann(a: &TypeAnn) -> bool {
+    matches!(&a.kind, TypeKind::Generic(name, _) if name == "Result")
+}
+
+/// Refuse a `Result` stored in a binding or handed to `print`/`eprint`, the same
+/// two places the interpreter refuses it at runtime — so `lux convert` and `lux
+/// build` reject it before emitting rather than compiling a program `lux run`
+/// won't accept (#39). Returning a `Result` is fine — that's handing it to the
+/// caller — so a `return` value is not a stored one.
+fn reject_result_flow(stmts: &[Stmt], types: &Types) -> Result<(), LuxError> {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Let { value, .. } => stored_check(value, types)?,
+            Stmt::Var { value: Some(v), .. } => stored_check(v, types)?,
+            Stmt::Assign { target, value, .. } => {
+                stored_check(value, types)?;
+                print_check(target, types)?;
+            }
+            Stmt::Return { value: Some(v), .. } => print_check(v, types)?,
+            Stmt::Expr(e) => print_check(e, types)?,
+            Stmt::If {
+                cond,
+                then_body,
+                else_body,
+                ..
+            } => {
+                print_check(cond, types)?;
+                reject_result_flow(then_body, types)?;
+                if let Some(e) = else_body {
+                    reject_result_flow(e, types)?;
+                }
+            }
+            Stmt::While { cond, body, .. } => {
+                print_check(cond, types)?;
+                reject_result_flow(body, types)?;
+            }
+            Stmt::For { iter, body, .. } => {
+                print_check(iter, types)?;
+                reject_result_flow(body, types)?;
+            }
+            Stmt::Func { body, .. } => reject_result_flow(body, types)?,
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// A value flowing into a binding: refuse it if its type is a `Result`. The
+/// binding position also carries any `print` nested in the value.
+fn stored_check(value: &Expr, types: &Types) -> Result<(), LuxError> {
+    if matches!(types.type_of(value), Ty::Result(..)) {
+        return Err(result_not_stored(value.span()));
+    }
+    print_check(value, types)
+}
+
+/// Walk an expression for a `print`/`eprint` whose argument is a `Result`.
+fn print_check(e: &Expr, types: &Types) -> Result<(), LuxError> {
+    if let Expr::Call { name, args, .. } = e {
+        if matches!(name.as_str(), "print" | "eprint") {
+            for a in args {
+                if matches!(types.type_of(a), Ty::Result(..)) {
+                    return Err(result_not_printed(a.span()));
+                }
+            }
+        }
+        for a in args {
+            print_check(a, types)?;
+        }
+        return Ok(());
+    }
+    match e {
+        Expr::Array(items, _) => {
+            for x in items {
+                print_check(x, types)?;
+            }
+        }
+        Expr::Unary { rhs, .. } => print_check(rhs, types)?,
+        Expr::Binary { lhs, rhs, .. } => {
+            print_check(lhs, types)?;
+            print_check(rhs, types)?;
+        }
+        Expr::Index { base, index, .. } => {
+            print_check(base, types)?;
+            print_check(index, types)?;
+        }
+        Expr::Range { start, end, .. } => {
+            print_check(start, types)?;
+            print_check(end, types)?;
+        }
+        Expr::StructLit { fields, .. } | Expr::EnumLit { fields, .. } => {
+            for (_, v) in fields {
+                print_check(v, types)?;
+            }
+        }
+        Expr::Field { base, .. } => print_check(base, types)?,
+        Expr::Match {
+            scrutinee, arms, ..
+        } => {
+            print_check(scrutinee, types)?;
+            for arm in arms {
+                print_check(&arm.body, types)?;
+            }
+        }
+        _ => {}
     }
     Ok(())
 }

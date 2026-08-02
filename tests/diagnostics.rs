@@ -300,6 +300,43 @@ fn convert_refuses_a_write_through_a_parameter_like_run_does() {
     );
 }
 
+/// A stored `Result` is the one type-directed rule that convert/build enforce,
+/// because the target compiler doesn't catch it: the program builds and prints
+/// `Ok(...)`/`success(...)`, the value lux says can never be printed (#39). The
+/// same message `lux run` gives now fires before anything is emitted.
+#[test]
+fn convert_refuses_a_stored_result_like_run_does() {
+    let src = "let r = readFile(\"x.txt\")\nprint(r)\n";
+    let conv = convert_err("cstored", "rust", src);
+    assert!(
+        conv.contains("a Result can't be stored"),
+        "convert should refuse a stored Result, got:\n{conv}"
+    );
+    let run = err_of("rstored", src);
+    assert!(
+        run.contains("a Result can't be stored"),
+        "run and convert should report the same rule, got run:\n{run}"
+    );
+}
+
+/// A `Result` parameter is the same rule at a binding, and it has no Go type to
+/// lower to, so it's refused on every path — including `lux run`, which used to
+/// accept it (#42).
+#[test]
+fn a_result_parameter_is_refused_everywhere() {
+    let src = "func f(r: Result<string, string>) -> string {\n    return match r { ok(let t) => t  err(let e) => e }\n}\nprint(f(readFile(\"x.txt\")))\n";
+    let run = err_of("rresultparam", src);
+    assert!(
+        run.contains("a Result can't be a parameter"),
+        "run should refuse a Result parameter, got:\n{run}"
+    );
+    let conv = convert_err("cresultparam", "go", src);
+    assert!(
+        conv.contains("a Result can't be a parameter"),
+        "convert should refuse a Result parameter, got:\n{conv}"
+    );
+}
+
 #[test]
 fn convert_refuses_an_unknown_function() {
     let conv = convert_err("cunknown", "go", "print(frobnicate(3))\n");

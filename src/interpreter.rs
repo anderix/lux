@@ -2593,8 +2593,10 @@ fn is_result(v: &Value) -> bool {
     matches!(v, Value::Enum { enum_name, .. } if enum_name == "Result")
 }
 
-/// The error for trying to store a `Result` in a `let`/`var`.
-fn result_not_stored(span: Span) -> LuxError {
+/// The error for trying to store a `Result` in a `let`/`var`. Exposed so `lux
+/// convert` and `lux build` refuse it with the interpreter's own words before
+/// emitting, rather than building a program `lux run` rejects (#39).
+pub(crate) fn result_not_stored(span: Span) -> LuxError {
     LuxError::new(
         "a Result can't be stored — handle it where it's produced".to_string(),
         span,
@@ -2606,11 +2608,30 @@ fn result_not_stored(span: Span) -> LuxError {
     )
 }
 
+/// The error for a `Result`-typed parameter. A parameter is a binding, so handing
+/// a `Result` to a function is the same habit the `let` rule forbids — and it has
+/// no type to lower to in Go, where the value and the error are two returns, not
+/// one thing to name (#42). Refused on every path, so `lux run` agrees with the
+/// targets instead of running a program two of them build and one can't.
+pub(crate) fn result_not_parameter(span: Span) -> LuxError {
+    LuxError::new(
+        "a Result can't be a parameter — handle it where it's produced".to_string(),
+        span,
+    )
+    .with_note(
+        "match it at the call site and pass in what you need, or return the Result for the caller to face",
+    )
+    .with_learn(
+        "result",
+        "a Result is answered where it's made: matched or returned, not passed around",
+    )
+}
+
 /// The error for trying to `print` a `Result`. Printing it would slip the same
 /// pass-a-Result-around habit past the rule that keeps it from a variable — and
 /// it can't cross to Go, where the value and the error are two returns, not one
 /// thing to hand to `print`. Match it and print each side instead.
-fn result_not_printed(span: Span) -> LuxError {
+pub(crate) fn result_not_printed(span: Span) -> LuxError {
     LuxError::new(
         "a Result can't be printed — handle it where it's produced".to_string(),
         span,
