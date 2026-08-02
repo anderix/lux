@@ -11,8 +11,8 @@
 use crate::ast::*;
 
 use super::{
-    Ty, Types, bin_prec, escape, expr_mentions, format_float, indent, is_place, mutated_roots,
-    op_str, rust_ident, stmts_mention, to_pascal, to_snake, ty_from_ann,
+    Ty, Types, bin_prec, dodge_type_name, escape, expr_mentions, format_float, indent, is_place,
+    mutated_roots, op_str, rust_ident, stmts_mention, to_pascal, to_snake, ty_from_ann,
 };
 
 struct Gen {
@@ -47,6 +47,9 @@ struct Gen {
     /// nothing slice-backed can then escape the callee, and lux already forbids
     /// writing through a parameter. Set on entry to such a function, cleared on exit.
     ref_params: std::collections::HashSet<String>,
+    /// The name of the generated `LuxShow` trait, stepped aside if the program
+    /// declares a type of that name so the two can't clash (#37).
+    show_name: String,
     /// Integer `/` and `%` route through guard helpers that report a lux error on a
     /// zero divisor instead of panicking, so a learner meets `division by zero`
     /// rather than a Rust panic trace (#34). Emitted only when used.
@@ -142,6 +145,7 @@ pub fn to_rust(program: &[Stmt]) -> String {
         ref_params: std::collections::HashSet::new(),
         uses_lux_div: false,
         uses_lux_mod: false,
+        show_name: dodge_type_name("LuxShow", program),
     };
 
     for stmt in program {
@@ -204,16 +208,18 @@ pub fn to_rust(program: &[Stmt]) -> String {
         preamble.push('\n');
     }
     if g.uses_lux_show {
-        preamble.push_str(LUX_SHOW_PREAMBLE);
+        // The trait name steps aside from any user type of the same name, so the
+        // prelude and a `struct LuxShow` can't collide (#37).
+        preamble.push_str(&LUX_SHOW_PREAMBLE.replace("LuxShow", &g.show_name));
         // One `impl LuxShow` per user type, in declaration order, so a struct or
         // enum prints with lux's labels and its `Enum.case` form.
         for stmt in program {
             match stmt {
                 Stmt::Struct { name, fields, .. } => {
-                    preamble.push_str(&lux_show_struct(name, fields))
+                    preamble.push_str(&lux_show_struct(&g.show_name, name, fields))
                 }
                 Stmt::Enum { name, variants, .. } => {
-                    preamble.push_str(&lux_show_enum(name, variants))
+                    preamble.push_str(&lux_show_enum(&g.show_name, name, variants))
                 }
                 _ => {}
             }
@@ -290,7 +296,7 @@ impl<T: LuxShow, E: LuxShow> LuxShow for Result<T, E> {
 
 /// `impl LuxShow` for one struct: `Name(field: value, …)`, each field labelled
 /// with its lux name and read through its snake_case Rust field.
-fn lux_show_struct(name: &str, fields: &[FieldDef]) -> String {
+fn lux_show_struct(trait_name: &str, name: &str, fields: &[FieldDef]) -> String {
     let body = if fields.is_empty() {
         format!("\"{}()\".to_string()", name)
     } else {
@@ -311,14 +317,14 @@ fn lux_show_struct(name: &str, fields: &[FieldDef]) -> String {
         )
     };
     format!(
-        "impl LuxShow for {} {{\n    fn lux_show(&self) -> String {{\n        {}\n    }}\n}}\n\n",
-        name, body
+        "impl {} for {} {{\n    fn lux_show(&self) -> String {{\n        {}\n    }}\n}}\n\n",
+        trait_name, name, body
     )
 }
 
 /// `impl LuxShow` for one enum: `Enum.case` alone, or `Enum.case(field: value, …)`
 /// with a payload bound positionally out of the tuple variant.
-fn lux_show_enum(name: &str, variants: &[VariantDef]) -> String {
+fn lux_show_enum(trait_name: &str, name: &str, variants: &[VariantDef]) -> String {
     let mut arms = String::new();
     for v in variants {
         let variant = to_pascal(&v.name);
@@ -347,8 +353,8 @@ fn lux_show_enum(name: &str, variants: &[VariantDef]) -> String {
         }
     }
     format!(
-        "impl LuxShow for {} {{\n    fn lux_show(&self) -> String {{\n        match self {{\n{}        }}\n    }}\n}}\n\n",
-        name, arms
+        "impl {} for {} {{\n    fn lux_show(&self) -> String {{\n        match self {{\n{}        }}\n    }}\n}}\n\n",
+        trait_name, name, arms
     )
 }
 

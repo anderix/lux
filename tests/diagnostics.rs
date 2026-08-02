@@ -198,3 +198,24 @@ fn a_near_miss_call_suggests_the_name_meant() {
         "should fall back to the built-in list, got:\n{err}"
     );
 }
+
+/// `main` is the first function name a learner arriving from C, Java, Go, or Rust
+/// reaches for, and lux ran it fine but then generated its own `main` as the entry
+/// point, so the program wouldn't build on Rust or Go — a collision the learner
+/// never wrote (#37). It's refused now at the definition, before it runs, with a
+/// reason: lux runs a program from its first line and has no entry point to declare.
+#[test]
+fn a_top_level_function_named_main_is_refused() {
+    let err = err_of(
+        "mainfn",
+        "func main() -> int {\n    return 1\n}\nprint(main())\n",
+    );
+    assert!(
+        err.contains("`main`") && err.contains("from the top"),
+        "should name `main` and say lux runs from the top, got:\n{err}"
+    );
+    assert!(
+        !err.contains("expected"),
+        "should not fall through to a raw parser error, got:\n{err}"
+    );
+}

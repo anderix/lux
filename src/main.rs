@@ -9,7 +9,7 @@ use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio, exit};
 
-use lux::{convert, diagnostic, editors, interpreter, learn, lexer, magic, parser};
+use lux::{check, convert, diagnostic, editors, interpreter, learn, lexer, magic, parser};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -509,6 +509,12 @@ fn load(path: &str) -> (String, Vec<lux::ast::Stmt>) {
             diagnostic::report(path, &source, &err);
             exit(1);
         });
+    // Whole-program checks that hold whatever the command — refusing a name the
+    // emitters reserve, before it runs fine interpreted and fails to build.
+    if let Err(err) = check::check(&program) {
+        diagnostic::report(path, &source, &err);
+        exit(1);
+    }
     (source, program)
 }
 

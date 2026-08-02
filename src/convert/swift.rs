@@ -16,8 +16,8 @@
 use crate::ast::*;
 
 use super::{
-    Ty, Types, bin_prec, escape, expr_mentions, format_float, indent, mutated_roots, op_str,
-    stmts_mention, swift_case, swift_ident, ty_from_ann,
+    Ty, Types, bin_prec, dodge_type_name, escape, expr_mentions, format_float, indent,
+    mutated_roots, op_str, stmts_mention, swift_case, swift_ident, ty_from_ann,
 };
 
 struct Gen {
@@ -50,6 +50,9 @@ struct Gen {
     /// used, and they pull in Foundation for the stderr handle.
     uses_lux_div: bool,
     uses_lux_mod: bool,
+    /// The name of the generated `LuxShow` protocol, stepped aside if the program
+    /// declares a type of that name so the two can't clash (#37).
+    show_name: String,
 }
 
 /// Translate a whole program to Swift source text.
@@ -67,6 +70,7 @@ pub fn to_swift(program: &[Stmt]) -> String {
         uses_lux_show: false,
         uses_lux_div: false,
         uses_lux_mod: false,
+        show_name: dodge_type_name("LuxShow", program),
     };
 
     for stmt in program {
@@ -171,15 +175,17 @@ impl Gen {
             head.push_str("import Foundation\n\n");
         }
         if self.uses_lux_show {
-            head.push_str(LUX_SHOW_PREAMBLE);
+            // The protocol name steps aside from any user type of the same name, so
+            // the prelude and a `struct LuxShow` can't collide (#37).
+            head.push_str(&LUX_SHOW_PREAMBLE.replace("LuxShow", &self.show_name));
             // One conformance per user type, in declaration order.
             for stmt in program {
                 match stmt {
                     Stmt::Struct { name, fields, .. } => {
-                        head.push_str(&lux_show_struct(name, fields))
+                        head.push_str(&lux_show_struct(&self.show_name, name, fields))
                     }
                     Stmt::Enum { name, variants, .. } => {
-                        head.push_str(&lux_show_enum(name, variants))
+                        head.push_str(&lux_show_enum(&self.show_name, name, variants))
                     }
                     _ => {}
                 }
@@ -1031,7 +1037,7 @@ extension Optional: LuxShow where Wrapped: LuxShow {
 
 /// A `LuxShow` conformance for one struct: `Name(field: value, …)`, each field
 /// labelled with its lux name and read off `self`.
-fn lux_show_struct(name: &str, fields: &[FieldDef]) -> String {
+fn lux_show_struct(protocol_name: &str, name: &str, fields: &[FieldDef]) -> String {
     let body = if fields.is_empty() {
         format!("\"{}()\"", name)
     } else {
@@ -1042,14 +1048,14 @@ fn lux_show_struct(name: &str, fields: &[FieldDef]) -> String {
         format!("\"{}(\" + {} + \")\"", name, parts.join(" + \", \" + "))
     };
     format!(
-        "extension {}: LuxShow {{\n    func luxShow() -> String {{\n        {}\n    }}\n}}\n\n",
-        name, body
+        "extension {}: {} {{\n    func luxShow() -> String {{\n        {}\n    }}\n}}\n\n",
+        name, protocol_name, body
     )
 }
 
 /// A `LuxShow` conformance for one enum: `Enum.case` alone, or
 /// `Enum.case(field: value, …)` with its associated values bound by label.
-fn lux_show_enum(name: &str, variants: &[VariantDef]) -> String {
+fn lux_show_enum(protocol_name: &str, name: &str, variants: &[VariantDef]) -> String {
     let mut arms = String::new();
     for v in variants {
         if v.fields.is_empty() {
@@ -1077,8 +1083,8 @@ fn lux_show_enum(name: &str, variants: &[VariantDef]) -> String {
         }
     }
     format!(
-        "extension {}: LuxShow {{\n    func luxShow() -> String {{\n        switch self {{\n{}        }}\n    }}\n}}\n\n",
-        name, arms
+        "extension {}: {} {{\n    func luxShow() -> String {{\n        switch self {{\n{}        }}\n    }}\n}}\n\n",
+        name, protocol_name, arms
     )
 }
 

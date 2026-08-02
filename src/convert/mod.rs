@@ -334,6 +334,27 @@ fn output_fields() -> Vec<FieldDef> {
 
 // --- helpers shared across backends ----------------------------------------
 
+/// A generated type-level name — an injected trait or protocol — chosen not to
+/// collide with a type the program declared. Start from `base` and append `_`
+/// until it clears every struct and enum name, the way Go's scratch names dodge a
+/// binding. Rust and Swift inject a `LuxShow` type for compound printing; a learner
+/// who names a struct `LuxShow` should never have to know the prelude wanted that
+/// name, so the prelude's copy steps aside instead (#37).
+fn dodge_type_name(base: &str, program: &[Stmt]) -> String {
+    let taken: std::collections::HashSet<&str> = program
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::Struct { name, .. } | Stmt::Enum { name, .. } => Some(name.as_str()),
+            _ => None,
+        })
+        .collect();
+    let mut n = base.to_string();
+    while taken.contains(n.as_str()) {
+        n.push('_');
+    }
+    n
+}
+
 /// Binding strength of a binary operator, loosest (`||`) to tightest (`*`).
 /// Used to decide which operands actually need parentheses. The three targets
 /// share C's precedence, so they share this table.

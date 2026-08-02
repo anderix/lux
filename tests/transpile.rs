@@ -1870,3 +1870,29 @@ fn dividing_by_zero_reports_a_lux_error_on_every_backend() {
         );
     }
 }
+
+/// A user type named `LuxShow` collided with the trait (Rust) or protocol (Swift)
+/// the emitter injects for compound printing, so it wouldn't build on either — the
+/// reserved set wasn't reserved (#37). The generated name now steps aside to
+/// `LuxShow_`, so the user keeps the name and the value still prints lux's way.
+#[test]
+fn a_user_type_named_luxshow_does_not_collide_with_the_printer() {
+    let src =
+        "struct LuxShow { x: int }\nlet s = LuxShow(x: 7)\nprint(s)\nprint([s, LuxShow(x: 9)])\n";
+    assert_prints_everywhere(
+        src,
+        "userluxshow",
+        "LuxShow(x: 7)\n[LuxShow(x: 7), LuxShow(x: 9)]\n",
+    );
+    let program = parser::parse(lexer::lex(src).expect("lex")).expect("parse");
+    let rust = convert::to_rust(&program);
+    assert!(
+        rust.contains("trait LuxShow_") && rust.contains("struct LuxShow {"),
+        "Rust should rename its trait and keep the user's struct:\n{rust}"
+    );
+    let swift = convert::to_swift(&program);
+    assert!(
+        swift.contains("protocol LuxShow_") && swift.contains("struct LuxShow:"),
+        "Swift should rename its protocol and keep the user's struct:\n{swift}"
+    );
+}
