@@ -1120,6 +1120,28 @@ print(s)
     assert_prints_everywhere(src, "discardloop", "***\n");
 }
 
+/// The array sibling of the loop above: `for _ in xs` discards the element. Go's
+/// range form has no counter to reuse, so `for _, _ := range xs` has no new name
+/// on the left and won't compile; it lowers to the bare `for range xs`, which
+/// iterates without binding. Rust and Swift already emit a plain `_`.
+#[test]
+fn a_discarded_array_loop_variable_compiles_on_every_backend() {
+    let src = r#"
+let xs = [10, 20, 30]
+var n = 0
+for _ in xs {
+    n = n + 1
+}
+print(n)
+"#;
+    let go = convert::to_go(&parser::parse(lexer::lex(src).expect("lex")).expect("parse"));
+    assert!(
+        go.contains("for range xs") && !go.contains("for _, _ := range"),
+        "Go should iterate without binding, got:\n{go}"
+    );
+    assert_prints_everywhere(src, "discardarray", "3\n");
+}
+
 /// `none` names the empty `Option`, but a program that binds it as an ordinary
 /// variable means the local — the same shadowing every other built-in name already
 /// allows. The declaration always respected the scope; the use site used to reach

@@ -800,6 +800,18 @@ impl Gen {
         }
     }
 
+    /// A `range` loop header over `it`. A discarded variable (`for _ in xs`) can't
+    /// take the value slot — `for _, _ := range` has no new name on the left and
+    /// won't compile — so it lowers to Go's bare `for range xs`, which iterates
+    /// without binding. A named variable keeps the value slot, index always blank.
+    fn range_header(var: &str, it: &str) -> String {
+        if var == "_" {
+            format!("for range {} {{", it)
+        } else {
+            format!("for _, {} := range {} {{", var, it)
+        }
+    }
+
     fn emit_for(&mut self, var: &str, iter: &Expr, body: &[Stmt]) {
         let (header, elem_ty) = match self.t.type_of(iter) {
             // A range becomes a counted loop; lux ranges are end-exclusive.
@@ -837,16 +849,16 @@ impl Gen {
                     )
                 } else {
                     let it = self.emit_expr(iter);
-                    (format!("for _, {} := range {} {{", var, it), Ty::Unknown)
+                    (Self::range_header(var, &it), Ty::Unknown)
                 }
             }
             Ty::Array(t) => {
                 let it = self.emit_expr(iter);
-                (format!("for _, {} := range {} {{", var, it), *t)
+                (Self::range_header(var, &it), *t)
             }
             _ => {
                 let it = self.emit_expr(iter);
-                (format!("for _, {} := range {} {{", var, it), Ty::Unknown)
+                (Self::range_header(var, &it), Ty::Unknown)
             }
         };
         self.line(header);
