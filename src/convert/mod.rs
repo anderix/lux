@@ -172,6 +172,38 @@ impl Types {
         self.scopes.iter().any(|s| s.contains_key(name))
     }
 
+    /// Does enum `from` reach enum `target` by following its variants' by-value
+    /// field types through the enum graph? A field of type `from` inside `target`
+    /// is then part of a cycle — `target -> from -> ... -> target` — that Rust must
+    /// break with a `Box` and Swift with `indirect`, or the type has no finite
+    /// size. Reflexive, so a directly self-referential field (`node(left: Tree)`)
+    /// is covered by the same test as mutual recursion (`Expr` holding a `Fn` that
+    /// holds an `Expr`). Only a direct named-enum field is an edge: an array or
+    /// `Option` of an enum already carries its own indirection, so it doesn't
+    /// propagate the cycle — the same fields the by-value checks always skipped.
+    fn enum_reaches(&self, from: &str, target: &str) -> bool {
+        let mut stack = vec![from.to_string()];
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        while let Some(cur) = stack.pop() {
+            if cur == target {
+                return true;
+            }
+            if !seen.insert(cur.clone()) {
+                continue;
+            }
+            if let Some(variants) = self.env.enums.get(&cur) {
+                for v in variants {
+                    for f in &v.fields {
+                        if let Ty::User(n) = ty_from_ann(&f.ty) {
+                            stack.push(n);
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
+
     fn type_of(&self, e: &Expr) -> Ty {
         match e {
             Expr::Int(..) => Ty::Int,

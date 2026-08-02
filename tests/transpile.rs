@@ -457,6 +457,56 @@ print(sum(t))
     }
 }
 
+/// #2 made a self-referential enum compile everywhere; mutual recursion is the
+/// same need one step out — the shape any AST takes past a single type, an `Expr`
+/// that holds a `Fn` that holds an `Expr`. The interpreter and Go carried it
+/// already (Go's enum is an interface, already a pointer); Rust wanted a `Box` and
+/// Swift an `indirect` that the self-reference-only check never placed. The pass
+/// now follows the enum graph, so a field whose type cycles back gets the
+/// indirection wherever the cycle runs — and both edges of the two-enum cycle do,
+/// while a non-recursive enum elsewhere in the corpus stays plain. (#17)
+#[test]
+fn mutually_recursive_enums_compile_and_run_on_every_backend() {
+    let src = r#"
+enum Expr {
+    lit(v: int)
+    call(f: Fn)
+}
+enum Fn {
+    negate(arg: Expr)
+    zero
+}
+func evalE(e: Expr) -> int {
+    return match e {
+        lit(let v) => v
+        call(let f) => evalF(f)
+    }
+}
+func evalF(f: Fn) -> int {
+    return match f {
+        negate(let a) => 0 - evalE(a)
+        zero => 0
+    }
+}
+print(evalE(Expr.call(f: Fn.negate(arg: Expr.lit(v: 7)))))
+print(evalE(Expr.lit(v: 3)))
+print(evalF(Fn.zero))
+"#;
+    let program = parser::parse(lexer::lex(src).expect("lex")).expect("parse");
+    // Rust boxes each field that re-enters the cycle; Swift marks both enums indirect.
+    let rust = convert::to_rust(&program);
+    assert!(
+        rust.contains("Call(Box<Fn>)") && rust.contains("Negate(Box<Expr>)"),
+        "both cycle edges should be boxed, got:\n{rust}"
+    );
+    let swift = convert::to_swift(&program);
+    assert!(
+        swift.contains("indirect enum Expr") && swift.contains("indirect enum Fn"),
+        "both enums in the cycle should be indirect, got:\n{swift}"
+    );
+    assert_prints_everywhere(src, "mutualenum", "-7\n3\n0\n");
+}
+
 /// A binding a match arm never reads becomes `_`, so Rust and Swift compile
 /// warning-clean (Go already had to drop it — an unused local is a hard error
 /// there). This matches a tree and, in the `node` arm, ignores both subtrees to

@@ -364,6 +364,15 @@ impl Gen {
         self.blank();
     }
 
+    /// A field needs a `Box` when its type re-enters the enum it sits in, by
+    /// value — directly (`node(left: Tree)`) or through a cycle (`Expr` holding a
+    /// `Fn` that holds an `Expr`). Without it the type has no finite size. An array
+    /// or `Option` of the enum already carries its own indirection, so it isn't a
+    /// `Ty::User` here and doesn't count.
+    fn is_recursive_field(&self, enum_name: &str, ty: &Ty) -> bool {
+        matches!(ty, Ty::User(n) if self.t.enum_reaches(n, enum_name))
+    }
+
     fn emit_enum(&mut self, name: &str, variants: &[VariantDef]) {
         self.line("#[derive(Debug, Clone, PartialEq)]".into());
         self.line(format!("enum {} {{", name));
@@ -379,7 +388,7 @@ impl Gen {
                         let text = ty_text(&t);
                         // A field that stores the enum itself would make the type
                         // infinitely sized; a Box gives it a finite footprint.
-                        if is_recursive_field(name, &t) {
+                        if self.is_recursive_field(name, &t) {
                             format!("Box<{}>", text)
                         } else {
                             text
@@ -986,7 +995,7 @@ impl Gen {
                         .map(|f| {
                             (
                                 f.name.clone(),
-                                is_recursive_field(enum_name, &ty_from_ann(&f.ty)),
+                                self.is_recursive_field(enum_name, &ty_from_ann(&f.ty)),
                             )
                         })
                         .collect()
@@ -1111,7 +1120,7 @@ impl Gen {
         bindings
             .iter()
             .zip(field_tys)
-            .filter(|(b, t)| b.as_str() != "_" && is_recursive_field(en, t))
+            .filter(|(b, t)| b.as_str() != "_" && self.is_recursive_field(en, t))
             .map(|(b, _)| rust_ident(&to_snake(b)))
             .collect()
     }
@@ -1139,15 +1148,6 @@ impl Gen {
             self.t.declare(b.clone(), t);
         }
     }
-}
-
-/// A field is recursive when it stores the very enum being defined, by value —
-/// `node(left: Tree, …)`, `cons(int, List)`. Rust needs a `Box` there to give the
-/// type a finite size. Direct self-reference only: an array or `Option` of the
-/// enum already carries its own indirection, and mutual recursion between two
-/// enums isn't detected here.
-fn is_recursive_field(enum_name: &str, ty: &Ty) -> bool {
-    matches!(ty, Ty::User(n) if n == enum_name)
 }
 
 fn paren_or_empty(binds: &[String]) -> String {
