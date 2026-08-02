@@ -156,20 +156,28 @@ pub fn to_go(program: &[Stmt]) -> String {
         }
     }
 
-    g.line("func main() {".into());
-    g.indent += 1;
-    g.t.push_scope();
-    for stmt in program {
-        if !matches!(
-            stmt,
-            Stmt::Struct { .. } | Stmt::Enum { .. } | Stmt::Func { .. }
-        ) {
-            g.emit_stmt(stmt);
+    // A user `func main` is Go's `func main` directly — the entry point runs itself,
+    // no wrapper (checks guarantee no top-level code runs beside it). With no `main`,
+    // the top-level statements become the body of a generated `func main`.
+    let has_main = program
+        .iter()
+        .any(|s| matches!(s, Stmt::Func { name, .. } if name == "main"));
+    if !has_main {
+        g.line("func main() {".into());
+        g.indent += 1;
+        g.t.push_scope();
+        for stmt in program {
+            if !matches!(
+                stmt,
+                Stmt::Struct { .. } | Stmt::Enum { .. } | Stmt::Func { .. }
+            ) {
+                g.emit_stmt(stmt);
+            }
         }
+        g.t.pop_scope();
+        g.indent -= 1;
+        g.line("}".into());
     }
-    g.t.pop_scope();
-    g.indent -= 1;
-    g.line("}".into());
 
     g.assemble()
 }

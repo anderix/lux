@@ -4,6 +4,45 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.0] - 2026-08-02
+
+lux gains the one piece of ceremony every other language starts with — and it
+arrives last, as the bridge out. A program never needed a `main`, and still
+doesn't: with none, the file is the program and runs top to bottom, the beginner's
+whole world. But a top-level `func main` is now the program's entry point, and lux
+runs it for you — the shape Rust, Go, Swift, Java, and C all require, met here for
+the first time with everything else already understood. Where 0.16.0 refused
+`func main` to spare a learner a build-time collision, it now accepts it and teaches
+it: the same hello-world you started with, this time with `main` around it and every
+character still yours.
+
+### Added
+
+- **A top-level `func main` is the program's entry point, and lux runs it.** Define
+  one and lux calls it — no `main()` of your own — exactly as the compiled targets
+  do. Each backend maps your `main` straight onto its own `fn main`/`func main` with
+  no wrapper, so the generated code is the idiomatic thing a person would write and
+  reads as the bridge it is; Swift, whose top level is already the entry point like
+  lux's, gets a single `main()` call to start it. The interpreter and all three
+  targets produce the same output.
+- **A `main` learn topic — the capstone bridge.** `lux learn main` teaches the entry
+  point as the last lesson before leaving: the hello-world you began with, dressed to
+  travel, then the same program in Rust, Go, and Swift where every token now has a
+  name. The starter world and every concept lesson stay main-free on purpose, so
+  `main` lands as the single new idea it is. Its `more` page is the first to render
+  fenced code blocks verbatim.
+
+### Changed
+
+- **`func main` is accepted, not refused.** The 0.16.0 refusal became a set of
+  rules that make `main` an entry point rather than a mistake: it takes no values,
+  returns nothing, shares the top level with nothing but definitions, and isn't
+  called by hand — four errors that are one idea, each stating it and pointing at
+  `lux learn main`. The rules run on `lux run`, `lux convert`, and `lux build`
+  alike, so a program that breaks one meets a lux error in its own words on every
+  path, never rustc's about a `main` it never wrote. A `func main` nested inside
+  another function is untouched — an ordinary local.
+
 ## [0.16.1] - 2026-08-02
 
 The fourth member of the runtime-error family — after runaway recursion, division

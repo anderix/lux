@@ -224,11 +224,11 @@ fn every_more_page_has_prose() {
     // something, or the card's pointer leads nowhere.
     for t in learn::topics() {
         if let Some(more) = &t.more {
-            assert!(
-                !more.prose.trim().is_empty(),
-                "`{}` has a more page with no prose",
-                t.id
-            );
+            let has_prose = more.body.iter().any(|b| match b {
+                learn::Block::Prose(p) => !p.trim().is_empty(),
+                learn::Block::Code(_) => false,
+            });
+            assert!(has_prose, "`{}` has a more page with no prose", t.id);
         }
     }
 }

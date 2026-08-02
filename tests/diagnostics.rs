@@ -199,24 +199,62 @@ fn a_near_miss_call_suggests_the_name_meant() {
     );
 }
 
-/// `main` is the first function name a learner arriving from C, Java, Go, or Rust
-/// reaches for, and lux ran it fine but then generated its own `main` as the entry
-/// point, so the program wouldn't build on Rust or Go — a collision the learner
-/// never wrote (#37). It's refused now at the definition, before it runs, with a
-/// reason: lux runs a program from its first line and has no entry point to declare.
+/// A top-level `func main` is lux's entry point — the graduation shape every other
+/// language requires — and lux runs it for you. That "runs it for you" is one idea
+/// with three edges, each a rule with its own teaching error: main takes no values,
+/// main returns nothing, and nothing else runs beside it at the top level. The
+/// learner arriving from C or Java who reaches for `main` first meets these, not a
+/// refusal.
 #[test]
-fn a_top_level_function_named_main_is_refused() {
+fn main_that_shares_the_top_level_is_refused() {
     let err = err_of(
-        "mainfn",
-        "func main() -> int {\n    return 1\n}\nprint(main())\n",
+        "mainmix",
+        "print(\"loose\")\nfunc main() {\n    print(\"hi\")\n}\n",
     );
     assert!(
-        err.contains("`main`") && err.contains("from the top"),
-        "should name `main` and say lux runs from the top, got:\n{err}"
+        err.contains("nothing runs beside `main`") && err.contains("where your program starts"),
+        "should say main owns the top level, got:\n{err}"
+    );
+    // The same rule holds when converting — the checks come with the student to the
+    // target compiler, they don't switch off at graduation.
+    let conv = convert_err(
+        "cmainmix",
+        "rust",
+        "print(1)\nfunc main() {\n    print(2)\n}\n",
     );
     assert!(
-        !err.contains("expected"),
-        "should not fall through to a raw parser error, got:\n{err}"
+        conv.contains("nothing runs beside `main`"),
+        "convert should enforce the entry-point rule too, got:\n{conv}"
+    );
+}
+
+#[test]
+fn main_with_a_parameter_is_refused() {
+    let err = err_of("mainparam", "func main(x: int) {\n    print(x)\n}\n");
+    assert!(
+        err.contains("`main` takes no values"),
+        "should say main takes no values, got:\n{err}"
+    );
+}
+
+#[test]
+fn main_with_a_return_type_is_refused() {
+    let err = err_of("mainret", "func main() -> int {\n    return 0\n}\n");
+    assert!(
+        err.contains("`main` returns nothing"),
+        "should say main returns nothing, got:\n{err}"
+    );
+}
+
+#[test]
+fn calling_main_by_hand_is_refused() {
+    let err = err_of(
+        "maincall",
+        "func main() {\n    print(\"hi\")\n    main()\n}\n",
+    );
+    assert!(
+        err.contains("you don't call `main` yourself"),
+        "should say lux runs main for you, got:\n{err}"
     );
 }
 

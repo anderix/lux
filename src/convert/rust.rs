@@ -204,20 +204,30 @@ pub fn to_rust(program: &[Stmt]) -> String {
         }
     }
 
-    g.line("fn main() {".into());
-    g.indent += 1;
-    g.t.push_scope();
-    for stmt in program {
-        if !matches!(
-            stmt,
-            Stmt::Struct { .. } | Stmt::Enum { .. } | Stmt::Func { .. }
-        ) {
-            g.emit_stmt(stmt);
+    // A user `func main` is Rust's `fn main` directly — the entry point the student
+    // just learned, generated as the idiomatic thing a Rust program would write, with
+    // no wrapper to collide with (checks guarantee no top-level code runs beside it).
+    // With no `main`, the top-level statements become the body of a generated `fn
+    // main` instead.
+    let has_main = program
+        .iter()
+        .any(|s| matches!(s, Stmt::Func { name, .. } if name == "main"));
+    if !has_main {
+        g.line("fn main() {".into());
+        g.indent += 1;
+        g.t.push_scope();
+        for stmt in program {
+            if !matches!(
+                stmt,
+                Stmt::Struct { .. } | Stmt::Enum { .. } | Stmt::Func { .. }
+            ) {
+                g.emit_stmt(stmt);
+            }
         }
+        g.t.pop_scope();
+        g.indent -= 1;
+        g.line("}".into());
     }
-    g.t.pop_scope();
-    g.indent -= 1;
-    g.line("}".into());
 
     let mut preamble = String::new();
     if g.uses_lux_div {

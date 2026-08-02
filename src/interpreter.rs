@@ -244,7 +244,19 @@ fn run_with(
                 interp.register_types(program)?;
                 interp.validate_type_decls(program)?;
                 interp.register_funcs(program)?;
-                interp.exec_block(program)?;
+                // With a top-level `func main`, main is the entry point and lux runs
+                // it — the graduation shape every other language requires (checked in
+                // `check::check`, which guarantees nothing else runs at the top level
+                // beside it). With no `main`, the file is the program and runs top to
+                // bottom, the way a first program does.
+                let has_main = program
+                    .iter()
+                    .any(|s| matches!(s, Stmt::Func { name, .. } if name == "main"));
+                if has_main {
+                    interp.call("main", &[], Span::new(0, 0))?;
+                } else {
+                    interp.exec_block(program)?;
+                }
                 Ok(())
             })
             .expect("spawn interpreter thread")

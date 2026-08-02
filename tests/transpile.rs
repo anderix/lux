@@ -131,6 +131,34 @@ fn assert_prints_everywhere(src: &str, tag: &str, expected: &str) {
     }
 }
 
+/// A top-level `func main` is the entry point: lux runs it, and each backend maps it
+/// straight onto its own `main` (Swift, which runs top-level code like lux, gets one
+/// `main()` call to start it) with no wrapper. The interpreter and all three targets
+/// must produce the same output — the graduation "hello world" understood in full.
+#[test]
+fn a_top_level_main_runs_itself_everywhere() {
+    let src = "func greet(name: string) {\n    print(\"hello,\", name)\n}\n\nfunc main() {\n    greet(\"world\")\n    print(\"from main\")\n}\n";
+    let expected = "hello, world\nfrom main\n";
+
+    // The interpreter auto-runs main with no explicit call.
+    let path = std::env::temp_dir().join(format!("lux_mainrun_{}.lux", std::process::id()));
+    std::fs::write(&path, src).expect("write lux");
+    let run = Command::new(env!("CARGO_BIN_EXE_lux"))
+        .arg("run")
+        .arg(&path)
+        .output()
+        .expect("run lux");
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        expected,
+        "interpreter should auto-run main"
+    );
+
+    // And every backend agrees, from its own idiomatic `main`.
+    assert_prints_everywhere(src, "mainrun", expected);
+}
+
 // --- Rust ------------------------------------------------------------------
 
 #[test]

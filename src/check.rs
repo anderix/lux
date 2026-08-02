@@ -7,14 +7,14 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::ast::{Expr, Param, Stmt};
-use crate::diagnostic::LuxError;
+use crate::diagnostic::{LuxError, Span};
 use crate::interpreter::{BUILTINS, count, describe_place, nearest_name};
 
 /// Run every whole-program check, returning the first failure. Kept to rules that
 /// are true of a declaration on its own — no evaluation, no type inference — so a
 /// pass here means nothing about whether the program is otherwise correct.
 pub fn check(program: &[Stmt]) -> Result<(), LuxError> {
-    reserved_names(program)
+    entry_point(program)
 }
 
 /// The checks `lux run` makes that `lux convert` and `lux build` must make too,
@@ -55,30 +55,204 @@ pub fn check_before_emit(program: &[Stmt]) -> Result<(), LuxError> {
     Ok(())
 }
 
-/// A top-level function can't be named `main`. lux runs a program from its first
-/// line, so `main` earns a learner nothing — and every backend generates its own
-/// `main` as the entry point, so a user one collides with it and won't build on
-/// Rust or Go, after running fine interpreted (#37). A learner arriving from C,
-/// Java, Go, or Rust reaches for `main` first of all, so this is the collision
-/// most worth catching, and catching it early with a reason beats a linker error
-/// three steps later. Only the top level collides: a `func main` nested inside
-/// another function is a local, and the emitters keep it local.
-fn reserved_names(program: &[Stmt]) -> Result<(), LuxError> {
+/// The rules that make a top-level `func main` the program's entry point. lux
+/// doesn't need one — with no `main`, the file is the program and runs top to
+/// bottom, the starting gift a beginner never has to earn. But `main` is the shape
+/// every other language requires, so lux accepts it too, as the last lesson before
+/// leaving: define it and lux runs it for you, exactly as Rust, Go, Swift, Java, and
+/// C do. That "runs it for you" is one idea seen from three sides, and each side is
+/// a rule here, each phrased to teach it. `main` takes no values and returns nothing
+/// (it is where a program starts, not a function whose result is used); nothing else
+/// runs beside it at the top level (once you name the start, there is nowhere for
+/// loose code to go); and you don't call it yourself (the language does — that is
+/// what an entry point is). All three hold only for a *top-level* `main`: a `func
+/// main` nested inside another function is an ordinary local, and the emitters keep
+/// it local. Enforced on every path, since auto-run is a `lux run` behavior as much
+/// as a build one — and so the rules, like the good errors, come with you to the
+/// target compiler instead of switching off at graduation.
+fn entry_point(program: &[Stmt]) -> Result<(), LuxError> {
+    let main = program.iter().find_map(|s| match s {
+        Stmt::Func {
+            name,
+            params,
+            ret,
+            span,
+            ..
+        } if name == "main" => Some((params.as_slice(), ret.is_some(), *span)),
+        _ => None,
+    });
+    let Some((params, has_ret, main_span)) = main else {
+        return Ok(());
+    };
+    // A value handed to `main` would have nowhere to come from — the language calls
+    // it, not another line of the program.
+    if let Some(first) = params.first() {
+        return Err(LuxError::new(
+            "`main` takes no values — it is only where your program starts",
+            first.span,
+        )
+        .with_note(
+            "read what your program needs inside main, with `args()` and `readLine`, the way any function reads its input",
+        )
+        .with_learn(
+            "main",
+            "main is the place lux begins, not a function you hand values to",
+        ));
+    }
+    // Nothing waits on `main`'s result: the top level runs it, and the top level has
+    // no caller of its own.
+    if has_ret {
+        return Err(LuxError::new(
+            "`main` returns nothing — it is only where your program starts",
+            main_span,
+        )
+        .with_note(
+            "drop the `-> ...`; main runs top to bottom and there is no caller waiting for a value",
+        )
+        .with_learn(
+            "main",
+            "main is the place lux begins, not a function whose result gets used",
+        ));
+    }
+    // Naming the start leaves the top level for definitions only — loose code has
+    // nowhere left to run.
     for stmt in program {
-        if let Stmt::Func { name, span, .. } = stmt
-            && name == "main"
-        {
-            return Err(LuxError::new("lux has no `main` — it runs your program from the top", *span)
-                .with_note(
-                    "name this function for what it does and call it yourself, the way you call any other",
-                )
-                .with_learn(
-                    "functions",
-                    "lux starts at the first line of the file; there's no entry point to declare",
-                ));
+        if !matches!(
+            stmt,
+            Stmt::Func { .. } | Stmt::Struct { .. } | Stmt::Enum { .. }
+        ) {
+            return Err(LuxError::new(
+                "nothing runs beside `main` at the top level — it is where your program starts",
+                stmt_span(stmt),
+            )
+            .with_note("move this line into main; once you name the start, the top level holds only your definitions")
+            .with_learn(
+                "main",
+                "main gathers your program's work into the one place it now begins",
+            ));
+        }
+    }
+    // The language runs `main`; a program that calls it as well would run it twice —
+    // and no target language lets you call `main` at all.
+    reject_main_call(program)
+}
+
+/// Report the first place the program calls `main` itself. The interpreter runs
+/// `main` for you, so a hand-written call would re-enter it; Rust, Go, and Swift
+/// forbid calling `main` outright, so catching it here keeps the same program from
+/// running interpreted only to fail at the target compiler.
+fn reject_main_call(stmts: &[Stmt]) -> Result<(), LuxError> {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Let { value, .. } | Stmt::Expr(value) => find_main_call(value)?,
+            Stmt::Var { value, .. } | Stmt::Return { value, .. } => {
+                if let Some(v) = value {
+                    find_main_call(v)?;
+                }
+            }
+            Stmt::Assign { target, value, .. } => {
+                find_main_call(target)?;
+                find_main_call(value)?;
+            }
+            Stmt::If {
+                cond,
+                then_body,
+                else_body,
+                ..
+            } => {
+                find_main_call(cond)?;
+                reject_main_call(then_body)?;
+                if let Some(e) = else_body {
+                    reject_main_call(e)?;
+                }
+            }
+            Stmt::While { cond, body, .. } => {
+                find_main_call(cond)?;
+                reject_main_call(body)?;
+            }
+            Stmt::For { iter, body, .. } => {
+                find_main_call(iter)?;
+                reject_main_call(body)?;
+            }
+            Stmt::Func { body, .. } => reject_main_call(body)?,
+            Stmt::Struct { .. } | Stmt::Enum { .. } => {}
         }
     }
     Ok(())
+}
+
+fn find_main_call(e: &Expr) -> Result<(), LuxError> {
+    match e {
+        Expr::Call { name, args, span } => {
+            if name == "main" {
+                return Err(LuxError::new(
+                    "you don't call `main` yourself — lux runs it for you",
+                    *span,
+                )
+                .with_note(
+                    "delete this call; defining `main` is enough, and your program starts there",
+                )
+                .with_learn(
+                    "main",
+                    "main is the entry point — the one function the language calls, not you",
+                ));
+            }
+            for a in args {
+                find_main_call(a)?;
+            }
+        }
+        Expr::Array(items, _) => {
+            for x in items {
+                find_main_call(x)?;
+            }
+        }
+        Expr::Unary { rhs, .. } => find_main_call(rhs)?,
+        Expr::Binary { lhs, rhs, .. } => {
+            find_main_call(lhs)?;
+            find_main_call(rhs)?;
+        }
+        Expr::Index { base, index, .. } => {
+            find_main_call(base)?;
+            find_main_call(index)?;
+        }
+        Expr::Range { start, end, .. } => {
+            find_main_call(start)?;
+            find_main_call(end)?;
+        }
+        Expr::StructLit { fields, .. } | Expr::EnumLit { fields, .. } => {
+            for (_, v) in fields {
+                find_main_call(v)?;
+            }
+        }
+        Expr::Field { base, .. } => find_main_call(base)?,
+        Expr::Match {
+            scrutinee, arms, ..
+        } => {
+            find_main_call(scrutinee)?;
+            for arm in arms {
+                find_main_call(&arm.body)?;
+            }
+        }
+        Expr::Int(..) | Expr::Float(..) | Expr::Str(..) | Expr::Bool(..) | Expr::Ident(..) => {}
+    }
+    Ok(())
+}
+
+/// The source span of any statement, for pointing an error at the line it names.
+fn stmt_span(s: &Stmt) -> Span {
+    match s {
+        Stmt::Let { span, .. }
+        | Stmt::Var { span, .. }
+        | Stmt::Assign { span, .. }
+        | Stmt::Func { span, .. }
+        | Stmt::Return { span, .. }
+        | Stmt::Struct { span, .. }
+        | Stmt::Enum { span, .. }
+        | Stmt::If { span, .. }
+        | Stmt::While { span, .. }
+        | Stmt::For { span, .. } => *span,
+        Stmt::Expr(e) => e.span(),
+    }
 }
 
 // ----- calls: unknown function, wrong argument count -----------------------

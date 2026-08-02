@@ -39,7 +39,7 @@ const PATHS: &[(&str, &[&str])] = &[
         "safety",
         &["option", "conversions", "result", "io", "shell"],
     ),
-    ("build", &["crawl"]),
+    ("build", &["crawl", "main"]),
 ];
 
 /// A single learnable idea. The card is always present; `more` is earned.
@@ -52,11 +52,20 @@ pub struct Topic {
     pub more: Option<More>,
 }
 
-/// The earned second level of a topic: the deeper prose, plus any
+/// The earned second level of a topic: the deeper body, plus any
 /// reason-annotated cross-references to related topics.
 pub struct More {
-    pub prose: String,
+    pub body: Vec<Block>,
     pub see: Vec<See>,
+}
+
+/// A run of a more page's body: a prose paragraph to wrap and reflow, or a fenced
+/// code block to print verbatim. Prose is the common case; a code block earns its
+/// keep where the deeper level shows the same idea in another language — the `main`
+/// topic's hello-world across Rust, Go, and Swift.
+pub enum Block {
+    Prose(String),
+    Code(String),
 }
 
 /// One cross-reference: a topic id and the reason a learner would follow it.
@@ -166,21 +175,48 @@ fn parse_card(body: &str) -> (String, String, String, Option<String>) {
 /// Parse a more page: the deeper prose, then an optional `> see:` block whose
 /// entries read `id — reason`, separated by `·`.
 fn parse_more(body: &str) -> More {
-    let mut prose = Vec::new();
+    let mut blocks = Vec::new();
+    let mut para: Vec<String> = Vec::new();
+    let mut code: Vec<String> = Vec::new();
+    let mut in_code = false;
     let mut quote = String::new();
     let mut in_quote = false;
+    // Flush the paragraph gathered so far into a prose block.
+    let flush = |para: &mut Vec<String>, blocks: &mut Vec<Block>| {
+        if !para.is_empty() {
+            blocks.push(Block::Prose(para.join(" ")));
+            para.clear();
+        }
+    };
     for line in body.lines() {
         let t = line.trim();
-        if let Some(rest) = t.strip_prefix("> ") {
+        if t.starts_with("```") {
+            if in_code {
+                blocks.push(Block::Code(std::mem::take(&mut code).join("\n")));
+                in_code = false;
+            } else {
+                flush(&mut para, &mut blocks);
+                in_code = true;
+            }
+            continue;
+        }
+        if in_code {
+            // Verbatim: keep the source line as written, indentation and all.
+            code.push(line.to_string());
+        } else if let Some(rest) = t.strip_prefix("> ") {
             in_quote = true;
             if !quote.is_empty() {
                 quote.push(' ');
             }
             quote.push_str(rest.trim());
         } else if !in_quote && !t.is_empty() {
-            prose.push(t.to_string());
+            para.push(t.to_string());
+        } else if t.is_empty() {
+            // A blank line ends a paragraph, so consecutive prose runs stay separate.
+            flush(&mut para, &mut blocks);
         }
     }
+    flush(&mut para, &mut blocks);
 
     let mut see = Vec::new();
     if let Some(rest) = quote.strip_prefix("see:") {
@@ -197,10 +233,7 @@ fn parse_more(body: &str) -> More {
         }
     }
 
-    More {
-        prose: prose.join(" "),
-        see,
-    }
+    More { body: blocks, see }
 }
 
 // --- rendering -------------------------------------------------------------
@@ -240,8 +273,29 @@ fn render_more(t: &Topic, m: &More) -> String {
     let mut out = String::new();
     out.push_str(&plain(&t.title));
     out.push_str(" — more\n\n");
-    out.push_str(&wrap(&plain(&m.prose), WIDTH));
-    out.push('\n');
+    for (i, block) in m.body.iter().enumerate() {
+        if i > 0 {
+            out.push('\n');
+        }
+        match block {
+            Block::Prose(p) => {
+                out.push_str(&wrap(&plain(p), WIDTH));
+                out.push('\n');
+            }
+            // Verbatim, indented like a card's example — never reflowed.
+            Block::Code(c) => {
+                for line in c.lines() {
+                    if line.is_empty() {
+                        out.push('\n');
+                    } else {
+                        out.push_str("    ");
+                        out.push_str(line);
+                        out.push('\n');
+                    }
+                }
+            }
+        }
+    }
     if !m.see.is_empty() {
         out.push_str("\nsee also:\n");
         for s in &m.see {

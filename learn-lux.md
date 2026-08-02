@@ -690,6 +690,76 @@ lux can't quite manage — a room that remembers, a command typed in plain Engli
 
 > see: enums — the set of rooms · structs — where you stand and what you hold · match — how a room becomes a description · option — a door that may lead nowhere · functions — every action is one
 
+<!-- topic: main -->
+## main — where a program starts
+
+Your very first lux program was one line:
+
+```lux
+print("Hello, world!")
+```
+
+Nothing came before it. The file was the program, and it still is — that is
+lux's starting gift, and it never goes away. But every language you are about to
+meet asks for one thing lux never did: a place that says *start here*. It is
+called `main`, and now that you understand everything else, it is the last piece
+worth meeting — because this time you will understand the whole of it.
+
+In lux it looks like this:
+
+```lux
+func main() {
+    print("Hello, world!")
+}
+```
+
+The same program, dressed to travel. `main` is where your program begins, and
+you do not call it — lux runs it for you. That is exactly what "where a program
+starts" means: the one function the language calls, so you don't. Once you name
+the start, the top level is only your definitions; the work moves inside.
+
+> try: put a `print` line *outside* main. lux stops you — once there is a start,
+> loose code has nowhere left to run.
+
+<!-- more -->
+You never needed `main` to write lux, and you still don't: the file-is-the-program
+style is the honest, everyday one, and this whole page was written in it. `main`
+is a travel adapter, not a promotion. Here is the same hello-world where you are
+headed:
+
+```rust
+// Rust
+fn main() {
+    println!("Hello, world!");
+}
+```
+
+```go
+// Go
+func main() {
+    fmt.Println("Hello, world!")
+}
+```
+
+```swift
+// Swift — which, like lux, lets the file be the program, so it runs main by hand
+func main() {
+    print("Hello, world!")
+}
+main()
+```
+
+None of that is a mystery now. `fn` and `func` you know; `main` is the start, the
+thing lux just taught you; the print call is the print call. Even the line of
+Java a beginner is told to copy on faith — `public static void main(String[]
+args)` — is this same idea in heavier clothes, and every word of it now has a
+name you can say out loud. That is the whole trick of leaving lux: you are not
+starting over, you are meeting what you already know in a new spelling. You began
+at hello-world understanding every character, and you arrive at hello-world again
+understanding every character — the difference is how much stands behind it now.
+
+> see: hello — where your very first program began · functions — the shape main borrows · crawl — a whole world you built without ever needing main
+
 ## The shape every language shares
 
 lux is a launch pad, and so is this page. Almost every language you will meet is
@@ -807,6 +877,25 @@ it in milestones, simplest first:
     — no new features — on purpose: the stiffness (exact-match commands) and the
     missing pieces (string parsing, maps, imports) are left as walls a learner
     discovers and asks for, not gifts handed down ahead of the wish.
+14. **`func main`, the bridge out** — the one entry point, added last. With no
+    `main`, the file is the program and runs top to bottom, the beginner's whole
+    world and the way every concept above is taught; the starter world and the
+    lessons stay main-free on purpose, so this arrives as the single new idea it is.
+    A *top-level* `func main` becomes the program's entry point and lux runs it —
+    the shape Rust, Go, Swift, Java, and C all require — with three rules that are
+    one idea (it is where a program starts, run by the language): it takes no values,
+    returns nothing, and shares the top level with nothing but definitions, and you
+    don't call it yourself. The rules live in `check::check` so they hold on `run`,
+    `convert`, and `build` alike, each error teaching the concept and luring to the
+    `main` topic. Each backend maps the user's `main` straight onto its own — no
+    wrapper, so the generated `fn main`/`func main` is the idiomatic thing a human
+    would write, and Swift, whose top level is already the entry point, gets one
+    `main()` call to start it. The `main` topic is the capstone: lux begins at
+    hello-world understood in full and ends at hello-world again, this time with
+    `main` around it and every character still understood — the reveal the tutorial
+    sets up by leaving `main` out until here. A `more` page renders fenced code
+    blocks (the same hello-world in all three targets) verbatim, the first to need
+    them.
 
 That second level: every topic is a short *card* by default, with an optional
 `more` page carrying the deeper why, the universal name for the concept, and

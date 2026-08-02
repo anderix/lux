@@ -118,6 +118,17 @@ pub fn to_swift(program: &[Stmt]) -> String {
     }
     g.t.pop_scope();
 
+    // A user `func main` is emitted like any function, then run by one top-level
+    // call. Swift, like lux, lets the file be the program, so unlike Rust and Go it
+    // won't start `main` on its own — the call is how the entry point the student
+    // learned actually runs (checks guarantee no other top-level code is present).
+    let has_main = program
+        .iter()
+        .any(|s| matches!(s, Stmt::Func { name, .. } if name == "main"));
+    if has_main {
+        g.line("main()".into());
+    }
+
     g.assemble(program)
 }
 
