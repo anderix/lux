@@ -434,9 +434,13 @@ impl Gen {
         let vty = ann
             .map(ty_from_ann)
             .unwrap_or_else(|| self.t.type_of(value));
-        // Only annotate when the value can't pin its own type (a bare `none`),
-        // since Swift infers the rest.
-        let value_open = self.t.type_of(value).has_unknown();
+        // Annotate when the value can't stand on its own type: a bare `none`
+        // (its element type is open), or a leading-dot `.some(…)` / `.success(…)`
+        // / `.failure(…)`, which Swift can't resolve without a contextual type.
+        // The source supplied the annotation — `let a: Option<int> = some(5)` — so
+        // carry it through rather than dropping it and leaving `.some(5)` to infer
+        // from nothing (#33).
+        let value_open = self.t.type_of(value).has_unknown() || needs_type_context(value);
         // `var` only when the binding is actually mutated; a `var` that's only
         // read binds with `let`, so Swift doesn't warn it was never mutated.
         let kw = if mutable && self.mutated.contains(name) {
@@ -1022,6 +1026,14 @@ fn lux_show_enum(name: &str, variants: &[VariantDef]) -> String {
         "extension {}: LuxShow {{\n    func luxShow() -> String {{\n        switch self {{\n{}        }}\n    }}\n}}\n\n",
         name, arms
     )
+}
+
+/// Does this value emit as a leading-dot form — `.some(…)`, `.success(…)`,
+/// `.failure(…)` — that Swift can't resolve without a contextual type? A bound
+/// `some`/`ok`/`err` does, so an annotated binding to one must keep its annotation
+/// for the type to land. A bare `none` is handled separately, through its open type.
+fn needs_type_context(value: &Expr) -> bool {
+    matches!(value, Expr::Call { name, .. } if name == "some" || name == "ok" || name == "err")
 }
 
 /// Does the program use a `Result` whose error is a string? If so, the Swift

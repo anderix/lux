@@ -75,6 +75,15 @@ struct Gen {
     /// one block would both declare `__end` and collide on Go's `:=`, so each gets
     /// its own `__end0`, `__end1`, ...
     bound_id: usize,
+    /// `print`/`string` of a float routes through a generated `luxFloat` helper so a
+    /// whole float keeps its decimal point — `88.0`, not Go's `88` — matching how lux
+    /// and the other backends render it. `luxShow` also leans on it for a float inside
+    /// an array. Emitted only when a float is rendered.
+    uses_lux_float: bool,
+    /// `int()` of a float routes through a generated `luxInt` helper, so a float
+    /// literal — a Go constant that `int(...)` can't truncate at compile time —
+    /// reaches the conversion as a runtime value. Emitted only when used.
+    uses_lux_int: bool,
 }
 
 /// Translate a whole program to Go source text.
@@ -103,6 +112,8 @@ pub fn to_go(program: &[Stmt]) -> String {
         copy_structs: HashSet::new(),
         uses_copy_slice: false,
         bound_id: 0,
+        uses_lux_float: false,
+        uses_lux_int: false,
     };
 
     for stmt in program {
@@ -224,6 +235,9 @@ impl Gen {
     /// used, and any helper the program leans on.
     fn assemble(&self) -> String {
         let mut head = String::from("package main\n\n");
+        // `luxShow` renders a float inside an array through `luxFloat`, so printing
+        // a compound pulls the float helper in too.
+        let needs_lux_float = self.uses_lux_float || self.uses_lux_show;
         // Collect what's used, then sort so the block reads the way gofmt orders
         // it — which is the plain lexical order of the import paths.
         let mut imports: Vec<&str> = Vec::new();
@@ -247,10 +261,10 @@ impl Gen {
         if self.uses_lux_show {
             imports.push("reflect");
         }
-        if self.uses_strconv {
+        if self.uses_strconv || needs_lux_float {
             imports.push("strconv");
         }
-        if self.uses_strings || self.uses_lux_show {
+        if self.uses_strings || self.uses_lux_show || needs_lux_float {
             imports.push("strings");
         }
         imports.sort_unstable();
@@ -269,6 +283,27 @@ impl Gen {
             // Go has no literal for "a pointer to this value", so the some(...)
             // case borrows one through a tiny generic helper.
             head.push_str("func ptr[T any](v T) *T {\n\treturn &v\n}\n\n");
+        }
+        if needs_lux_float {
+            // Render a float the way lux does: a whole one keeps a single decimal
+            // (`88.0`), everything else takes Go's shortest round-tripping form,
+            // which already matches. Mirrors the shared `format_float` the literal
+            // path uses, so a printed float and a float literal read the same.
+            head.push_str(
+                "func luxFloat(f float64) string {\n\
+                 \ts := strconv.FormatFloat(f, 'g', -1, 64)\n\
+                 \tif !strings.ContainsAny(s, \".eEnN\") {\n\
+                 \t\treturn s + \".0\"\n\
+                 \t}\n\
+                 \treturn s\n\
+                 }\n\n",
+            );
+        }
+        if self.uses_lux_int {
+            // Truncate a float to an int at runtime. A float literal is a Go
+            // constant, which `int(...)` refuses to truncate; handed in as a
+            // float64 argument it's an ordinary value the conversion accepts.
+            head.push_str("func luxInt(f float64) int {\n\treturn int(f)\n}\n\n");
         }
         if self.uses_lux_show {
             head.push_str(&self.lux_show_fn());
@@ -1360,6 +1395,7 @@ impl Gen {
              \tif v == nil {{\n\t\treturn \"none\"\n\t}}\n\
              \tswitch x := v.(type) {{\n\
              \tcase string:\n\t\treturn x\n\
+             \tcase float64:\n\t\treturn luxFloat(x)\n\
              {cases}\
              \t}}\n\
              \trv := reflect.ValueOf(v)\n\
@@ -1389,12 +1425,15 @@ impl Gen {
         // A `Result` is Go's `(value, error)` pair, not a single value, so it can't
         // pass through `luxShow`; lux's rule is to match a Result where it's
         // produced, not print it, so it stays on the native path here.
-        if matches!(
-            self.t.type_of(a),
-            Ty::Array(_) | Ty::User(_) | Ty::Option(_)
-        ) {
+        let ty = self.t.type_of(a);
+        if matches!(ty, Ty::Array(_) | Ty::User(_) | Ty::Option(_)) {
             self.uses_lux_show = true;
             format!("luxShow({})", e)
+        } else if ty == Ty::Float {
+            // A whole float prints as `88` through `fmt` alone, erasing the very
+            // int/float distinction lux enforces; render it lux's way (#31).
+            self.uses_lux_float = true;
+            format!("luxFloat({})", e)
         } else {
             e
         }
@@ -1468,16 +1507,32 @@ impl Gen {
                 format!("input({})", p)
             }
             "string" => {
-                // `%v` is Go's general rendering; it keeps int and bool exact and
-                // matches Go's own (decimal-less) take on whole floats.
-                self.uses_fmt = true;
-                let e = self.emit_expr(&args[0]);
-                format!("fmt.Sprintf(\"%v\", {})", e)
+                // A float keeps its decimal point the way lux's `string(2.0)` yields
+                // "2.0"; `%v` alone would drop it to "2". Everything else takes `%v`,
+                // which keeps int and bool exact.
+                if self.t.type_of(&args[0]) == Ty::Float {
+                    self.uses_lux_float = true;
+                    let e = self.emit_expr(&args[0]);
+                    format!("luxFloat({})", e)
+                } else {
+                    self.uses_fmt = true;
+                    let e = self.emit_expr(&args[0]);
+                    format!("fmt.Sprintf(\"%v\", {})", e)
+                }
             }
             "int" => {
-                // Go conversions truncate a float and pass an int through.
+                // Go conversions truncate a float and pass an int through. A float
+                // literal is a constant, and Go refuses truncating a constant to an
+                // int (`int(3.9)` loses precision at compile time), so a float goes
+                // through a helper: passed as a runtime float64 argument, it's no
+                // longer a constant and truncates cleanly (#32).
                 let e = self.emit_expr(&args[0]);
-                format!("int({})", e)
+                if self.t.type_of(&args[0]) == Ty::Float {
+                    self.uses_lux_int = true;
+                    format!("luxInt({})", e)
+                } else {
+                    format!("int({})", e)
+                }
             }
             "float" => {
                 let e = self.emit_expr(&args[0]);

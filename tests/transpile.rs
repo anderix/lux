@@ -1620,3 +1620,103 @@ fn every_backend_emits_nonempty() {
     }
     let _ = Path::new("");
 }
+
+/// A struct named and then listed in an array literal — `let rect = [origin, …]`
+/// — is cloned into the array, so a later `print(origin)` still reads it. Rust
+/// moves a non-`Copy` value into a `vec!` element, so without the clone every
+/// move site already places, naming the corners of a shape and then reading one
+/// back wouldn't compile (#30). The array literal was the one move position the
+/// 0.15.0 clone set missed; the other backends copy by nature.
+#[test]
+fn a_named_struct_in_an_array_literal_is_cloned_on_every_backend() {
+    let src = r#"
+struct Point { x: int  y: int }
+let origin = Point(x: 0, y: 0)
+let far = Point(x: 4, y: 3)
+let rect = [origin, Point(x: 4, y: 0), far, Point(x: 0, y: 3)]
+print(origin)
+print(far)
+print(rect)
+"#;
+    assert_prints_everywhere(
+        src,
+        "arraylitclone",
+        "Point(x: 0, y: 0)\nPoint(x: 4, y: 3)\n[Point(x: 0, y: 0), Point(x: 4, y: 0), Point(x: 4, y: 3), Point(x: 0, y: 3)]\n",
+    );
+}
+
+/// Adding to an array while a loop walks it — the natural first version of a
+/// queue or a flood fill — is a snapshot everywhere: the loop sees the row as it
+/// was when it began. The interpreter, Swift's copy-on-write, and Go's range over
+/// a snapshot all give that; Rust's `.iter().cloned()` held the array borrowed
+/// for the whole loop, so the append wouldn't compile. Iterating a clone releases
+/// the borrow and keeps the same snapshot semantics (#36).
+#[test]
+fn mutating_an_array_while_looping_over_it_works_on_every_backend() {
+    let src = r#"
+var xs = [1, 2, 3]
+for x in xs {
+    if x == 1 {
+        xs += 99
+    }
+    print("saw", x)
+}
+print("after", xs)
+"#;
+    assert_prints_everywhere(
+        src,
+        "mutwhileloop",
+        "saw 1\nsaw 2\nsaw 3\nafter [1, 2, 3, 99]\n",
+    );
+}
+
+/// A whole float keeps its decimal point on every backend — `88.0`, not `88` — so
+/// the int/float distinction lux enforces at every arithmetic survives into the
+/// output. Go's `fmt` drops it, printing a `float` holding 88.0 identically to an
+/// `int` holding 88; a float now renders through a helper that matches lux, in a
+/// scalar, inside an array, and through `string()` (#31).
+#[test]
+fn a_whole_float_prints_with_its_decimal_on_every_backend() {
+    let src = r#"
+let a = 88.0
+print(a)
+print(1.5)
+print([1.0, 2.5, 3.0])
+print(string(2.0))
+"#;
+    assert_prints_everywhere(src, "wholefloat", "88.0\n1.5\n[1.0, 2.5, 3.0]\n2.0\n");
+}
+
+/// `int()` of a float literal is the most natural way to show what truncation
+/// does, and it must compile. Go refuses converting a constant float to an int —
+/// `int(3.9)` loses precision at compile time — so a float goes through a helper
+/// that reaches the conversion as a runtime value (#32). A float variable and a
+/// negative literal take the same path.
+#[test]
+fn int_of_a_float_literal_compiles_on_every_backend() {
+    let src = r#"
+let x = 3.9
+print(int(x))
+print(int(3.9))
+print(int(-3.9))
+"#;
+    assert_prints_everywhere(src, "intoffloat", "3\n3\n-3\n");
+}
+
+/// An `Option` binding that supplies its own type — `let a: Option<int> = some(5)`
+/// — keeps that type on every backend. Swift's `.some(5)` needs a contextual type
+/// to resolve, and the emitter dropped the annotation the program had already
+/// written, leaving nothing to infer from (#33). A `var`, a present value, and the
+/// empty `none` all land typed.
+#[test]
+fn an_annotated_option_binding_keeps_its_type_on_every_backend() {
+    let src = r#"
+let a: Option<int> = some(5)
+print(a)
+var b: Option<int> = some(7)
+print(b)
+let c: Option<int> = none
+print(c)
+"#;
+    assert_prints_everywhere(src, "annotsome", "some(5)\nsome(7)\nnone\n");
+}

@@ -629,9 +629,13 @@ impl Gen {
             Ty::Range => (self.emit_expr(iter), Ty::Int),
             Ty::Array(t) => {
                 let base = self.emit_expr(iter);
-                // Borrow the array and clone each element, so the loop never
-                // consumes what it walks and the body gets owned values.
-                (format!("{}.iter().cloned()", base), *t)
+                // Iterate a clone, so the loop walks a snapshot of the row as it
+                // was when the loop began — and the borrow is released, letting the
+                // body add to or assign into the original. `.iter().cloned()` would
+                // hold the array borrowed for the whole loop, so `for x in xs { xs
+                // += … }` wouldn't compile, where the interpreter, Swift's copy-on-
+                // write, and Go's range-over-a-snapshot all accept it (#36).
+                (format!("{}.clone()", base), *t)
             }
             _ => (self.emit_expr(iter), Ty::Unknown),
         };
@@ -680,7 +684,12 @@ impl Gen {
                 }
             }
             Expr::Array(els, _) => {
-                let parts: Vec<String> = els.iter().map(|x| self.emit_expr(x)).collect();
+                // An element takes ownership of the value put into it, so a named
+                // non-Copy value is cloned — the source stays readable after the
+                // array is built. Without this, naming a value and then listing it
+                // (`let rect = [origin, …]`) moves it, and a later `print(origin)`
+                // won't compile (#30). The same clone every other move site places.
+                let parts: Vec<String> = els.iter().map(|x| self.emit_moved(x)).collect();
                 format!("vec![{}]", parts.join(", "))
             }
             Expr::Unary { op, rhs, .. } => {
