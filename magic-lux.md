@@ -96,6 +96,28 @@ print("That's", length(pack), "things.")
 
 > trail: arrays · for
 
+<!-- spell: grid -->
+## grid — a map, a board, anything laid out in rows
+
+How do I make a grid, like a board or a map?
+
+```lux
+// A grid is a list of lists — [[string]], a row of rows. You reach a cell with
+// two indexes, set one through a var, and walk it with a loop inside a loop. Rows
+// can be different lengths, but a map is usually square.
+var floor: [[string]] = [[".", ".", "."], [".", "#", "."], [".", ".", "@"]]
+floor[0][1] = "$"                   // drop treasure in the top row
+for row in floor {
+    var line = ""
+    for cell in row {
+        line += cell
+    }
+    print(line)
+}
+```
+
+> trail: arrays · for
+
 <!-- spell: room -->
 ## room — add a new place to your keep
 
