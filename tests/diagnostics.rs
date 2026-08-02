@@ -121,3 +121,35 @@ fn deep_but_terminating_recursion_still_runs() {
     assert!(out.status.success(), "d(5000) should run to completion");
     assert_eq!(String::from_utf8_lossy(&out.stdout), "5000\n");
 }
+
+/// The "unknown function" note names the built-ins a mistyped call might have
+/// meant, and it's the one place a stuck learner is told what exists — so a
+/// built-in missing from it reads as a built-in that doesn't exist. It rendered a
+/// hand-written list that had drifted three names behind the real set; it now
+/// renders the single source, so every working built-in appears, `input`,
+/// `parseInt`, and `parseFloat` included.
+#[test]
+fn the_unknown_function_note_lists_every_builtin() {
+    let err = err_of("unknownfn", "print(contains(\"ab\", \"a\"))\n");
+    for name in [
+        "print",
+        "eprint",
+        "string",
+        "int",
+        "float",
+        "length",
+        "input",
+        "readLine",
+        "readFile",
+        "writeFile",
+        "args",
+        "run",
+        "parseInt",
+        "parseFloat",
+    ] {
+        assert!(
+            err.contains(name),
+            "the note should list the `{name}` built-in, got:\n{err}"
+        );
+    }
+}

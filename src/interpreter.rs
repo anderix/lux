@@ -1739,10 +1739,15 @@ impl Interp {
         let func = match self.funcs.get(name) {
             Some(f) => Rc::clone(f),
             None => {
-                return Err(LuxError::new(format!("unknown function `{}`", name), span).with_note(
-                    "define it with `func`, or use a built-in: print, eprint, string, int, float, length, readFile, writeFile, readLine, args, run",
-                )
-                .with_learn("functions", "a function takes values in and hands one result back"));
+                return Err(LuxError::new(format!("unknown function `{}`", name), span)
+                    .with_note(format!(
+                        "define it with `func`, or use a built-in: {}",
+                        BUILTINS.join(", ")
+                    ))
+                    .with_learn(
+                        "functions",
+                        "a function takes values in and hands one result back",
+                    ));
             }
         };
 
@@ -2495,6 +2500,29 @@ fn fully_determined(v: &Value) -> bool {
 /// straight to one of these calls needs no annotation, unlike a bare `none`/`err`
 /// literal whose type genuinely is open. `input` is absent on purpose: it returns
 /// a plain `string` (empty at end of input), so it never leaves a type unknown.
+/// Every built-in function, in one place so the "unknown function" note can't
+/// drift from the `call` arms that implement them — the note renders this list
+/// rather than repeating it. Grouped as it reads: the everyday ones, then the
+/// outside-world ones, then the two parsers. `some`, `ok`, and `err` are left out
+/// deliberately: they construct an `Option` or `Result` value, not the kind of
+/// function a mistyped call is reaching for.
+const BUILTINS: [&str; 14] = [
+    "print",
+    "eprint",
+    "string",
+    "int",
+    "float",
+    "length",
+    "input",
+    "readLine",
+    "readFile",
+    "writeFile",
+    "args",
+    "run",
+    "parseInt",
+    "parseFloat",
+];
+
 const TYPE_PINNING_BUILTINS: [&str; 6] = [
     "readLine",
     "readFile",
