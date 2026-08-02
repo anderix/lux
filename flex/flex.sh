@@ -46,8 +46,42 @@ invocation () {
         # column-aligned file, a paste, or a person typing. `parseInt` trims, so the
         # program's answer shouldn't change — and where it does, that's a finding.
         hist)  echo "printf '3\n 9\nnope\n14 \n' | BIN" ;;
+        # The keep is walked all the way to the chamber on purpose. The file write
+        # and the ending are the parts most likely to diverge, and the walk passes
+        # through the chamber twice, so one run covers both branches of "is there a
+        # copy already?" — it writes the-secret.txt the first time and reports it
+        # saved the second. That only holds because each leg runs in a clean
+        # directory; see `rundir` below.
+        keep)  echo "printf 'north\ntake key\nopen door\nsouth\neast\ntake torch\ndown\nlook\nup\nwest\nnorth\nnorth\nlook\nquit\n' | BIN" ;;
         *)     echo "BIN" ;;
     esac
+}
+
+# Most programs live here. The keep doesn't: it ships to learners as the thing
+# `lux crawl` writes out, so it's tested where it actually lives rather than copied
+# in, and a copy would be one more thing to keep in step.
+source_for () {
+    case "$1" in
+        keep) echo "$HERE/../examples/keep.lux" ;;
+        *)    echo "$HERE/$1.lux" ;;
+    esac
+}
+
+# Every leg runs in its own empty directory, and never in the repo. A program that
+# writes a file would otherwise leave it behind — `keep` writes the-secret.txt when
+# you reach the chamber — and worse, the leg that ran first would change what the
+# next one sees, which shows up as a one-line diff that looks like a backend bug and
+# isn't. Fresh directory per leg, so every leg meets the same world.
+#
+# Named after the leg rather than counted, because this is called from inside a
+# command substitution and a counter would increment in the subshell and be lost —
+# every leg would land in run1 and share a world, which is the exact failure this
+# exists to prevent.
+rundir () { # <label>
+    local d="$WORK/run.$1"
+    rm -rf "$d"
+    mkdir -p "$d"
+    echo "$d"
 }
 
 # Outputs are compared byte for byte, with nothing normalized away. There used to
@@ -65,7 +99,7 @@ build () { # <target> <program>
     case "$target" in
         go)
             mkdir -p "$src" || return 1
-            lux convert go "$HERE/$prog.lux" > "$src/main.go" 2>"$WORK/$prog.$target.err" || return 1
+            lux convert go "$(source_for "$prog")" > "$src/main.go" 2>"$WORK/$prog.$target.err" || return 1
             ( cd "$src" && go mod init flex >/dev/null 2>&1 && go build -o "$bin" . ) \
                 2>>"$WORK/$prog.$target.err" || return 1
             ;;
@@ -76,11 +110,11 @@ build () { # <target> <program>
             # with -O, until an overflow turned out to behave differently under the
             # two (anderix/lux#35).
             mkdir -p "$src" || return 1
-            ( cd "$src" && lux build "$HERE/$prog.lux" ) >"$WORK/$prog.$target.err" 2>&1 || return 1
+            ( cd "$src" && lux build "$(source_for "$prog")" ) >"$WORK/$prog.$target.err" 2>&1 || return 1
             mv "$src/$prog" "$bin" 2>/dev/null || return 1
             ;;
         swift)
-            lux convert swift "$HERE/$prog.lux" > "$src.swift" 2>"$WORK/$prog.$target.err" || return 1
+            lux convert swift "$(source_for "$prog")" > "$src.swift" 2>"$WORK/$prog.$target.err" || return 1
             swiftc -o "$bin" "$src.swift" 2>>"$WORK/$prog.$target.err" || return 1
             ;;
     esac
@@ -92,7 +126,8 @@ PROGRAMS=(fizzbuzz fib gcd sieve collatz roman
           binsearch list bst expr machine safe
           pascal matrix lcs tictactoe queens maze
           stats points logic
-          catn head wcl uniqc hist)
+          catn head wcl uniqc hist
+          keep)
 
 if [ $# -gt 0 ]; then
     PROGRAMS=("$@")
@@ -123,11 +158,11 @@ echo
 echo "comparing behaviour"
 for prog in "${PROGRAMS[@]}"; do
     cmd="$(invocation "$prog")"
-    ref="$(eval "${cmd//BIN/lux run \"$HERE/$prog.lux\"}" 2>&1)"
+    ref="$( cd "$(rundir "$prog.ref")" && eval "${cmd//BIN/lux run \"$(source_for "$prog")\"}" 2>&1 )"
     for target in "${TARGETS[@]}"; do
         bin="$WORK/$prog.$target.bin"
         [ -x "$bin" ] || continue
-        out="$(eval "${cmd//BIN/$bin}" 2>&1)"
+        out="$( cd "$(rundir "$prog.$target")" && eval "${cmd//BIN/$bin}" 2>&1 )"
         if [ "$out" = "$ref" ]; then
             printf '  MATCH   %-5s %s\n' "$target" "$prog"
             PASS=$((PASS + 1))

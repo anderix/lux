@@ -28,7 +28,10 @@ fi
 # leaving anything behind.
 if [ $# -gt 0 ]; then
     for prog in "$@"; do
-        src="$HERE/$prog.lux"
+        # The keep lives in examples/, because it ships to learners rather than
+        # belonging to the corpus. It is converted here all the same — CONVERT.md
+        # walks its seams, and those excerpts have to come from somewhere real.
+        if [ "$prog" = keep ]; then src="$HERE/../examples/keep.lux"; else src="$HERE/$prog.lux"; fi
         if [ ! -f "$src" ]; then
             echo "no such program: $prog"
             exit 1

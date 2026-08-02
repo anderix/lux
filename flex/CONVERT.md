@@ -12,8 +12,13 @@ have been given a program they already understand to meet them in.
 
 ```
 ./convert.sh list          # dump all three translations of one program
+./convert.sh keep          # the world `lux crawl` writes out
 ./convert.sh               # every program, into a directory you can browse
 ```
+
+The last section takes the keep — the program `lux crawl` hands a learner — one seam
+at a time. Those seams have stable headings on purpose, so a guide written elsewhere
+can point at one instead of working out which lines matter.
 
 ## A type that contains itself
 
@@ -303,6 +308,161 @@ let mut out: Vec<Vec<i64>> = filled(cols(&m), rows(&m), 0);
 
 That `&` is the whole of the ownership lesson in one character, and it is worth
 knowing that lux decided it for you. The learner wrote `cols(m)` both times.
+
+## The keep, three ways
+
+Everything above uses a small program chosen to isolate one idea. This section uses
+the opposite: [`keep.lux`](../examples/keep.lux), the world `lux crawl` writes out. It
+is the program most people who try lux run first, and the only one a reader is likely
+to already know by heart — which makes it the right place to meet a translation,
+because nothing about the *program* is new and all of the attention is free for the
+target language.
+
+The four seams below are the ones worth reading. Each has a stable heading, so a guide
+written elsewhere can point at one rather than re-deriving which lines matter.
+
+### The keep: the world that replaces itself
+
+The keep never changes the world. It builds the next one — `step(w, cmd) -> World` —
+and the loop assigns the result back. That one decision is what makes the game
+replayable by folding the same commands again, and it survives translation intact:
+
+```rust
+struct World {
+    room: Room,
+    items: Vec<String>,
+    door_open: bool,
+    playing: bool,
+}
+```
+
+```swift
+struct World: Equatable {
+    var room: Room
+    var items: [String]
+    var doorOpen: Bool
+    var playing: Bool
+}
+```
+
+```go
+type World struct {
+	room     Room
+	items    []string
+	doorOpen bool
+	playing  bool
+}
+```
+
+Three declarations of the same four fields, and the only real difference is what each
+language needed to be told: Rust renames to snake_case, Swift adds `Equatable` so two
+worlds can be compared, and Go's are lowercase because nothing outside the file reads
+them.
+
+### The keep: the borrow lux chose for you
+
+`has` asks whether something is in your pack. It reads the pack and never writes to
+it — and lux, which forbids writing through a parameter at all, knows that:
+
+```lux
+func has(items: [string], thing: string) -> bool {
+```
+
+```rust
+fn has(items: &Vec<String>, thing: String) -> bool {
+...
+        if has(&w.items, "key".to_string()) {
+```
+
+```go
+func has(items []string, thing string) bool {
+```
+
+```swift
+func has(_ items: [String], _ thing: String) -> Bool {
+```
+
+That `&` is the whole ownership lesson in one character, and it is the single most
+useful line in this document for anyone heading to Rust. The learner wrote `has(w.items,
+"key")` and did not think about ownership once. Rust cannot avoid thinking about it,
+so lux thought about it for them and passed a borrow — no copy, no move, and `w.items`
+still usable on the next line.
+
+It is worth knowing that this line is *young*. Until the read-only parameter fix it
+read `has(w.items.clone(), …)`, copying the whole pack on every lookup. Same program,
+same output, an entirely different lesson — which is the argument for a guide deriving
+from a translation that gets rebuilt rather than one transcribed by hand.
+
+### The keep: two ways to be empty
+
+The play loop has to tell a blank line you pressed Enter on from the input running out,
+which is why it uses `readLine()` and not `input()`:
+
+```lux
+world = match readLine() {
+    some(let line) => step(world, line)
+    none           => leave(world)
+}
+```
+
+Rust has the match, so the shape survives:
+
+```rust
+world = match read_line() {
+    Some(line) => step(world.clone(), line.clone()),
+    None => leave(world.clone()),
+};
+```
+
+Swift and Go both have to make it a *statement*, and a statement can't be assigned —
+so each wraps it in a function defined and called on the spot, which is a shape worth
+recognising because you will write it yourself one day:
+
+```swift
+world = { () -> World in
+    switch readLine() {
+    case .some(let line):
+        return step(world, line)
+    case .none:
+        return leave(world)
+    }
+}()
+```
+
+```go
+world = func() World {
+	if lineOpt := readLine(); lineOpt != nil {
+		line := *lineOpt
+		return step(copyWorld(world), line)
+	} else {
+		return leave(copyWorld(world))
+	}
+}()
+```
+
+Go's is the furthest from the original: no match, no Option, so the two cases become a
+nil check on a pointer, and the whole thing still has to be an expression to be
+assigned. Read it next to the four lines of lux above and the distance is the point.
+
+### The keep: a file that might already be there
+
+Reaching the chamber writes `the-secret.txt`, unless it is already there. Two things
+that can fail, one nested inside the other, and no variable holding either:
+
+```rust
+match std::fs::read_to_string("the-secret.txt".to_string()).map_err(|e| e.to_string()) {
+    Ok(_) => println!("{}", "(Your copy is already saved in the-secret.txt.)"),
+    Err(_) => match std::fs::write("the-secret.txt".to_string(), note.clone()).map_err(|e| e.to_string()) {
+        Ok(_) => println!("{}", "(There's a copy in the-secret.txt now, so it's not lost when you leave.)"),
+        Err(_) => println!("{}", "(I couldn't leave a copy on disk, but it's all here on the screen.)"),
+    },
+};
+```
+
+This is the rule from *A value that might fail* doing real work rather than
+demonstrating itself. The keep never asks "did that succeed?" and stores the answer —
+it answers each failure where it happens, which is why all three branches are visible
+here and none of them can be forgotten.
 
 ## What surrounds all of this
 

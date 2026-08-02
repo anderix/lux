@@ -99,6 +99,22 @@ line can come back empty.
 | `uniqc` | `uniq -c`, writable precisely because the real one only collapses adjacent runs |
 | `hist` | a bar chart, scaling, and junk input counted rather than fatal |
 
+**The one that ships.** Everything above was written for this directory. `keep` was
+not — it is the world `lux crawl` writes out, it lives in
+[`examples/`](../examples/keep.lux), and it is the program most people who try lux run
+first. It is tested here because being the highest-traffic program lux ships is a
+reason to check it more often than the rest, not less.
+
+| program | what it shows |
+|---|---|
+| `keep` | a whole game as `step(world, cmd) -> World`, replayable by folding the same commands again |
+
+The harness walks it fourteen commands to the chamber and out, which covers the ending
+and the file it writes on the way — and passes through the chamber twice, so one run
+takes both branches of "is there a copy already?" That only works because every leg
+runs in its own empty directory; a shared one would have the first leg's side effect
+show up as the second leg's failure.
+
 ## What it becomes
 
 [CONVERT.md](CONVERT.md) puts a handful of these beside the Rust, Swift, and Go that
@@ -107,6 +123,14 @@ value that might fail, and a copy that stays a copy. It is the graduation argume
 in the only form that actually carries it, which is four columns rather than a
 paragraph. `./convert.sh` regenerates the full translations if you would rather read
 whole files.
+
+Its last section does the same for the keep, one seam at a time — the world that
+replaces itself, the borrow lux chose for you, two ways to be empty, and a file that
+might already be there. Those are the seams a transition guide wants, and they carry
+stable headings so a guide can point at one rather than working out which lines matter.
+The keep is the right program for that job for the same reason it's the wrong one for
+the sections above: a reader already knows it, so none of their attention is spent on
+what it does.
 
 ## Where lux stops
 
