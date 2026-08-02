@@ -137,6 +137,13 @@ Notepad++ you already have — highlighting only, nothing that completes or
 corrects. And `lux update`
 fetches the latest release in place.
 
+If you are weighing lux up rather than learning it — a parent or teacher deciding
+whether a language this small can carry a first year — [flex/](flex/) is written
+for you: a corpus of the programs a first course reaches for, each run on all four
+implementations, with an honest account of how far the language goes and exactly
+where it stops. [flex/CONVERT.md](flex/CONVERT.md) sets lux source beside the Rust,
+Swift, and Go it becomes — the graduation claim shown rather than asserted.
+
 For the fuller history, see [CHANGELOG.md](CHANGELOG.md) and the scope notes at
 the bottom of [learn-lux.md](learn-lux.md).
 
