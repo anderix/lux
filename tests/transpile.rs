@@ -1183,8 +1183,8 @@ print(at(board, 1, 0))
 "#;
     let rust = convert::to_rust(&parser::parse(lexer::lex(src).expect("lex")).expect("parse"));
     assert!(
-        rust.contains("return row[(c) as usize].clone();"),
-        "Rust should clone an indexed String returned by value, got:\n{rust}"
+        rust.contains("return (*lux_index(&row, c)).clone();"),
+        "Rust should clone the bounds-checked indexed String returned by value, got:\n{rust}"
     );
     assert_prints_everywhere(src, "indexret", "c\n");
 }
@@ -1945,4 +1945,48 @@ fn a_large_integer_literal_compiles_on_every_backend() {
         rust.contains("3000000000i64") && !rust.contains("2i64"),
         "a literal past i32 takes an i64 suffix; a small one stays bare:\n{rust}"
     );
+}
+
+/// Going past the end of an array is the most common beginner runtime error, and
+/// the interpreter's message for it is the richest of the runtime family — it names
+/// the index, the length, and the valid range. After `lux build` it used to be lost
+/// to a Rust panic, a Go trace, or a Swift register dump; each backend now
+/// bounds-checks an index and reports in lux's words, and the output printed before
+/// it survives (#38).
+#[test]
+fn an_out_of_bounds_index_reports_a_lux_error_on_every_backend() {
+    let src = "func pick(xs: [int], i: int) -> int {\n    return xs[i]\n}\nprint(\"before\")\nprint(pick([1, 2, 3], 10))\n";
+    for backend in ["rust", "swift", "go"] {
+        let Some(out) = build_run("oob", backend, src) else {
+            continue;
+        };
+        assert!(
+            !out.status.success(),
+            "{backend}: an out-of-bounds read should fail, not succeed"
+        );
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            err.contains("index 10 is out of bounds for an array of length 3")
+                && err.contains("valid indices are 0 to 2"),
+            "{backend}: should name the index, length, and valid range, got:\n{err}"
+        );
+        assert!(
+            !err.contains("panic")
+                && !err.contains("Illegal instruction")
+                && !err.contains("goroutine"),
+            "{backend}: should not leak the host runtime's crash, got:\n{err}"
+        );
+        assert!(
+            String::from_utf8_lossy(&out.stdout).contains("before"),
+            "{backend}: output printed before the fault should survive"
+        );
+    }
+}
+
+/// The bounds check must not disturb ordinary indexing: a nested read and a nested
+/// write both still work, and value semantics hold, on every backend (#38).
+#[test]
+fn nested_array_read_and_write_still_work_on_every_backend() {
+    let src = "var grid = [[1, 2, 3], [4, 5, 6]]\nprint(grid[0][1])\ngrid[1][2] = 99\nprint(grid[1][2])\nprint(grid)\n";
+    assert_prints_everywhere(src, "gridrw", "2\n99\n[[1, 2, 3], [4, 5, 99]]\n");
 }

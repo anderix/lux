@@ -55,6 +55,14 @@ struct Gen {
     /// rather than a Rust panic trace (#34). Emitted only when used.
     uses_lux_div: bool,
     uses_lux_mod: bool,
+    /// Array indexing routes through bounds-checking helpers that report a lux error
+    /// on an out-of-range index instead of panicking (#38). Emitted only when the
+    /// program indexes an array.
+    uses_lux_bounds: bool,
+    /// True while emitting an assignment's target, so an indexed place emits as a
+    /// checked write (`xs[lux_check(i, xs.len())]`) that stays assignable, rather
+    /// than the read helper, which yields a borrow.
+    assigning: bool,
 }
 
 /// Integer division and remainder that report a lux error on a zero divisor and
@@ -77,6 +85,29 @@ fn lux_mod(a: i64, b: i64) -> i64 {
         std::process::exit(1);
     }
     a % b
+}
+";
+
+/// Array bounds checking: `lux_check` validates an index and reports the
+/// interpreter's own out-of-bounds error rather than letting Rust panic, and
+/// `lux_index` borrows an element through it so a read evaluates its base once
+/// (#38). A write indexes with `lux_check` directly, in place.
+const LUX_BOUNDS_HELPER: &str = "\
+fn lux_check(i: i64, len: usize) -> usize {
+    if i < 0 || i as usize >= len {
+        eprintln!(\"error: index {} is out of bounds for an array of length {}\", i, len);
+        if len == 0 {
+            eprintln!(\"note: this array is empty\");
+        } else {
+            eprintln!(\"note: valid indices are 0 to {}\", len - 1);
+        }
+        std::process::exit(1);
+    }
+    i as usize
+}
+
+fn lux_index<T>(xs: &[T], i: i64) -> &T {
+    &xs[lux_check(i, xs.len())]
 }
 ";
 
@@ -145,6 +176,8 @@ pub fn to_rust(program: &[Stmt]) -> String {
         ref_params: std::collections::HashSet::new(),
         uses_lux_div: false,
         uses_lux_mod: false,
+        uses_lux_bounds: false,
+        assigning: false,
         show_name: dodge_type_name("LuxShow", program),
     };
 
@@ -193,6 +226,10 @@ pub fn to_rust(program: &[Stmt]) -> String {
     }
     if g.uses_lux_mod {
         preamble.push_str(LUX_MOD_HELPER);
+        preamble.push('\n');
+    }
+    if g.uses_lux_bounds {
+        preamble.push_str(LUX_BOUNDS_HELPER);
         preamble.push('\n');
     }
     if g.uses_run {
@@ -646,10 +683,39 @@ impl Gen {
         self.t.declare(name.to_string(), vty);
     }
 
+    /// Emit a bounds-check statement for each array index in an assignment target,
+    /// innermost first, so a write past the end reports a lux error before it runs
+    /// (#38). Kept out of the target expression: a check borrows the array to read
+    /// its length, which can't sit inside the assignment that borrows it mutably.
+    /// Safe to name the base again, since an assignment target is rooted at a
+    /// variable.
+    fn emit_index_guards(&mut self, target: &Expr) {
+        match target {
+            Expr::Index { base, index, .. } => {
+                self.emit_index_guards(base);
+                if matches!(self.t.type_of(base), Ty::Array(_)) {
+                    self.uses_lux_bounds = true;
+                    let idx = self.emit_expr(index);
+                    self.assigning = true;
+                    let b = self.emit_expr(base);
+                    self.assigning = false;
+                    self.line(format!("lux_check({}, {}.len());", idx, b));
+                }
+            }
+            Expr::Field { base, .. } => self.emit_index_guards(base),
+            _ => {}
+        }
+    }
+
     fn emit_assign(&mut self, target: &Expr, op: AssignOp, value: &Expr) {
         // The place reads the same on the left as anywhere else — `w.door_open`,
-        // `items[i]`, or a plain name — and its type drives how `+=` lowers.
+        // `items[i]`, or a plain name — and its type drives how `+=` lowers. An
+        // indexed target is bounds-checked first, then emitted plainly so it stays
+        // an assignable place.
+        self.emit_index_guards(target);
+        self.assigning = true;
         let lhs = self.emit_expr(target);
+        self.assigning = false;
         let lty = self.t.type_of(target);
         match op {
             AssignOp::Set => {
@@ -730,10 +796,14 @@ impl Gen {
             Ty::Range => (self.emit_expr(iter), Ty::Int),
             Ty::Array(t) => {
                 let base = self.emit_expr(iter);
-                // A borrowed array parameter derefs before the clone, or `.clone()`
-                // clones the `&Vec` rather than the array it points at.
+                // A borrowed array parameter (`&Vec`) or an array element read
+                // (`*lux_index(..)`) is behind a reference; parenthesize the deref
+                // before the clone, or `.clone()` clones the pointer, not the array.
                 let base = if matches!(iter, Expr::Ident(..)) && self.ref_params.contains(&base) {
                     format!("(*{})", base)
+                } else if matches!(iter, Expr::Index { base: inner, .. } if matches!(self.t.type_of(inner), Ty::Array(_)))
+                {
+                    format!("({})", base)
                 } else {
                     base
                 };
@@ -862,13 +932,40 @@ impl Gen {
             }
             Expr::Index { base, index, .. } => {
                 let b = self.emit_expr(base);
-                let idx = if let Expr::Int(n, _) = **index {
-                    n.to_string()
+                // Bounds-check an array index so an out-of-range one reports a lux
+                // error, not a panic (#38). A read borrows through the helper, which
+                // evaluates its base once, so a nested `grid[i][j]` stays clean; a
+                // write checks the index in position, keeping an assignable place —
+                // safe to name the base twice, since an assignment target is always
+                // rooted at a variable.
+                if matches!(self.t.type_of(base), Ty::Array(_)) && !self.assigning {
+                    // A read borrows the element through the helper, which evaluates
+                    // its base once. Borrow the base to pass it — unless it's already
+                    // a borrowed array parameter (`&Vec`), passed straight through
+                    // (#28). The deref is bare: parens would draw `unused_parens` in
+                    // a plain value position, so a following `.clone()` or `.field`
+                    // adds them itself (`emit_moved`, the `Field` arm), and a nested
+                    // read re-borrows with `&*`.
+                    self.uses_lux_bounds = true;
+                    let idx = self.emit_expr(index);
+                    let amp = if matches!(&**base, Expr::Ident(..)) && self.ref_params.contains(&b)
+                    {
+                        ""
+                    } else {
+                        "&"
+                    };
+                    format!("*lux_index({}{}, {})", amp, b, idx)
                 } else {
-                    let e = self.emit_expr(index);
-                    format!("({}) as usize", e)
-                };
-                format!("{}[{}]", b, idx)
+                    // A write target (its bounds check emitted separately as a
+                    // statement), or a non-array index: plain indexing.
+                    let idx = if let Expr::Int(n, _) = **index {
+                        n.to_string()
+                    } else {
+                        let e = self.emit_expr(index);
+                        format!("({}) as usize", e)
+                    };
+                    format!("{}[{}]", b, idx)
+                }
             }
             Expr::Range { start, end, .. } => {
                 let s = self.emit_expr(start);
@@ -904,7 +1001,16 @@ impl Gen {
                     return format!("{}::{}", n, to_pascal(field));
                 }
                 let b = self.emit_expr(base);
-                format!("{}.{}", b, to_snake(field))
+                // An array element *read* is a bare deref (`*lux_index(..)`), and a
+                // field access binds tighter than the deref, so parenthesize it. A
+                // write target indexes plainly (no deref), so it's left as is.
+                if !self.assigning
+                    && matches!(&**base, Expr::Index { base: inner, .. } if matches!(self.t.type_of(inner), Ty::Array(_)))
+                {
+                    format!("(*{}).{}", b.trim_start_matches('*'), to_snake(field))
+                } else {
+                    format!("{}.{}", b, to_snake(field))
+                }
             }
             Expr::Match {
                 scrutinee, arms, ..
@@ -952,10 +1058,14 @@ impl Gen {
         let clone = !is_copy(&self.t.type_of(a)) && is_place(a, &self.t);
         let s = self.emit_expr(a);
         if clone {
-            // A borrowed array parameter is a `&Vec<…>`; an owned copy has to deref
-            // it first, or `.clone()` would clone the reference and leave a `&Vec`.
+            // A borrowed array parameter (`&Vec`) or an array element read
+            // (`*lux_index(..)`) is behind a reference; the deref is parenthesized so
+            // `.clone()` clones the value, not the pointer.
             if matches!(a, Expr::Ident(..)) && self.ref_params.contains(&s) {
                 format!("(*{}).clone()", s)
+            } else if matches!(a, Expr::Index { base, .. } if matches!(self.t.type_of(base), Ty::Array(_)))
+            {
+                format!("({}).clone()", s)
             } else {
                 format!("{}.clone()", s)
             }
@@ -1206,6 +1316,14 @@ impl Gen {
         let needs_as_str = arms.iter().any(|a| matches!(a.pattern, Pattern::Str(..)));
         let scrut = if needs_as_str {
             let s = self.emit_expr(scrutinee);
+            // A bare-deref array read (`*lux_index(..)`) needs parens before
+            // `.as_str()`, which binds tighter than the deref.
+            let s = if matches!(scrutinee, Expr::Index { base, .. } if matches!(self.t.type_of(base), Ty::Array(_)))
+            {
+                format!("({})", s)
+            } else {
+                s
+            };
             format!("{}.as_str()", s)
         } else {
             self.emit_expr(scrutinee)

@@ -4,6 +4,25 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.1] - 2026-08-02
+
+The fourth member of the runtime-error family — after runaway recursion, division
+by zero, and overflow — reported the same way as division by zero.
+
+### Fixed
+
+- **An out-of-bounds index reports a lux error on the compiled targets.** Going
+  past the end of an array is the most common runtime mistake a beginner makes, and
+  the interpreter's message for it is the richest of the family: it names the index,
+  the length, and the valid range, and its `lux learn arrays` trail states the
+  off-by-one rule that caused it. After `lux build` that was lost — a Rust panic, a
+  Go goroutine trace, a Swift register dump. Each backend now bounds-checks an index
+  and reports in lux's words, on a read and on a write, and the output printed before
+  the fault survives. A read borrows the element through a helper that evaluates its
+  base once, so a nested `grid[i][j]` stays as cheap as before; a write checks each
+  index as a statement ahead of the assignment. Ordinary indexing is unchanged, and
+  the whole flex corpus still matches.
+
 ## [0.16.0] - 2026-08-02
 
 Another pass of the same method — a corpus run through `lux run` and its compiled

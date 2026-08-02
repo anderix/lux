@@ -50,6 +50,13 @@ struct Gen {
     /// used, and they pull in Foundation for the stderr handle.
     uses_lux_div: bool,
     uses_lux_mod: bool,
+    /// Array indexing routes through bounds-checking helpers that report a lux error
+    /// on an out-of-range index rather than trapping (#38). Pulls in Foundation.
+    uses_lux_bounds: bool,
+    /// True while emitting an assignment's target, so an indexed place stays a plain
+    /// assignable subscript (its bounds check emitted separately as a statement)
+    /// rather than the read helper, which yields a value.
+    assigning: bool,
     /// The name of the generated `LuxShow` protocol, stepped aside if the program
     /// declares a type of that name so the two can't clash (#37).
     show_name: String,
@@ -70,6 +77,8 @@ pub fn to_swift(program: &[Stmt]) -> String {
         uses_lux_show: false,
         uses_lux_div: false,
         uses_lux_mod: false,
+        uses_lux_bounds: false,
+        assigning: false,
         show_name: dodge_type_name("LuxShow", program),
     };
 
@@ -161,7 +170,8 @@ impl Gen {
             || self.uses_eprint
             || self.uses_run
             || self.uses_lux_div
-            || self.uses_lux_mod;
+            || self.uses_lux_mod
+            || self.uses_lux_bounds;
         // readFile/writeFile/run all produce a `Result<_, String>`, so they pull
         // in the same conformance an annotated one would.
         let needs_error = needs_string_error(program)
@@ -282,7 +292,7 @@ impl Gen {
                  \tif b == 0 {\n\
                  \t\tfflush(stdout)\n\
                  \t\tFileHandle.standardError.write(Data(\"error: division by zero\\n\".utf8))\n\
-                 \t\texit(1)\n\
+                 \t\tFoundation.exit(1)\n\
                  \t}\n\
                  \treturn a / b\n\
                  }\n\n",
@@ -294,9 +304,38 @@ impl Gen {
                  \tif b == 0 {\n\
                  \t\tfflush(stdout)\n\
                  \t\tFileHandle.standardError.write(Data(\"error: remainder by zero\\n\".utf8))\n\
-                 \t\texit(1)\n\
+                 \t\tFoundation.exit(1)\n\
                  \t}\n\
                  \treturn a % b\n\
+                 }\n\n",
+            );
+        }
+        if self.uses_lux_bounds {
+            // Report an out-of-range index as a lux error and exit, rather than
+            // trapping on the illegal instruction Swift raises. `@discardableResult`
+            // so a write's bare check statement draws no unused-result warning;
+            // `luxIndex` reads through it, and copy-on-write means passing the array
+            // in doesn't copy it. stdout is flushed first so output already printed
+            // comes out ahead of the error.
+            head.push_str(
+                "@discardableResult\n\
+                 func luxCheck(_ i: Int, _ n: Int) -> Int {\n\
+                 \tif i < 0 || i >= n {\n\
+                 \t\tfflush(stdout)\n\
+                 \t\tFileHandle.standardError.write(Data(\"error: index \\(i) is out of bounds for an array of length \\(n)\\n\".utf8))\n\
+                 \t\tif n == 0 {\n\
+                 \t\t\tFileHandle.standardError.write(Data(\"note: this array is empty\\n\".utf8))\n\
+                 \t\t} else {\n\
+                 \t\t\tFileHandle.standardError.write(Data(\"note: valid indices are 0 to \\(n - 1)\\n\".utf8))\n\
+                 \t\t}\n\
+                 \t\tFoundation.exit(1)\n\
+                 \t}\n\
+                 \treturn i\n\
+                 }\n\n",
+            );
+            head.push_str(
+                "func luxIndex<T>(_ xs: [T], _ i: Int) -> T {\n\
+                 \treturn xs[luxCheck(i, xs.count)]\n\
                  }\n\n",
             );
         }
@@ -502,10 +541,36 @@ impl Gen {
         self.t.declare(name.to_string(), vty);
     }
 
+    /// Emit a bounds-check statement for each array index in an assignment target,
+    /// innermost first, so a write past the end reports a lux error before it runs
+    /// (#38). Kept out of the target subscript itself and safe to name the base
+    /// again, since an assignment target is rooted at a variable.
+    fn emit_index_guards(&mut self, target: &Expr) {
+        match target {
+            Expr::Index { base, index, .. } => {
+                self.emit_index_guards(base);
+                if matches!(self.t.type_of(base), Ty::Array(_)) {
+                    self.uses_lux_bounds = true;
+                    let idx = self.emit_expr(index);
+                    self.assigning = true;
+                    let b = self.emit_expr(base);
+                    self.assigning = false;
+                    self.line(format!("luxCheck({}, {}.count)", idx, b));
+                }
+            }
+            Expr::Field { base, .. } => self.emit_index_guards(base),
+            _ => {}
+        }
+    }
+
     fn emit_assign(&mut self, target: &Expr, op: AssignOp, value: &Expr) {
         // The place emits the same on the left as when read — `w.doorOpen`,
-        // `items[i]`, or a plain name — and its type picks how `+=` lowers.
+        // `items[i]`, or a plain name — and its type picks how `+=` lowers. An
+        // indexed target is bounds-checked first, then emitted as a plain subscript.
+        self.emit_index_guards(target);
+        self.assigning = true;
         let lhs = self.emit_expr(target);
+        self.assigning = false;
         let lty = self.t.type_of(target);
         match op {
             AssignOp::Set => {
@@ -770,7 +835,16 @@ impl Gen {
             Expr::Index { base, index, .. } => {
                 let b = self.emit_expr(base);
                 let idx = self.emit_expr(index);
-                format!("{}[{}]", b, idx)
+                // Bounds-check an array read through the helper, which reports a lux
+                // error instead of trapping (#38); Swift arrays are copy-on-write, so
+                // passing the base to it doesn't copy. A write target stays a plain
+                // subscript, its check emitted as a preceding statement.
+                if matches!(self.t.type_of(base), Ty::Array(_)) && !self.assigning {
+                    self.uses_lux_bounds = true;
+                    format!("luxIndex({}, {})", b, idx)
+                } else {
+                    format!("{}[{}]", b, idx)
+                }
             }
             Expr::Range { start, end, .. } => {
                 let s = self.emit_expr(start);

@@ -89,6 +89,14 @@ struct Gen {
     /// Go runtime panic and goroutine trace (#34). Emitted only when used.
     uses_lux_div: bool,
     uses_lux_mod: bool,
+    /// Array indexing routes through bounds-checking helpers that report a lux error
+    /// on an out-of-range index — the interpreter's own message — rather than a Go
+    /// panic and stack trace (#38). Emitted only when the program indexes an array.
+    uses_lux_bounds: bool,
+    /// True while emitting an assignment's target, so an indexed place emits as a
+    /// checked write (`xs[luxCheck(i, len(xs))]`) that can still be assigned into,
+    /// rather than the read helper, which yields a value.
+    assigning: bool,
 }
 
 /// Translate a whole program to Go source text.
@@ -121,6 +129,8 @@ pub fn to_go(program: &[Stmt]) -> String {
         uses_lux_int: false,
         uses_lux_div: false,
         uses_lux_mod: false,
+        uses_lux_bounds: false,
+        assigning: false,
     };
 
     for stmt in program {
@@ -333,6 +343,30 @@ impl Gen {
                  \t\tos.Exit(1)\n\
                  \t}\n\
                  \treturn a % b\n\
+                 }\n\n",
+            );
+        }
+        if self.uses_lux_bounds {
+            // Check an array index and report a lux error on an out-of-range one,
+            // the way the interpreter does, rather than a Go panic. `luxIndex` reads
+            // through it so a nested index evaluates its base once.
+            head.push_str(
+                "func luxCheck(i, n int) int {\n\
+                 \tif i < 0 || i >= n {\n\
+                 \t\tfmt.Fprintf(os.Stderr, \"error: index %d is out of bounds for an array of length %d\\n\", i, n)\n\
+                 \t\tif n == 0 {\n\
+                 \t\t\tfmt.Fprintln(os.Stderr, \"note: this array is empty\")\n\
+                 \t\t} else {\n\
+                 \t\t\tfmt.Fprintf(os.Stderr, \"note: valid indices are 0 to %d\\n\", n-1)\n\
+                 \t\t}\n\
+                 \t\tos.Exit(1)\n\
+                 \t}\n\
+                 \treturn i\n\
+                 }\n\n",
+            );
+            head.push_str(
+                "func luxIndex[T any](xs []T, i int) T {\n\
+                 \treturn xs[luxCheck(i, len(xs))]\n\
                  }\n\n",
             );
         }
@@ -819,10 +853,40 @@ impl Gen {
             .map(|f| ty_from_ann(&f.ty))
     }
 
+    /// Emit a bounds-check statement for each array index in an assignment target,
+    /// innermost first, so a write past the end reports a lux error before it runs
+    /// (#38). Kept out of the target expression itself — a check reads the array,
+    /// which can't sit inside the assignment that writes it — and safe to name the
+    /// base again, since an assignment target is rooted at a variable.
+    fn emit_index_guards(&mut self, target: &Expr) {
+        match target {
+            Expr::Index { base, index, .. } => {
+                self.emit_index_guards(base);
+                if matches!(self.t.type_of(base), Ty::Array(_)) {
+                    self.uses_lux_bounds = true;
+                    self.uses_fmt = true;
+                    self.uses_os = true;
+                    let idx = self.emit_expr(index);
+                    self.assigning = true;
+                    let b = self.emit_expr(base);
+                    self.assigning = false;
+                    self.line(format!("luxCheck({}, len({}))", idx, b));
+                }
+            }
+            Expr::Field { base, .. } => self.emit_index_guards(base),
+            _ => {}
+        }
+    }
+
     fn emit_assign(&mut self, target: &Expr, op: AssignOp, value: &Expr) {
         // The place emits the same on the left as when read — `w.doorOpen`,
-        // `items[i]`, or a plain name — and its type picks how `+=` lowers.
+        // `items[i]`, or a plain name — and its type picks how `+=` lowers. An
+        // indexed target is bounds-checked first, then emitted plainly so it stays
+        // assignable.
+        self.emit_index_guards(target);
+        self.assigning = true;
         let lhs = self.emit_expr(target);
+        self.assigning = false;
         let lty = self.t.type_of(target);
         match op {
             AssignOp::Set => {
@@ -1327,7 +1391,27 @@ impl Gen {
             Expr::Index { base, index, .. } => {
                 let b = self.emit_expr(base);
                 let idx = self.emit_expr(index);
-                format!("{}[{}]", b, idx)
+                // Bounds-check an array index so an out-of-range one reports a lux
+                // error, not a Go panic (#38). A read yields a value through the
+                // helper (evaluated once, so a nested `grid[i][j]` stays clean); a
+                // write keeps an assignable place, checking the index in position —
+                // safe to re-evaluate the base, since an assignment target is always
+                // rooted at a variable. Only arrays are indexed in lux.
+                if matches!(self.t.type_of(base), Ty::Array(_)) {
+                    self.uses_lux_bounds = true;
+                    self.uses_fmt = true;
+                    self.uses_os = true;
+                    if self.assigning {
+                        // A write's bounds check is a statement emitted before the
+                        // assignment (see `emit_index_guards`); the target itself
+                        // indexes plainly so it stays assignable.
+                        format!("{}[{}]", b, idx)
+                    } else {
+                        format!("luxIndex({}, {})", b, idx)
+                    }
+                } else {
+                    format!("{}[{}]", b, idx)
+                }
             }
             Expr::Range { start, end, .. } => {
                 // A bare range only reaches here outside a `for`; Go has no range
