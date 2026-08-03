@@ -256,11 +256,15 @@ map is that not one of those was found by writing more ordinary programs — eac
 from asking where language implementations traditionally disagree, and then looking
 there.
 
-What is open is the last part of that: `nan < 1.0` is refused by `lux run` with
-`cannot compare with NaN` — a good guard, since IEEE's answer of "every comparison with
-NaN is false" is a silent wrong answer — and the three compiled targets happily return
-`false` and carry on
-([#52](https://github.com/anderix/lux/issues/52)). The same rule on one leg out of four.
+Two things are open. `nan < 1.0` is refused by `lux run` with `cannot compare with
+NaN` — a good guard, since IEEE's answer of "every comparison with NaN is false" is a
+silent wrong answer — and the three compiled targets return `false` and carry on
+([#52](https://github.com/anderix/lux/issues/52)). And `string()` of a struct, enum or
+array never got the treatment `print` got: Rust and Swift refuse to build it, and Go
+quietly hands back `{1 2}` where every other implementation says `P(x: 1, y: 2)`
+([#54](https://github.com/anderix/lux/issues/54)). Go's is the one that matters, because
+a wrong string flows onward into whatever the program does with it — written to a file,
+compared, folded into a report — with nothing to say it changed.
 
 ## The rules
 

@@ -157,3 +157,12 @@ print(inRange)
 print("does it hold?", holds(inRange))
 print(Cond.either(left: Cond.same(left: two, right: two), right: Cond.less(left: seven, right: two)))
 print("does it hold?", holds(Cond.either(left: Cond.same(left: two, right: two), right: Cond.less(left: seven, right: two))))
+print("")
+
+// The same value turned into text with `string()` rather than handed to `print`.
+// Both should say the same thing — `showNum` above is the rendering this program
+// chose, and this is the one the language gives you for free, so it is worth seeing
+// them side by side to know which one you are looking at.
+let asText = string(larger)
+print("string() of it:", asText)
+print("its length:    ", length(asText))
