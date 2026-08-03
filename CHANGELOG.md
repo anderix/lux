@@ -4,6 +4,25 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.2] - 2026-08-02
+
+### Fixed
+
+- **`string()` of a struct, enum, option, or array renders it lux's way.** 0.15.0
+  routed `print` of a compound value through a generated `luxShow` on every backend;
+  `string()` of the same value was never given the same treatment, so it diverged
+  exactly the way `print` used to. Rust and Swift wouldn't build a `string(struct)`
+  at all; Go quietly produced a different string — `{1 2}` for a struct, an array
+  without commas — that then flowed on into whatever the program saved or compared,
+  one thing under `lux run` and another after `lux build`. `string()` of a compound
+  now calls `luxShow`, the same renderer `print` uses (#54).
+
+- **`every_topic_runs` no longer hangs on an open stdin.** The test ran each `lux
+  learn` example through the in-process interpreter against the ambient stdin, and
+  the `input` topic's example reads stdin — so on a terminal or an open pipe the
+  whole suite blocked forever in that one test, with no output. It now runs each
+  example through the binary with an explicitly empty stdin (#53).
+
 ## [0.17.1] - 2026-08-02
 
 A pass of the flex method — a corpus run through `lux run` and its compiled Rust,
