@@ -178,6 +178,13 @@ do. What changed is not the capability but where it sits. It is taught last, as 
 bridge out rather than the ceremony you open with, and every program in this
 directory is deliberately main-free because that is how lux itself teaches.
 
+**A seam rather than a wall.** One place the four implementations knowingly differ.
+`lux run` refuses to order a NaN — `cannot compare with NaN` — because IEEE's answer,
+that every comparison with a NaN is false, is a wrong answer wearing a right one's
+clothes. The compiled targets give IEEE's answer. Everything else about a non-finite
+float agrees: `inf`, `-inf` and `NaN` print the same on all four, and `int()` of one
+saturates the same way. Only ordering differs, and only after you have made a NaN.
+
 **Not built yet, and wanted.** Strings cannot be split or indexed, and there is no
 map type. Both are on the list ahead of anything else, pulled by programs that
 needed them rather than by a wish list. Their absence shapes three programs here:
@@ -256,21 +263,35 @@ map is that not one of those was found by writing more ordinary programs — eac
 from asking where language implementations traditionally disagree, and then looking
 there.
 
-Two things are open. `nan < 1.0` is refused by `lux run` with `cannot compare with
-NaN` — a good guard, since IEEE's answer of "every comparison with NaN is false" is a
-silent wrong answer — and the three compiled targets return `false` and carry on
-([#52](https://github.com/anderix/lux/issues/52)). And `string()` of a struct, enum or
-array never got the treatment `print` got: Rust and Swift refuse to build it, and Go
-quietly hands back `{1 2}` where every other implementation says `P(x: 1, y: 2)`
-([#54](https://github.com/anderix/lux/issues/54)). Go's is the one that matters, because
-a wrong string flows onward into whatever the program does with it — written to a file,
-compared, folded into a report — with nothing to say it changed.
+One more came from the least promising place on that map. Probing whether anything
+broke at scale — twenty-thousand-element arrays, two-hundred-square grids,
+three-hundred-deep recursive values — found nothing, which was the expected answer. But
+a value that deep was the first one big enough that measuring `string()` of it seemed
+interesting, and the length came back 7701 under `lux run` against 1694 on Go.
+`string()` of a compound had never been given the treatment `print` was given: Rust and
+Swift refused to build it, and Go quietly returned a different string, which would then
+flow onward into whatever the program saved or compared. Fixed. The lesson kept is that
+the probe finds what it finds rather than what you predicted, so a row worth little is
+still worth working.
+
+Nothing is open. Every divergence this corpus has found is either fixed or, in exactly
+one case, examined and deliberately kept — see the seam in *Where lux stops*, and the
+first of the rules below.
 
 ## The rules
 
-**A divergence means the target is wrong.** The interpreter defines the language.
-When a translation disagrees, the translation is fixed; a program is never edited
-to make a backend pass. If a fix would need the corpus changed, the fix is wrong.
+**A divergence means the target is wrong — until someone argues otherwise, in
+writing.** The interpreter defines the language. When a translation disagrees, the
+translation is fixed; a program is never edited to make a backend pass, and if a fix
+would need the corpus changed, the fix is wrong. That has decided every finding here
+but one, and the exception is worth stating because a rule with no known exception is
+usually a rule nobody has tested. `nan < 1.0` is refused by `lux run` and answered
+`false` by all three targets, and carrying the guard across would wrap every float
+comparison a learner writes in a helper call — `if x < y` becoming `if luxLt(x, y)` in
+the code lux asks them to read. That was judged too much to pay, on the leg where it
+matters least, for a case you only reach after producing a NaN. So the divergence
+stands, deliberately, and is written down rather than quietly tolerated. The rule is
+the default and the burden of proof, not a law.
 
 **The corpus never asks for a feature.** If lux can't express something, the
 program doesn't get written and the wall goes in the section above. Every wall
