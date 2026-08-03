@@ -450,14 +450,21 @@ Reaching the chamber writes `the-secret.txt`, unless it is already there. Two th
 that can fail, one nested inside the other, and no variable holding either:
 
 ```rust
-match std::fs::read_to_string("the-secret.txt".to_string()).map_err(|e| e.to_string()) {
+match { let p = "the-secret.txt".to_string(); std::fs::read_to_string(&p).map_err(|e| format!("could not read {}: {}", p, e)) } {
     Ok(_) => println!("{}", "(Your copy is already saved in the-secret.txt.)"),
-    Err(_) => match std::fs::write("the-secret.txt".to_string(), note.clone()).map_err(|e| e.to_string()) {
+    Err(_) => match { let p = "the-secret.txt".to_string(); std::fs::write(&p, note.clone()).map_err(|e| format!("could not write {}: {}", p, e)) } {
         Ok(_) => println!("{}", "(There's a copy in the-secret.txt now, so it's not lost when you leave.)"),
         Err(_) => println!("{}", "(I couldn't leave a copy on disk, but it's all here on the screen.)"),
     },
 };
 ```
+
+The block around each call is doing something worth noticing. `std::fs` would hand
+back its own message — `No such file or directory (os error 2)` — which doesn't say
+*which* file. lux binds the path first so it can build `could not read <path>: <reason>`,
+the same sentence on all three targets. A program that reads several files and reports
+only "no such file" has told the reader almost nothing, so the wrapper exists to keep
+the path in the message.
 
 This is the rule from *A value that might fail* doing real work rather than
 demonstrating itself. The keep never asks "did that succeed?" and stores the answer —
@@ -565,6 +572,12 @@ Reading that is worth a minute, because it is the clearest picture of what a lan
 does *for* you. You wrote `m[i]`. What runs is a bounds check that knows the length,
 knows the index, and knows how to explain the difference — and it is there on every
 one of the three, in three spellings, without being asked for.
+
+The rest of the net is the same idea applied to arithmetic and to printing: `luxDiv`
+and `luxMod` refuse a zero divisor in lux's words rather than the host runtime's, and
+`luxFloat` renders every float the way the interpreter does — positional, decimal point
+kept, `inf` and `NaN` spelled the same on all three. Each of those exists because the
+three targets disagreed about it until a program in this corpus caught them at it.
 
 The translations are not a museum piece. They are compiled and run on every pass of
 the harness, so every excerpt above is what the current compiler emits rather than

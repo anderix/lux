@@ -162,8 +162,11 @@ misrepresent the language in its own favour.
 load-bearing idea is that state is a value you can watch — `step(world, cmd) ->
 World`, replayable by folding the same commands again — and a hidden die roll
 breaks that on the first throw. A `Result` cannot be stored in a variable or handed
-to `print`; it is handled where it is produced or returned for the caller to face,
-which is what keeps one source crossing three targets. There are no classes, no user-defined
+to `print`, and cannot be a parameter either; it is handled where it is produced or
+returned for the caller to face, which is what keeps one source crossing three targets.
+That last clause is newer than the rest — the interpreter used to accept a
+`Result`-typed parameter and run it, while Go couldn't emit one at all, and the rule was
+tightened rather than the backend taught a trick. There are no classes, no user-defined
 generics, and no ownership. Each of those is somebody's graduation lesson: Rust
 takes over for ownership, Swift for classes, Go for goroutines.
 
@@ -238,58 +241,26 @@ a float — and when one finally did, that rule turned a real divergence into a 
 is gone, and the corpus now compares bytes exactly. A harness that smooths over a
 difference trades a false failure today for a hidden bug tomorrow.
 
-What is open now falls into four groups.
+The corpus went looking for the far side of the map next — text that isn't ASCII, the
+file and process built-ins, floats that stop being finite, and both output streams at
+once — and that turned out to be where the four implementations had drifted furthest.
+Swift measured a string in graphemes and compared it canonically, so a family emoji was
+one character where the others said five and two spellings of an accented letter were
+the same string where the others saw two. `parseInt` refused a number with a space in
+front of it on one leg out of four. `readFile` and `run` built four different failure
+strings, one of them in Objective-C vocabulary and wrong about which failure had
+happened. Floats printed in exponent notation lux cannot parse back, and infinity and
+NaN were spelled three ways. A warning written to stderr jumped to the top of the file
+when the output was piped. All of it is fixed, and the argument for that section of the
+map is that not one of those was found by writing more ordinary programs — each came
+from asking where language implementations traditionally disagree, and then looking
+there.
 
-**The `Result` rule is enforced in three places and in three different ways.** It is
-the one rule the section above calls load-bearing — a `Result` is handled where it is
-produced, which is what keeps one source crossing three targets. `lux run` enforces it.
-`lux build` does not: a stored `Result` builds and runs on Rust and Swift, printing
-`Ok(...)` and `success(...)`, and won't compile on Go
-([#39](https://github.com/anderix/lux/issues/39)). And a `Result` passed to a function
-— a binding by another name, so arguably the same thing the rule forbids — is accepted
-by the interpreter, compiles on Rust and Swift, and emits Go that isn't valid syntax
-([#42](https://github.com/anderix/lux/issues/42)). Between them the rule leaks in both
-directions at once.
-
-**Five that differ in what the program computes, not in what the tool says.** These
-are the ones to worry about, because nothing announces them. `parseInt` and
-`parseFloat` accept surrounding whitespace everywhere except Swift, so a program
-reading `" 42"` — which is what a column-aligned file or anything a person typed gives
-you — quietly reports "not a number" on one leg out of four
-([#41](https://github.com/anderix/lux/issues/41)). Printing a float agrees across the
-ordinary range and comes apart at both ends: Go switches to exponent form at a million
-and above, all three compiled targets switch below about a ten-thousandth, and Rust
-spells it `1e-5` where the other two write `1e-05`
-([#47](https://github.com/anderix/lux/issues/47)) — which also means `print` emits text
-lux itself cannot parse back, since it has no exponent literal. The `err` string from
-`readFile` or `writeFile` reads four different ways, with Swift's leaking
-`NSCocoaErrorDomain` at a thirteen-year-old and telling them a file doesn't exist when
-what actually happened was permission denied
-([#43](https://github.com/anderix/lux/issues/43)). And `run` of a program that isn't
-installed takes the `err` arm on three legs and the `ok` arm on Swift, with status 127
-— so the branch a learner wrote for "you need to install that first" is the one that
-never runs ([#48](https://github.com/anderix/lux/issues/48)). And the moment a string stops
-being ASCII the four stop agreeing about what a character is: Swift counts what you
-can see, the other three count Unicode scalars, so `length` of a flag or a family emoji
-differs, and two spellings of `é` that render identically compare equal on Swift and
-unequal everywhere else ([#49](https://github.com/anderix/lux/issues/49)). That last
-one is a language decision rather than a backend fix, and the issue argues it as one.
-
-**The lesson is dropped from the runtime errors.** Carrying lux's runtime errors onto
-the compiled targets was the biggest fix the corpus has prompted, and the diagnosis and
-the tailored `note:` both survive it. The `help:` line doesn't, on any of the three —
-and that is the constant string naming the rule you got wrong and the `lux learn` topic
-that explains it ([#40](https://github.com/anderix/lux/issues/40)). What reaches the
-compiled targets is the diagnosis without the lesson.
-
-**Three gaps in code a beginner writes on the way past.** Counting a row by walking it
-— `for item in basket { total += 1 }` — names a variable the body never reads, which Go
-refuses ([#44](https://github.com/anderix/lux/issues/44)). And a ragged grid written
-down rather than built up — `[[], [9, 10], [14]]` — loses the empty row's type and
-degrades the whole literal to `[]any`
-([#45](https://github.com/anderix/lux/issues/45)). On Swift, measuring a joined string
-— `length(first + " " + last)` — emits `a + b.count` and won't compile, because the
-argument never gets parenthesized ([#50](https://github.com/anderix/lux/issues/50)).
+What is open is the last part of that: `nan < 1.0` is refused by `lux run` with
+`cannot compare with NaN` — a good guard, since IEEE's answer of "every comparison with
+NaN is false" is a silent wrong answer — and the three compiled targets happily return
+`false` and carry on
+([#52](https://github.com/anderix/lux/issues/52)). The same rule on one leg out of four.
 
 ## The rules
 
