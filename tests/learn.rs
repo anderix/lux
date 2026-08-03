@@ -4,7 +4,7 @@
 //! that the navigation graph — guided lessons, and any cross-references — only
 //! points at topics that actually exist.
 
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use lux::{convert, interpreter, learn, lexer, parser};
 
@@ -23,12 +23,27 @@ fn tool_available(cmd: &str, version_arg: &str) -> bool {
 
 #[test]
 fn every_topic_runs() {
+    // Run through the binary with an explicitly empty stdin, not the in-process
+    // interpreter against the ambient one: the `input` topic's example reads stdin,
+    // so with a terminal or an open pipe on fd 0 the run blocks forever with no
+    // output — a silent hang in the suite every contributor runs first (#53). An
+    // empty stdin gives `input()` immediate EOF, the way `< /dev/null` always did.
+    let tmp = std::env::temp_dir();
     for t in learn::topics() {
-        let prog = program(&t.example);
+        let path = tmp.join(format!("lux_topic_{}_{}.lux", std::process::id(), t.id));
+        std::fs::write(&path, &t.example).expect("write example");
+        let out = Command::new(env!("CARGO_BIN_EXE_lux"))
+            .arg("run")
+            .arg(&path)
+            .stdin(Stdio::null())
+            .output()
+            .expect("run lux");
+        let _ = std::fs::remove_file(&path);
         assert!(
-            interpreter::run(&prog, &[]).is_ok(),
-            "`{}` example does not run under the interpreter",
-            t.id
+            out.status.success(),
+            "`{}` example does not run:\n{}",
+            t.id,
+            String::from_utf8_lossy(&out.stderr)
         );
     }
 }

@@ -1223,16 +1223,19 @@ impl Gen {
                 format!("run({}, {})", p, a)
             }
             "string" => {
-                // A float goes through `lux_float`, so `string(2.0)` is "2.0" and a
-                // small value stays positional rather than `1e-5` (#47); everything
-                // else is `to_string`.
-                let is_float = self.t.type_of(&args[0]) == Ty::Float;
-                let e = self.emit_expr(&args[0]);
-                if is_float {
+                // `string` renders a value exactly as `print` does. A float goes
+                // through `lux_float` (positional, `.0` kept); a compound goes through
+                // `LuxShow`, the same as print, since a struct or enum has no `Display`
+                // and won't build under `to_string` (#54). A scalar is `to_string`.
+                let ty = self.t.type_of(&args[0]);
+                if ty == Ty::Float {
                     self.uses_lux_float = true;
-                    format!("lux_float({})", e)
+                    format!("lux_float({})", self.emit_expr(&args[0]))
+                } else if matches!(ty, Ty::Array(_) | Ty::User(_) | Ty::Option(_)) {
+                    self.uses_lux_show = true;
+                    self.print_show_arg(&args[0])
                 } else {
-                    format!("({}).to_string()", e)
+                    format!("({}).to_string()", self.emit_expr(&args[0]))
                 }
             }
             "int" => {

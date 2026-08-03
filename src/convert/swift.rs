@@ -1127,16 +1127,21 @@ impl Gen {
                 let a = self.emit_expr(&args[1]);
                 format!("run({}, {})", p, a)
             }
-            // A float goes through `luxFloat` so `string(2.0)` is "2.0" and a small
-            // value stays positional rather than `1e-05` (#47); everything else uses
-            // Swift's `String(...)`.
+            // `string` renders a value exactly as `print` does. A float goes through
+            // `luxFloat` (positional, `.0` kept); a compound goes through `luxShow`,
+            // the same as print, since `String(describing:)` renders a struct Swift's
+            // way and an enum won't build at all (#54). A scalar uses `String(...)`.
             "string" => {
-                let e = self.emit_expr(&args[0]);
-                if self.t.type_of(&args[0]) == Ty::Float {
+                let ty = self.t.type_of(&args[0]);
+                if ty == Ty::Float {
                     self.uses_lux_float = true;
-                    format!("luxFloat({})", e)
+                    format!("luxFloat({})", self.emit_expr(&args[0]))
+                } else if matches!(ty, Ty::Array(_) | Ty::User(_) | Ty::Option(_)) {
+                    self.uses_lux_show = true;
+                    let e = self.print_show_expr(&args[0], &ty);
+                    format!("({}).luxShow()", e)
                 } else {
-                    format!("String({})", e)
+                    format!("String({})", self.emit_expr(&args[0]))
                 }
             }
             "int" => {

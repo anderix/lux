@@ -299,6 +299,20 @@ fn swift_interleaves_stdout_and_stderr_when_merged() {
     );
 }
 
+/// `string()` of a compound renders it the same way `print` does — through
+/// `luxShow` — rather than the host's default: Rust and Swift wouldn't build a
+/// `string(struct)`, and Go gave `{1 2}`, a different string that then flows on into
+/// whatever the program saves or compares (#54). The scalar cases are unchanged.
+#[test]
+fn string_of_a_compound_matches_print_everywhere() {
+    let src = "struct P {\n    x: int\n    y: int\n}\nenum E {\n    a\n    b(v: int)\n}\nprint(string(P(x: 1, y: 2)))\nprint(string(E.a))\nprint(string(E.b(v: 7)))\nprint(string([1, 2, 3]))\n";
+    assert_prints_everywhere(
+        src,
+        "strcompound",
+        "P(x: 1, y: 2)\nE.a\nE.b(v: 7)\n[1, 2, 3]\n",
+    );
+}
+
 // --- Rust ------------------------------------------------------------------
 
 #[test]

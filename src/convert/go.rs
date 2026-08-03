@@ -1742,16 +1742,22 @@ impl Gen {
                 format!("input({})", p)
             }
             "string" => {
-                // A float keeps its decimal point the way lux's `string(2.0)` yields
-                // "2.0"; `%v` alone would drop it to "2". Everything else takes `%v`,
+                // `string` of a value renders it exactly as `print` does — a float
+                // keeps its decimal point through `luxFloat` (`%v` would drop `2.0`
+                // to `2`), and a compound goes through `luxShow`, since `%v` gives a
+                // struct as `{1 2}` and an array without commas, a different string
+                // that then flows on into the program (#54). A scalar takes `%v`,
                 // which keeps int and bool exact.
-                if self.t.type_of(&args[0]) == Ty::Float {
+                let ty = self.t.type_of(&args[0]);
+                let e = self.emit_expr(&args[0]);
+                if ty == Ty::Float {
                     self.uses_lux_float = true;
-                    let e = self.emit_expr(&args[0]);
                     format!("luxFloat({})", e)
+                } else if matches!(ty, Ty::Array(_) | Ty::User(_) | Ty::Option(_)) {
+                    self.uses_lux_show = true;
+                    format!("luxShow({})", e)
                 } else {
                     self.uses_fmt = true;
-                    let e = self.emit_expr(&args[0]);
                     format!("fmt.Sprintf(\"%v\", {})", e)
                 }
             }
