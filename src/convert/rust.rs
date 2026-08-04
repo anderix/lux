@@ -67,6 +67,12 @@ struct Gen {
     /// output stays positional (`0.00001`, not `1e-5`) and lux can read it back —
     /// Rust's `{:?}` on an f64 uses exponent notation at the extremes (#47).
     uses_lux_float: bool,
+    /// The string operations `contains`/`replace`/`split` each lower to a helper
+    /// that guards the empty-pattern case; gated one at a time so an unused one
+    /// never draws a dead-code warning.
+    uses_lux_contains: bool,
+    uses_lux_replace: bool,
+    uses_lux_split: bool,
 }
 
 /// Render a float the way the interpreter does: positional, with a decimal point,
@@ -127,6 +133,47 @@ fn lux_check(i: i64, len: usize) -> usize {
 
 fn lux_index<T>(xs: &[T], i: i64) -> &T {
     &xs[lux_check(i, xs.len())]
+}
+";
+
+/// The string operations, each refusing an empty search/separator with the
+/// interpreter's own error rather than one of the three answers the targets
+/// disagree on. Rust's `str` methods are scalar-correct already — UTF-8 is
+/// self-synchronizing, so they never match a partial scalar — so these wrap them.
+/// Gated one at a time so an unused one never trips the warning-clean bar.
+const LUX_CONTAINS_HELPER: &str = "\
+fn lux_contains(s: &str, needle: &str) -> bool {
+    if needle.is_empty() {
+        eprintln!(\"error: the search text is empty\");
+        eprintln!(\"note: contains looks for one piece of text inside another; there is nothing to look for here — check whether a variable came up empty\");
+        eprintln!(\"help: `lux learn strings` — contains asks whether one string appears inside another\");
+        std::process::exit(1);
+    }
+    s.contains(needle)
+}
+";
+
+const LUX_REPLACE_HELPER: &str = "\
+fn lux_replace(s: &str, from: &str, to: &str) -> String {
+    if from.is_empty() {
+        eprintln!(\"error: the text to replace is empty\");
+        eprintln!(\"note: replace swaps one piece of text for another; there is nothing to swap out here — check whether a variable came up empty\");
+        eprintln!(\"help: `lux learn strings` — replace swaps every occurrence of one string for another\");
+        std::process::exit(1);
+    }
+    s.replace(from, to)
+}
+";
+
+const LUX_SPLIT_HELPER: &str = "\
+fn lux_split(s: &str, sep: &str) -> Vec<String> {
+    if sep.is_empty() {
+        eprintln!(\"error: the separator is empty\");
+        eprintln!(\"note: split breaks text apart at a separator; an empty separator has no place to break — check whether a variable came up empty\");
+        eprintln!(\"help: `lux learn arrays` — split breaks a string into an array of pieces at a separator\");
+        std::process::exit(1);
+    }
+    s.split(sep).map(String::from).collect()
 }
 ";
 
@@ -199,6 +246,9 @@ pub fn to_rust(program: &[Stmt]) -> String {
         assigning: false,
         show_name: dodge_type_name("LuxShow", program),
         uses_lux_float: false,
+        uses_lux_contains: false,
+        uses_lux_replace: false,
+        uses_lux_split: false,
     };
 
     for stmt in program {
@@ -268,6 +318,18 @@ pub fn to_rust(program: &[Stmt]) -> String {
     }
     if g.uses_run {
         preamble.push_str(RUN_HELPER);
+        preamble.push('\n');
+    }
+    if g.uses_lux_contains {
+        preamble.push_str(LUX_CONTAINS_HELPER);
+        preamble.push('\n');
+    }
+    if g.uses_lux_replace {
+        preamble.push_str(LUX_REPLACE_HELPER);
+        preamble.push('\n');
+    }
+    if g.uses_lux_split {
+        preamble.push_str(LUX_SPLIT_HELPER);
         preamble.push('\n');
     }
     if g.uses_read_line {
@@ -1271,6 +1333,34 @@ impl Gen {
                 } else {
                     format!("({}).len() as i64", e)
                 }
+            }
+            // The string operations borrow their arguments (`&(expr)` on an owned
+            // String coerces to `&str`), so nothing is moved and a later read is fine.
+            // A user function of the same name shadows the built-in.
+            "contains" => {
+                self.uses_lux_contains = true;
+                format!(
+                    "lux_contains(&({}), &({}))",
+                    self.emit_expr(&args[0]),
+                    self.emit_expr(&args[1])
+                )
+            }
+            "replace" => {
+                self.uses_lux_replace = true;
+                format!(
+                    "lux_replace(&({}), &({}), &({}))",
+                    self.emit_expr(&args[0]),
+                    self.emit_expr(&args[1]),
+                    self.emit_expr(&args[2])
+                )
+            }
+            "split" => {
+                self.uses_lux_split = true;
+                format!(
+                    "lux_split(&({}), &({}))",
+                    self.emit_expr(&args[0]),
+                    self.emit_expr(&args[1])
+                )
             }
             "some" => {
                 let e = self.emit_moved(&args[0]);

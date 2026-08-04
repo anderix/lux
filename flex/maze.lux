@@ -46,10 +46,10 @@ func distances(g: [[string]]) -> [[int]] {
     return out
 }
 
-func find(g: [[string]], mark: string) -> Point {
+func find(g: [[string]], marker: string) -> Point {
     for r in 0..rows(g) {
         for c in 0..cols(g) {
-            if at(g, r, c) == mark {
+            if at(g, r, c) == marker {
                 return Point(r: r, c: c)
             }
         }

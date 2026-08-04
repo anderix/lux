@@ -7,10 +7,9 @@ on to one of those. The few hard ideas lux leaves out — ownership, classes,
 goroutines — are the ideas those bigger languages are built around, and they
 land better once you have written something that needs them.
 
-It is small enough to count: fourteen keywords and fourteen built-in functions.
-The whole of it is one file — read [learn-lux.md](learn-lux.md): it is the
-reference, the tutorial, and the test corpus all at once, and the suite runs
-every example in it. The same material is built into the binary, so once lux is
+The whole language is one file you can read in a sitting — read
+[learn-lux.md](learn-lux.md): it is the reference, the tutorial, and the test
+corpus all at once, and the suite runs every example in it. The same material is built into the binary, so once lux is
 installed you can read it in your terminal with `lux learn`.
 
 ## Installing

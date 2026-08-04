@@ -38,7 +38,7 @@ program: if a fix needs the corpus edited, the fix is wrong.
 
 The point is backend *correctness*, not language growth. These programs are
 shaped the way they are because certain things deliberately don't exist in lux —
-no string splitting, no maps, no `break` — and that shape is the teaching content
+no maps, no `break`, no generics — and that shape is the teaching content
 (insertion sort builds a new row; the RPN machine folds a fault forward). They
 favour building a new value over mutating one even though a `var` field or element
 can now be assigned, because that's the habit the language is teaching. Don't add

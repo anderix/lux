@@ -11,8 +11,8 @@
 // and the copy is what gets sorted. That copy is the idiom for every sort here:
 // the caller's row is never touched, and the sorted one comes back as a value.
 
-func bubble(input: [int]) -> [int] {
-    var xs = input
+func bubble(values: [int]) -> [int] {
+    var xs = values
     let n = length(xs)
     var pass = 0
     var swapped = true

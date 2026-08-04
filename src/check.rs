@@ -6,7 +6,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::ast::{Expr, Param, Stmt, TypeAnn, TypeKind};
+use crate::ast::{Expr, Param, Pattern, Stmt, TypeAnn, TypeKind};
 use crate::convert::{Ty, Types};
 use crate::diagnostic::{LuxError, Span};
 use crate::interpreter::{
@@ -19,11 +19,261 @@ use crate::interpreter::{
 /// pass here means nothing about whether the program is otherwise correct.
 pub fn check(program: &[Stmt]) -> Result<(), LuxError> {
     entry_point(program)?;
+    // A name you declare has to be new where you make it: not a built-in, not already
+    // the name of a function or type, and not still in scope from an enclosing block.
+    // One rule instead of the several de-facto behaviours that shadowing used to leave
+    // lying on a learner's path.
+    check_names(program)?;
     // A `Result` parameter is the store-a-Result rule seen at a binding, and it's
     // syntactic — the annotation says `Result<…>` — so it's refused on every path,
     // making `lux run` agree with the targets rather than accepting what Go can't
     // emit (#42).
     reject_result_parameter(program)
+}
+
+// ----- reserved names and shadowing ----------------------------------------
+
+/// If `name` is a built-in — a function, a value form, or a type — say which kind,
+/// so the error can name what the learner just bumped into (and, the hope goes,
+/// send them to look it up). Built-in names are reserved the way keywords are: a
+/// program can't rebind one and quietly change what a later `length(...)` or `none`
+/// means.
+fn reserved_kind(name: &str) -> Option<&'static str> {
+    // `int`/`float`/`string` are also conversion built-ins, but a learner naming
+    // one means the type, so name that role first.
+    if matches!(
+        name,
+        "int" | "float" | "string" | "bool" | "Option" | "Result" | "Unit"
+    ) {
+        Some("a built-in type")
+    } else if BUILTINS.contains(&name) {
+        Some("a built-in function")
+    } else if matches!(name, "some" | "none" | "ok" | "err") {
+        Some("a built-in value")
+    } else {
+        None
+    }
+}
+
+/// The whole-program naming rule: every declared name must be new where it is
+/// introduced — not a built-in, and not still in scope from an enclosing block. A
+/// function or type name is checked against the built-ins here; the body is then
+/// walked with a stack of block scopes so each binding is checked against the
+/// variables still visible around it.
+fn check_names(program: &[Stmt]) -> Result<(), LuxError> {
+    let mut globals: HashSet<&str> = HashSet::new();
+    for s in program {
+        let (name, span) = match s {
+            Stmt::Func { name, span, .. }
+            | Stmt::Struct { name, span, .. }
+            | Stmt::Enum { name, span, .. } => (name.as_str(), *span),
+            _ => continue,
+        };
+        if let Some(kind) = reserved_kind(name) {
+            return Err(reserved_error(name, kind, span));
+        }
+        globals.insert(name);
+    }
+    let mut scopes: Vec<HashSet<String>> = vec![HashSet::new()];
+    walk_stmts_names(program, &globals, &mut scopes)
+}
+
+fn reserved_error(name: &str, kind: &str, span: Span) -> LuxError {
+    LuxError::new(
+        format!("`{}` is {}, so it can't be a name you declare", name, kind),
+        span,
+    )
+    .with_note("built-in names are reserved the way keywords are — choose another name")
+}
+
+/// Introduce a name at a declaration, refusing it if it collides with a built-in, a
+/// global function or type, or a name still in scope. A variable can't take a
+/// function's name even from a different scope: the targets resolve the two as one
+/// name, so a program that shadows a function and then calls it runs interpreted but
+/// won't build. One name, one meaning. On success the name is added to the innermost
+/// block so later siblings see it.
+fn declare_name(
+    name: &str,
+    span: Span,
+    globals: &HashSet<&str>,
+    scopes: &mut [HashSet<String>],
+) -> Result<(), LuxError> {
+    // `_` is the discard binding — "ignore this", not a name. Any number of them
+    // coexist, so a nested `for _ in ...` never clashes with an outer one.
+    if name == "_" {
+        return Ok(());
+    }
+    if let Some(kind) = reserved_kind(name) {
+        return Err(reserved_error(name, kind, span));
+    }
+    if globals.contains(name) {
+        return Err(LuxError::new(
+            format!("`{}` is already the name of a function or type", name),
+            span,
+        )
+        .with_note("a name is a value or something you call, not both — choose another")
+        .with_learn("scope", "a name means one thing wherever it can be seen"));
+    }
+    if scopes.last().is_some_and(|c| c.contains(name)) {
+        return Err(LuxError::new(
+            format!("`{}` is already declared in this scope", name),
+            span,
+        )
+        .with_learn("scope", "a name lives only inside the { } where it's made"));
+    }
+    if scopes.iter().any(|s| s.contains(name)) {
+        return Err(LuxError::new(
+            format!("`{}` is already in scope from an enclosing block", name),
+            span,
+        )
+        .with_note(
+            "the outer name is still visible here, so a new one would shadow it — choose another",
+        )
+        .with_learn("scope", "a name means one thing wherever it can be seen"));
+    }
+    if let Some(current) = scopes.last_mut() {
+        current.insert(name.to_string());
+    }
+    Ok(())
+}
+
+fn walk_stmts_names(
+    stmts: &[Stmt],
+    globals: &HashSet<&str>,
+    scopes: &mut Vec<HashSet<String>>,
+) -> Result<(), LuxError> {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Let {
+                name, value, span, ..
+            } => {
+                walk_expr_names(value, globals, scopes)?;
+                declare_name(name, *span, globals, scopes)?;
+            }
+            Stmt::Var {
+                name, value, span, ..
+            } => {
+                if let Some(v) = value {
+                    walk_expr_names(v, globals, scopes)?;
+                }
+                declare_name(name, *span, globals, scopes)?;
+            }
+            Stmt::Func { params, body, .. } => {
+                // A function is its own world: it can't see top-level variables, so
+                // its parameters and locals start from an empty scope. Built-ins and
+                // global names still apply.
+                let mut fn_scopes: Vec<HashSet<String>> = vec![HashSet::new()];
+                for p in params {
+                    declare_name(&p.name, p.span, globals, &mut fn_scopes)?;
+                }
+                walk_stmts_names(body, globals, &mut fn_scopes)?;
+            }
+            Stmt::Assign { target, value, .. } => {
+                walk_expr_names(target, globals, scopes)?;
+                walk_expr_names(value, globals, scopes)?;
+            }
+            Stmt::Return { value, .. } => {
+                if let Some(v) = value {
+                    walk_expr_names(v, globals, scopes)?;
+                }
+            }
+            Stmt::Expr(e) => walk_expr_names(e, globals, scopes)?,
+            Stmt::If {
+                cond,
+                then_body,
+                else_body,
+                ..
+            } => {
+                walk_expr_names(cond, globals, scopes)?;
+                scopes.push(HashSet::new());
+                walk_stmts_names(then_body, globals, scopes)?;
+                scopes.pop();
+                if let Some(e) = else_body {
+                    scopes.push(HashSet::new());
+                    walk_stmts_names(e, globals, scopes)?;
+                    scopes.pop();
+                }
+            }
+            Stmt::While { cond, body, .. } => {
+                walk_expr_names(cond, globals, scopes)?;
+                scopes.push(HashSet::new());
+                walk_stmts_names(body, globals, scopes)?;
+                scopes.pop();
+            }
+            Stmt::For {
+                var,
+                iter,
+                body,
+                span,
+            } => {
+                walk_expr_names(iter, globals, scopes)?;
+                scopes.push(HashSet::new());
+                declare_name(var, *span, globals, scopes)?;
+                walk_stmts_names(body, globals, scopes)?;
+                scopes.pop();
+            }
+            Stmt::Struct { .. } | Stmt::Enum { .. } => {}
+        }
+    }
+    Ok(())
+}
+
+/// Expressions introduce names only through a `match` arm's captures, but they have
+/// to be walked so a `match` nested anywhere — a call argument, a branch of a
+/// binary — has its captures checked in the right scope.
+fn walk_expr_names(
+    e: &Expr,
+    globals: &HashSet<&str>,
+    scopes: &mut Vec<HashSet<String>>,
+) -> Result<(), LuxError> {
+    match e {
+        Expr::Match {
+            scrutinee, arms, ..
+        } => {
+            walk_expr_names(scrutinee, globals, scopes)?;
+            for arm in arms {
+                scopes.push(HashSet::new());
+                if let Pattern::Variant { bindings, span, .. } = &arm.pattern {
+                    for b in bindings {
+                        declare_name(b, *span, globals, scopes)?;
+                    }
+                }
+                walk_expr_names(&arm.body, globals, scopes)?;
+                scopes.pop();
+            }
+        }
+        Expr::Array(items, _) => {
+            for x in items {
+                walk_expr_names(x, globals, scopes)?;
+            }
+        }
+        Expr::Unary { rhs, .. } => walk_expr_names(rhs, globals, scopes)?,
+        Expr::Binary { lhs, rhs, .. } => {
+            walk_expr_names(lhs, globals, scopes)?;
+            walk_expr_names(rhs, globals, scopes)?;
+        }
+        Expr::Index { base, index, .. } => {
+            walk_expr_names(base, globals, scopes)?;
+            walk_expr_names(index, globals, scopes)?;
+        }
+        Expr::Range { start, end, .. } => {
+            walk_expr_names(start, globals, scopes)?;
+            walk_expr_names(end, globals, scopes)?;
+        }
+        Expr::Call { args, .. } => {
+            for a in args {
+                walk_expr_names(a, globals, scopes)?;
+            }
+        }
+        Expr::StructLit { fields, .. } | Expr::EnumLit { fields, .. } => {
+            for (_, v) in fields {
+                walk_expr_names(v, globals, scopes)?;
+            }
+        }
+        Expr::Field { base, .. } => walk_expr_names(base, globals, scopes)?,
+        Expr::Int(..) | Expr::Float(..) | Expr::Str(..) | Expr::Bool(..) | Expr::Ident(..) => {}
+    }
+    Ok(())
 }
 
 /// The checks `lux run` makes that `lux convert` and `lux build` must make too,

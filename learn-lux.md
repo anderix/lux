@@ -183,7 +183,22 @@ different strings that won't compare equal. Every language meets this seam once
 its text stops being plain ASCII; lux counts scalars everywhere and doesn't hide
 it.
 
-> see: arrays — a string is a sequence of characters, measured the way an array is · conversions — going the other way, reading a number out of text with `parseInt`
+Two built-ins work on the text itself. `contains(text, part)` answers a
+yes-or-no question — is `part` somewhere inside `text`? — which is the shape an
+`if` runs on. `replace(text, from, to)` hands back a *new* string with every
+`from` swapped for `to`; the original is untouched, because a string is a value,
+not something you edit in place. Both look at scalars, so they find what `length`
+would count and never a look-alike that a different spelling only seems to match.
+
+```lux
+let mood = input("How was your day? ")
+if contains(mood, "good") {
+    print("Glad to hear it.")
+}
+print(replace("today was ___", "___", mood))
+```
+
+> see: arrays — a string is a sequence of characters, measured the way an array is, and where `split` turns a line into one you can walk · conversions — going the other way, reading a number out of text with `parseInt`
 
 <!-- topic: input -->
 ## input — ask a question
@@ -323,7 +338,26 @@ print(grid[1][0])       // 4
 print(grid)             // [[1, 2, 9], [4, 5, 6]]
 ```
 
-> see: for — the loop built for walking an array · structs — the other compound type, a few different things instead of many of the same
+Most arrays you meet at first are ones you typed out yourself, and a loop over a
+list you already know can feel like a formality. `split` makes an array you
+*didn't* write: `split(text, separator)` breaks a string into pieces, however
+many there turn out to be (an empty separator is refused — there would be nowhere
+to cut). Its length comes from what someone typed, not from the program, and that
+is the moment a `for` loop stops being ceremony and becomes the only way through:
+you can't name pieces you haven't seen yet. When a piece might not be what you
+expect — a number that isn't one, a word you don't recognise — `parseInt` and
+`match` are how you handle it, which is where this path leads next.
+
+```lux
+let line = input("Type some words with spaces between: ")
+let words = split(line, " ")
+print("you gave me", length(words), "words")
+for word in words {
+    print("- " + word)
+}
+```
+
+> see: for — the loop built for walking an array · structs — the other compound type, a few different things instead of many of the same · conversions — reading a number out of a piece `split` handed you, when the text might not be one
 
 <!-- topic: for -->
 ## for — looping over things
@@ -411,6 +445,14 @@ its matching `}`, and an inner scope can see the names around it but never the
 other way around. The bigger languages add more kinds — file and module scope,
 namespaces, and *closures* that let a function carry its scope around with it —
 but the rule you just learned is the spine that all of them are built on.
+
+lux also keeps names from stacking up. A name has to be new where you make it:
+you can't declare one that's still in scope from an outer block, and you can't
+take a built-in's name — `length`, `none`, `int`, and the rest are reserved the
+way keywords are. Reuse a name in two blocks that never overlap and you're fine;
+try to shadow one that's still visible and lux stops you, so a name always means
+one thing wherever you can see it. Some languages let an inner name quietly hide
+an outer one; lux would rather you pick a fresh name than wonder which is which.
 
 > see: functions — the most common fresh scope, one per call · variables — the names that live in a scope
 

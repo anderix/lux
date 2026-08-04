@@ -19,8 +19,8 @@ struct Split {
     at: int
 }
 
-func partition(input: [int], lo: int, hi: int) -> Split {
-    var xs = input
+func partition(values: [int], lo: int, hi: int) -> Split {
+    var xs = values
     let pivot = xs[hi]
     var boundary = lo
     for j in lo..hi {
@@ -37,13 +37,13 @@ func partition(input: [int], lo: int, hi: int) -> Split {
     return Split(row: xs, at: boundary)
 }
 
-func sortRange(input: [int], lo: int, hi: int) -> [int] {
+func sortRange(values: [int], lo: int, hi: int) -> [int] {
     if lo >= hi {
-        return input
+        return values
     }
-    let split = partition(input, lo, hi)
-    var xs = sortRange(split.row, lo, split.at - 1)
-    xs = sortRange(xs, split.at + 1, hi)
+    let parted = partition(values, lo, hi)
+    var xs = sortRange(parted.row, lo, parted.at - 1)
+    xs = sortRange(xs, parted.at + 1, hi)
     return xs
 }
 

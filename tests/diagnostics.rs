@@ -140,7 +140,7 @@ fn deep_but_terminating_recursion_still_runs() {
 /// `parseInt`, and `parseFloat` included.
 #[test]
 fn the_unknown_function_note_lists_every_builtin() {
-    let err = err_of("unknownfn", "print(contains(\"ab\", \"a\"))\n");
+    let err = err_of("unknownfn", "print(sparkle(\"ab\", \"a\"))\n");
     for name in [
         "print",
         "eprint",
@@ -148,6 +148,9 @@ fn the_unknown_function_note_lists_every_builtin() {
         "int",
         "float",
         "length",
+        "contains",
+        "replace",
+        "split",
         "input",
         "readLine",
         "readFile",
@@ -359,11 +362,12 @@ fn convert_refuses_the_wrong_argument_count() {
     );
 }
 
-/// Soundness: a `var` that rebinds a parameter's name makes a write to that name
-/// legal, so convert must not refuse it. The check excludes any rebound name rather
-/// than track scopes, so it can never turn away a valid program.
+/// A `var` that rebinds a parameter's name is refused — one name means one thing in
+/// a scope — so the copy-into-a-mutable-local idiom takes a fresh name instead (see
+/// `firstToZero`'s `var xs = values` in the assign tests). Refused on the convert
+/// path too, since the naming rule runs before any command.
 #[test]
-fn convert_allows_a_var_that_shadows_a_parameter() {
+fn a_var_shadowing_a_parameter_is_refused() {
     let src = "func f(x: int) -> int {\n    var x = 5\n    x = 6\n    return x\n}\nprint(f(1))\n";
     let path = std::env::temp_dir().join(format!("lux-conv-{}-shadow.lux", std::process::id()));
     std::fs::write(&path, src).unwrap();
@@ -376,8 +380,108 @@ fn convert_allows_a_var_that_shadows_a_parameter() {
         .unwrap();
     let _ = std::fs::remove_file(&path);
     assert!(
-        out.status.success(),
-        "a var shadowing a parameter is legal and must convert, stderr:\n{}",
+        !out.status.success(),
+        "a var shadowing a parameter must be refused"
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("already declared in this scope"),
+        "should name the collision, got:\n{}",
         String::from_utf8_lossy(&out.stderr)
     );
+}
+
+// ----- one naming rule: reserved built-ins, no shadowing -------------------
+
+/// A built-in function name can't be a name you declare — `func length` used to be
+/// silent dead code (the built-in won), which is exactly the confusion the rule ends.
+#[test]
+fn a_built_in_function_name_cannot_be_declared() {
+    let err = err_of(
+        "resfn",
+        "func length(xs: [int]) -> int {\n    return 0\n}\nprint(0)\n",
+    );
+    assert!(
+        err.contains("`length` is a built-in function"),
+        "got:\n{err}"
+    );
+    let err = err_of("ressplit", "let split = 3\nprint(split)\n");
+    assert!(
+        err.contains("`split` is a built-in function"),
+        "got:\n{err}"
+    );
+}
+
+/// A built-in type name is reserved too, as a variable or a type — `struct int`
+/// would otherwise collide with the `int()` conversion.
+#[test]
+fn a_built_in_type_name_cannot_be_declared() {
+    let err = err_of("restype", "let int = 5\nprint(int)\n");
+    assert!(err.contains("`int` is a built-in type"), "got:\n{err}");
+    let err = err_of("resstruct", "struct string {\n    n: int\n}\nprint(0)\n");
+    assert!(err.contains("`string` is a built-in type"), "got:\n{err}");
+}
+
+/// #19 made `let none = 5` resolve to the local; the naming rule refuses the binding
+/// instead, so `none` always means the empty `Option`.
+#[test]
+fn the_empty_option_none_cannot_be_a_variable() {
+    let err = err_of("resnone", "let none = 5\nprint(none)\n");
+    assert!(err.contains("`none` is a built-in value"), "got:\n{err}");
+}
+
+/// A binding can't shadow one still in scope from an enclosing block — a nested
+/// block or a loop variable that repeats an outer name. Same-scope was always an
+/// error; this closes the gap that made the nested version a silent shadow.
+#[test]
+fn a_binding_cannot_shadow_an_enclosing_one() {
+    let err = err_of(
+        "shadowblock",
+        "let x = 1\nif true {\n    let x = 2\n    print(x)\n}\n",
+    );
+    assert!(err.contains("`x` is already in scope"), "got:\n{err}");
+    let err = err_of("shadowloop", "var i = 9\nfor i in 0..2 {\n}\nprint(i)\n");
+    assert!(err.contains("`i` is already in scope"), "got:\n{err}");
+}
+
+/// A name is a value or something you call, never both — a variable can't take a
+/// function's name.
+#[test]
+fn a_name_is_a_value_or_a_function_not_both() {
+    // A variable can't take a function's name, even from another scope: the targets
+    // resolve the two as one name, so shadowing a function and then calling it runs
+    // interpreted but won't build. Refused up front, one name to one meaning.
+    let err = err_of(
+        "valfn",
+        "func f() -> int {\n    return 1\n}\nfunc g() -> int {\n    var f = 5\n    return f\n}\nprint(g())\n",
+    );
+    assert!(
+        err.contains("`f` is already the name of a function"),
+        "got:\n{err}"
+    );
+}
+
+/// The rule forbids shadowing, not reuse: two separate loops and a parameter that
+/// repeats a top-level name are never visible at once, so all of it runs. Guards
+/// against the rule over-reaching into ordinary reuse.
+#[test]
+fn reusing_a_name_in_sibling_scopes_is_fine() {
+    let path = std::env::temp_dir().join(format!("lux-okname-{}.lux", std::process::id()));
+    std::fs::write(
+        &path,
+        "for i in 0..2 {\n}\nfor i in 0..2 {\n}\nfor _ in 0..2 {\n    for _ in 0..1 {\n    }\n}\nlet x = 1\nfunc f(x: int) -> int {\n    return x + 1\n}\nprint(f(x))\n",
+    )
+    .unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_lux"))
+        .arg("run")
+        .arg(&path)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let _ = std::fs::remove_file(&path);
+    assert!(
+        out.status.success(),
+        "sibling reuse must run, stderr:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "2\n");
 }

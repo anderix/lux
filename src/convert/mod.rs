@@ -267,6 +267,13 @@ impl Types {
             "string" => Ty::Str,
             "int" | "length" => Ty::Int,
             "float" => Ty::Float,
+            // String operations, siblings of `length`. `split` is the first
+            // built-in to hand back an array. A user function of the same name wins,
+            // since these are plain verbs a learner readily names their own list or
+            // tree helper — so their type comes from the declaration, not here.
+            "contains" => Ty::Bool,
+            "replace" => Ty::Str,
+            "split" => Ty::Array(Box::new(Ty::Str)),
             "some" => Ty::Option(Box::new(self.type_of(&args[0]))),
             "ok" => Ty::Result(Box::new(self.type_of(&args[0])), Box::new(Ty::Unknown)),
             "err" => Ty::Result(Box::new(Ty::Unknown), Box::new(self.type_of(&args[0]))),

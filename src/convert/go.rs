@@ -93,6 +93,12 @@ struct Gen {
     /// on an out-of-range index — the interpreter's own message — rather than a Go
     /// panic and stack trace (#38). Emitted only when the program indexes an array.
     uses_lux_bounds: bool,
+    /// The string operations `contains`/`replace`/`split` lower to helpers that
+    /// refuse an empty pattern with the interpreter's error and wrap the `strings`
+    /// call. Gated one at a time so an unused one is never emitted.
+    uses_lux_contains: bool,
+    uses_lux_replace: bool,
+    uses_lux_split: bool,
     /// True while emitting an assignment's target, so an indexed place emits as a
     /// checked write (`xs[luxCheck(i, len(xs))]`) that can still be assigned into,
     /// rather than the read helper, which yields a value.
@@ -128,6 +134,9 @@ pub fn to_go(program: &[Stmt]) -> String {
         uses_lux_float: false,
         uses_lux_int: false,
         uses_lux_div: false,
+        uses_lux_contains: false,
+        uses_lux_replace: false,
+        uses_lux_split: false,
         uses_lux_mod: false,
         uses_lux_bounds: false,
         assigning: false,
@@ -406,6 +415,47 @@ impl Gen {
             head.push_str(
                 "func luxIndex[T any](xs []T, i int) T {\n\
                  \treturn xs[luxCheck(i, len(xs))]\n\
+                 }\n\n",
+            );
+        }
+        if self.uses_lux_contains {
+            // strings.Contains is scalar-correct (UTF-8 is self-synchronizing); the
+            // guard refuses an empty needle with the interpreter's message.
+            head.push_str(
+                "func luxContains(s, needle string) bool {\n\
+                 \tif needle == \"\" {\n\
+                 \t\tfmt.Fprintln(os.Stderr, \"error: the search text is empty\")\n\
+                 \t\tfmt.Fprintln(os.Stderr, \"note: contains looks for one piece of text inside another; there is nothing to look for here — check whether a variable came up empty\")\n\
+                 \t\tfmt.Fprintln(os.Stderr, \"help: `lux learn strings` — contains asks whether one string appears inside another\")\n\
+                 \t\tos.Exit(1)\n\
+                 \t}\n\
+                 \treturn strings.Contains(s, needle)\n\
+                 }\n\n",
+            );
+        }
+        if self.uses_lux_replace {
+            head.push_str(
+                "func luxReplace(s, from, to string) string {\n\
+                 \tif from == \"\" {\n\
+                 \t\tfmt.Fprintln(os.Stderr, \"error: the text to replace is empty\")\n\
+                 \t\tfmt.Fprintln(os.Stderr, \"note: replace swaps one piece of text for another; there is nothing to swap out here — check whether a variable came up empty\")\n\
+                 \t\tfmt.Fprintln(os.Stderr, \"help: `lux learn strings` — replace swaps every occurrence of one string for another\")\n\
+                 \t\tos.Exit(1)\n\
+                 \t}\n\
+                 \treturn strings.ReplaceAll(s, from, to)\n\
+                 }\n\n",
+            );
+        }
+        if self.uses_lux_split {
+            head.push_str(
+                "func luxSplit(s, sep string) []string {\n\
+                 \tif sep == \"\" {\n\
+                 \t\tfmt.Fprintln(os.Stderr, \"error: the separator is empty\")\n\
+                 \t\tfmt.Fprintln(os.Stderr, \"note: split breaks text apart at a separator; an empty separator has no place to break — check whether a variable came up empty\")\n\
+                 \t\tfmt.Fprintln(os.Stderr, \"help: `lux learn arrays` — split breaks a string into an array of pieces at a separator\")\n\
+                 \t\tos.Exit(1)\n\
+                 \t}\n\
+                 \treturn strings.Split(s, sep)\n\
                  }\n\n",
             );
         }
@@ -1802,6 +1852,43 @@ impl Gen {
                 } else {
                     format!("len({})", e)
                 }
+            }
+            // Go strings pass by value, so the arguments need no borrow dance. Each
+            // helper pulls in `strings` for the operation and `fmt`/`os` for the
+            // empty-pattern guard. A user function of the same name shadows the built-in.
+            "contains" => {
+                self.uses_lux_contains = true;
+                self.uses_strings = true;
+                self.uses_fmt = true;
+                self.uses_os = true;
+                format!(
+                    "luxContains({}, {})",
+                    self.emit_expr(&args[0]),
+                    self.emit_expr(&args[1])
+                )
+            }
+            "replace" => {
+                self.uses_lux_replace = true;
+                self.uses_strings = true;
+                self.uses_fmt = true;
+                self.uses_os = true;
+                format!(
+                    "luxReplace({}, {}, {})",
+                    self.emit_expr(&args[0]),
+                    self.emit_expr(&args[1]),
+                    self.emit_expr(&args[2])
+                )
+            }
+            "split" => {
+                self.uses_lux_split = true;
+                self.uses_strings = true;
+                self.uses_fmt = true;
+                self.uses_os = true;
+                format!(
+                    "luxSplit({}, {})",
+                    self.emit_expr(&args[0]),
+                    self.emit_expr(&args[1])
+                )
             }
             "some" => {
                 let inner = self.t.type_of(&args[0]);

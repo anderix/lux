@@ -1428,6 +1428,54 @@ impl Interp {
                     )),
                 }
             }
+            // ----- string operations: contains, replace, split ----------------
+            // Siblings of `length`, working at the same level: a lux string is a
+            // sequence of Unicode scalars. UTF-8 is self-synchronizing, so Rust's
+            // own str methods never match a partial scalar — the backends match this
+            // exactly (Swift through scalar helpers, not Foundation, which would
+            // compare graphemes, #49). An empty search/separator is refused rather
+            // than handed one of the three answers the targets disagree on; it is
+            // almost always a variable that came up empty by accident.
+            "contains" => {
+                let a = self.str_args(name, args, span, 2)?;
+                if a[1].is_empty() {
+                    return Err(LuxError::new("the search text is empty".to_string(), span)
+                        .with_note("contains looks for one piece of text inside another; there is nothing to look for here — check whether a variable came up empty")
+                        .with_learn(
+                            "strings",
+                            "contains asks whether one string appears inside another",
+                        ));
+                }
+                Ok(Value::Bool(a[0].contains(a[1].as_str())))
+            }
+            "replace" => {
+                let a = self.str_args(name, args, span, 3)?;
+                if a[1].is_empty() {
+                    return Err(LuxError::new("the text to replace is empty".to_string(), span)
+                        .with_note("replace swaps one piece of text for another; there is nothing to swap out here — check whether a variable came up empty")
+                        .with_learn(
+                            "strings",
+                            "replace swaps every occurrence of one string for another",
+                        ));
+                }
+                Ok(Value::Str(a[0].replace(a[1].as_str(), a[2].as_str())))
+            }
+            "split" => {
+                let a = self.str_args(name, args, span, 2)?;
+                if a[1].is_empty() {
+                    return Err(LuxError::new("the separator is empty".to_string(), span)
+                        .with_note("split breaks text apart at a separator; an empty separator has no place to break — check whether a variable came up empty")
+                        .with_learn(
+                            "arrays",
+                            "split breaks a string into an array of pieces at a separator",
+                        ));
+                }
+                let items = a[0]
+                    .split(a[1].as_str())
+                    .map(|p| Value::Str(p.to_string()))
+                    .collect();
+                Ok(Value::Array(items))
+            }
             // ----- the outside world: files, arguments, the standard streams ---
             // Reading and writing can fail (a missing file, an unwritable path),
             // so they hand the failure back as a value — `Result` — instead of
@@ -1651,6 +1699,48 @@ impl Interp {
             }
         };
         Ok((path, contents))
+    }
+
+    /// Exactly `arity` string arguments, for a string operation like `contains`,
+    /// `replace`, or `split`. Names the position of a wrong-typed argument so it is
+    /// easy to find in a call with several.
+    fn str_args(
+        &mut self,
+        name: &str,
+        args: &[Expr],
+        span: Span,
+        arity: usize,
+    ) -> Result<Vec<String>, LuxError> {
+        if args.len() != arity {
+            return Err(LuxError::new(
+                format!(
+                    "{} takes exactly {} {}, but got {}",
+                    name,
+                    arity,
+                    if arity == 1 { "string" } else { "strings" },
+                    args.len()
+                ),
+                span,
+            ));
+        }
+        let mut out = Vec::with_capacity(arity);
+        for (i, a) in args.iter().enumerate() {
+            match self.eval(a)? {
+                Value::Str(s) => out.push(s),
+                other => {
+                    return Err(LuxError::new(
+                        format!(
+                            "{} expects argument {} to be a string, but got {}",
+                            name,
+                            i + 1,
+                            value_type(&other)
+                        ),
+                        span,
+                    ));
+                }
+            }
+        }
+        Ok(out)
     }
 
     /// A built-in that takes no values, like `args()` or `readLine()`.
@@ -2546,13 +2636,16 @@ fn fully_determined(v: &Value) -> bool {
 /// outside-world ones, then the two parsers. `some`, `ok`, and `err` are left out
 /// deliberately: they construct an `Option` or `Result` value, not the kind of
 /// function a mistyped call is reaching for.
-pub(crate) const BUILTINS: [&str; 14] = [
+pub(crate) const BUILTINS: [&str; 17] = [
     "print",
     "eprint",
     "string",
     "int",
     "float",
     "length",
+    "contains",
+    "replace",
+    "split",
     "input",
     "readLine",
     "readFile",

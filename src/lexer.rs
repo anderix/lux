@@ -69,10 +69,8 @@ pub struct Token {
     pub span: Span,
 }
 
-/// The language's keywords, as data rather than an inline match, so the count is a
-/// single pinned source: the README and anderix.com both say "fourteen keywords",
-/// the `; 14]` makes adding one a compile error, and a test asserts the number
-/// alongside `BUILTINS` (#55). One entry per reserved word, paired with its token.
+/// The language's keywords, as data rather than an inline match: one entry per
+/// reserved word, paired with its token, so the lexer looks each up from one list.
 pub(crate) const KEYWORDS: [(&str, Tok); 14] = [
     ("let", Tok::Let),
     ("var", Tok::Var),
@@ -298,21 +296,6 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LuxError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::interpreter::BUILTINS;
-
-    /// The README and anderix.com/lux/ both state "fourteen keywords and fourteen
-    /// built-in functions." Adding a keyword is already a compile error against the
-    /// `[...; 14]` on `KEYWORDS`; this pins the built-in count the same way, so a
-    /// documented number can't drift silently (#55).
-    #[test]
-    fn the_documented_counts_still_hold() {
-        assert_eq!(KEYWORDS.len(), 14, "the README says fourteen keywords");
-        assert_eq!(
-            BUILTINS.len(),
-            14,
-            "the README says fourteen built-in functions"
-        );
-    }
 
     // The line and column a diagnostic prints come from the byte at span.start,
     // so a string missing its " must anchor there — on the line it opened —

@@ -68,6 +68,15 @@ struct Gen {
     /// Array indexing routes through bounds-checking helpers that report a lux error
     /// on an out-of-range index rather than trapping (#38). Pulls in Foundation.
     uses_lux_bounds: bool,
+    /// `contains`/`replace`/`split` match at the Unicode-scalar level — over
+    /// `Array(s.unicodeScalars)`, not Foundation's `range`/`replacingOccurrences`/
+    /// `components`, which compare graphemes with canonical equivalence and would
+    /// answer differently from Rust and Go (#49). The matching is stdlib; only the
+    /// empty-pattern guard reuses the shared Foundation stderr path, the same way
+    /// the div and bounds errors do.
+    uses_lux_contains: bool,
+    uses_lux_replace: bool,
+    uses_lux_split: bool,
     /// True while emitting an assignment's target, so an indexed place stays a plain
     /// assignable subscript (its bounds check emitted separately as a statement)
     /// rather than the read helper, which yields a value.
@@ -94,6 +103,9 @@ pub fn to_swift(program: &[Stmt]) -> String {
         uses_lux_int: false,
         uses_lux_parse: false,
         uses_lux_div: false,
+        uses_lux_contains: false,
+        uses_lux_replace: false,
+        uses_lux_split: false,
         uses_lux_mod: false,
         uses_lux_bounds: false,
         assigning: false,
@@ -200,7 +212,10 @@ impl Gen {
             || self.uses_run
             || self.uses_lux_div
             || self.uses_lux_mod
-            || self.uses_lux_bounds;
+            || self.uses_lux_bounds
+            || self.uses_lux_contains
+            || self.uses_lux_replace
+            || self.uses_lux_split;
         // readFile/writeFile/run all produce a `Result<_, String>`, so they pull
         // in the same conformance an annotated one would.
         let needs_error = needs_string_error(program)
@@ -438,6 +453,96 @@ impl Gen {
             head.push_str(
                 "func luxIndex<T>(_ xs: [T], _ i: Int) -> T {\n\
                  \treturn xs[luxCheck(i, xs.count)]\n\
+                 }\n\n",
+            );
+        }
+        // The string operations match over `Array(s.unicodeScalars)` rather than
+        // Foundation's grapheme-and-canonical-equivalence string search, so they
+        // answer exactly as Rust's and Go's scalar-level methods do (#49).
+        if self.uses_lux_contains {
+            head.push_str(
+                "func luxContains(_ s: String, _ needle: String) -> Bool {\n\
+                 \tif needle.isEmpty {\n\
+                 \t\tFileHandle.standardError.write(Data(\"error: the search text is empty\\n\".utf8))\n\
+                 \t\tFileHandle.standardError.write(Data(\"note: contains looks for one piece of text inside another; there is nothing to look for here — check whether a variable came up empty\\n\".utf8))\n\
+                 \t\tFileHandle.standardError.write(Data(\"help: `lux learn strings` — contains asks whether one string appears inside another\\n\".utf8))\n\
+                 \t\tFoundation.exit(1)\n\
+                 \t}\n\
+                 \tlet h = Array(s.unicodeScalars)\n\
+                 \tlet n = Array(needle.unicodeScalars)\n\
+                 \tif n.count > h.count { return false }\n\
+                 \tvar i = 0\n\
+                 \twhile i + n.count <= h.count {\n\
+                 \t\tvar j = 0\n\
+                 \t\twhile j < n.count && h[i + j] == n[j] { j += 1 }\n\
+                 \t\tif j == n.count { return true }\n\
+                 \t\ti += 1\n\
+                 \t}\n\
+                 \treturn false\n\
+                 }\n\n",
+            );
+        }
+        if self.uses_lux_replace {
+            head.push_str(
+                "func luxReplace(_ s: String, _ from: String, _ to: String) -> String {\n\
+                 \tif from.isEmpty {\n\
+                 \t\tFileHandle.standardError.write(Data(\"error: the text to replace is empty\\n\".utf8))\n\
+                 \t\tFileHandle.standardError.write(Data(\"note: replace swaps one piece of text for another; there is nothing to swap out here — check whether a variable came up empty\\n\".utf8))\n\
+                 \t\tFileHandle.standardError.write(Data(\"help: `lux learn strings` — replace swaps every occurrence of one string for another\\n\".utf8))\n\
+                 \t\tFoundation.exit(1)\n\
+                 \t}\n\
+                 \tlet h = Array(s.unicodeScalars)\n\
+                 \tlet f = Array(from.unicodeScalars)\n\
+                 \tlet t = Array(to.unicodeScalars)\n\
+                 \tvar out = \"\"\n\
+                 \tvar i = 0\n\
+                 \twhile i < h.count {\n\
+                 \t\tif i + f.count <= h.count {\n\
+                 \t\t\tvar j = 0\n\
+                 \t\t\twhile j < f.count && h[i + j] == f[j] { j += 1 }\n\
+                 \t\t\tif j == f.count {\n\
+                 \t\t\t\tout.unicodeScalars.append(contentsOf: t)\n\
+                 \t\t\t\ti += f.count\n\
+                 \t\t\t\tcontinue\n\
+                 \t\t\t}\n\
+                 \t\t}\n\
+                 \t\tout.unicodeScalars.append(h[i])\n\
+                 \t\ti += 1\n\
+                 \t}\n\
+                 \treturn out\n\
+                 }\n\n",
+            );
+        }
+        if self.uses_lux_split {
+            head.push_str(
+                "func luxSplit(_ s: String, _ sep: String) -> [String] {\n\
+                 \tif sep.isEmpty {\n\
+                 \t\tFileHandle.standardError.write(Data(\"error: the separator is empty\\n\".utf8))\n\
+                 \t\tFileHandle.standardError.write(Data(\"note: split breaks text apart at a separator; an empty separator has no place to break — check whether a variable came up empty\\n\".utf8))\n\
+                 \t\tFileHandle.standardError.write(Data(\"help: `lux learn arrays` — split breaks a string into an array of pieces at a separator\\n\".utf8))\n\
+                 \t\tFoundation.exit(1)\n\
+                 \t}\n\
+                 \tlet h = Array(s.unicodeScalars)\n\
+                 \tlet d = Array(sep.unicodeScalars)\n\
+                 \tvar parts: [String] = []\n\
+                 \tvar cur = \"\"\n\
+                 \tvar i = 0\n\
+                 \twhile i < h.count {\n\
+                 \t\tif i + d.count <= h.count {\n\
+                 \t\t\tvar j = 0\n\
+                 \t\t\twhile j < d.count && h[i + j] == d[j] { j += 1 }\n\
+                 \t\t\tif j == d.count {\n\
+                 \t\t\t\tparts.append(cur)\n\
+                 \t\t\t\tcur = \"\"\n\
+                 \t\t\t\ti += d.count\n\
+                 \t\t\t\tcontinue\n\
+                 \t\t\t}\n\
+                 \t\t}\n\
+                 \t\tcur.unicodeScalars.append(h[i])\n\
+                 \t\ti += 1\n\
+                 \t}\n\
+                 \tparts.append(cur)\n\
+                 \treturn parts\n\
                  }\n\n",
             );
         }
@@ -1190,6 +1295,34 @@ impl Gen {
                 } else {
                     format!("{}.count", base)
                 }
+            }
+            // Scalar-level helpers (not Foundation's grapheme-aware string search),
+            // so the answer matches Rust and Go. Swift strings are values, so the
+            // arguments pass straight through. A user function of the same name wins.
+            "contains" => {
+                self.uses_lux_contains = true;
+                format!(
+                    "luxContains({}, {})",
+                    self.emit_expr(&args[0]),
+                    self.emit_expr(&args[1])
+                )
+            }
+            "replace" => {
+                self.uses_lux_replace = true;
+                format!(
+                    "luxReplace({}, {}, {})",
+                    self.emit_expr(&args[0]),
+                    self.emit_expr(&args[1]),
+                    self.emit_expr(&args[2])
+                )
+            }
+            "split" => {
+                self.uses_lux_split = true;
+                format!(
+                    "luxSplit({}, {})",
+                    self.emit_expr(&args[0]),
+                    self.emit_expr(&args[1])
+                )
             }
             "some" => {
                 let e = self.emit_expr(&args[0]);

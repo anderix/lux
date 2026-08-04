@@ -4,6 +4,38 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.0] - 2026-08-04
+
+### Added
+
+- **`contains`, `replace`, and `split`** — three string built-ins, siblings of
+  `length`. `contains(s, needle)` asks whether one string appears inside another,
+  `replace(s, from, to)` swaps every occurrence of one piece of text for another, and
+  `split(s, sep)` breaks a string into an array of pieces at a separator. They match
+  at the Unicode-scalar level — the level `length` counts at and `==` compares at — so
+  the interpreter and all three targets agree even on text that is normalized
+  differently or built from emoji; the Swift backend uses scalar helpers rather than
+  Foundation's grapheme-aware search for exactly this reason. An empty search or
+  separator is refused with a lux error instead of one of the three answers the
+  targets disagree on. The built-in count is now seventeen. `contains` and `replace`
+  join the `strings` lesson; `split` joins `arrays`, where an array made from real
+  input gives `for` its first genuine job.
+
+### Changed
+
+- **One naming rule: built-in names are reserved, and a name can't shadow one already
+  in scope.** A declared name — a variable, parameter, loop variable, match capture,
+  function, or type — must be new where it is introduced: not a built-in (function,
+  value, or type), not already the name of a function or type, and not still in scope
+  from an enclosing block. This replaces several quiet, inconsistent behaviours a
+  learner could stumble on: `func length` was silently dead code (the built-in won),
+  `let none = 5` rebound the empty `Option`, and an inner block could shadow an outer
+  name without a word. All of them now meet the same clear error lux already gave for a
+  same-scope clash, and built-in names behave like the keywords they are. Reusing a
+  name across blocks that never overlap — two separate loops, a parameter that repeats a
+  top-level name — is still fine. (This reverses the #19 behaviour that let a variable
+  shadow `none`.)
+
 ## [0.17.4] - 2026-08-04
 
 ### Added

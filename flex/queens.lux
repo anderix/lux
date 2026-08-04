@@ -70,15 +70,15 @@ func count(b: Board, row: int) -> int {
     if row == b.n {
         return 1
     }
-    var found = 0
+    var tally = 0
     for col in 0..b.n {
         if safe(b, row, col) {
             var next = b
             next.cells[row][col] = true
-            found += count(next, row + 1)
+            tally += count(next, row + 1)
         }
     }
-    return found
+    return tally
 }
 
 func found(o: Option<Board>) -> bool {

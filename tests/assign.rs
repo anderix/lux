@@ -135,8 +135,8 @@ for c in cs {
 fn copying_a_parameter_into_a_local_var_works() {
     // The idiom the parameter refusal points at must actually run.
     let src = "\
-func firstToZero(input: [int]) -> [int] {
-    var xs = input
+func firstToZero(values: [int]) -> [int] {
+    var xs = values
     xs[0] = 0
     return xs
 }

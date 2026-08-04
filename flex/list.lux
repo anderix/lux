@@ -51,10 +51,10 @@ func show(l: List) -> string {
     }
 }
 
-func contains(l: List, v: int) -> bool {
+func has(l: List, v: int) -> bool {
     return match l {
         nil => false
-        cons(let h, let rest) => h == v || contains(rest, v)
+        cons(let h, let rest) => h == v || has(rest, v)
     }
 }
 
@@ -67,6 +67,6 @@ print(show(built))
 print(built)
 print("size ", size(built))
 print("total", total(built))
-print("has 3?", contains(built, 3))
-print("has 9?", contains(built, 9))
+print("has 3?", has(built, 3))
+print("has 9?", has(built, 9))
 print("empty:", show(List.nil), "with size", size(List.nil))

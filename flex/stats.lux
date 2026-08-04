@@ -50,8 +50,8 @@ func largest(xs: [int]) -> int {
 // Insertion sort, because the median needs order and the row is short. The
 // parameter is copied into a local first, so the caller's row is untouched — the
 // same shape every sort in this directory has.
-func sorted(input: [int]) -> [int] {
-    var xs = input
+func sorted(values: [int]) -> [int] {
+    var xs = values
     for i in 1..length(xs) {
         var j = i
         while j > 0 && xs[j - 1] > xs[j] {

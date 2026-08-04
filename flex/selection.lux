@@ -17,8 +17,8 @@ func smallestFrom(xs: [int], start: int) -> int {
     return best
 }
 
-func selection(input: [int]) -> [int] {
-    var xs = input
+func selection(values: [int]) -> [int] {
+    var xs = values
     for i in 0..length(xs) {
         let pick = smallestFrom(xs, i)
         if pick != i {

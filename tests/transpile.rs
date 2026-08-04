@@ -1328,25 +1328,6 @@ print(n)
     assert_prints_everywhere(src, "discardarray", "3\n");
 }
 
-/// `none` names the empty `Option`, but a program that binds it as an ordinary
-/// variable means the local — the same shadowing every other built-in name already
-/// allows. The declaration always respected the scope; the use site used to reach
-/// the built-in first and emit `None`/`nil`, compiling nowhere. Both an int (the
-/// common case) and a non-Copy value (which also needs lux's value-semantics copy)
-/// are covered. (#19)
-#[test]
-fn a_variable_named_none_shadows_the_builtin_on_every_backend() {
-    assert_prints_everywhere("let none = 5\nprint(none + 1)\n", "noneint", "6\n");
-    let src = r#"
-var none = [1, 2, 3]
-let copy = none
-none += 4
-print(copy)
-print(none)
-"#;
-    assert_prints_everywhere(src, "nonearr", "[1, 2, 3]\n[1, 2, 3, 4]\n");
-}
-
 /// Reading one cell out of a grid of strings and handing it back is the accessor
 /// every grid program writes. Rust can't move a `String` out of a `Vec` index
 /// (E0507), so a returned index of a non-Copy element is cloned — the same copy a
@@ -2171,4 +2152,195 @@ fn an_out_of_bounds_index_reports_a_lux_error_on_every_backend() {
 fn nested_array_read_and_write_still_work_on_every_backend() {
     let src = "var grid = [[1, 2, 3], [4, 5, 6]]\nprint(grid[0][1])\ngrid[1][2] = 99\nprint(grid[1][2])\nprint(grid)\n";
     assert_prints_everywhere(src, "gridrw", "2\n99\n[[1, 2, 3], [4, 5, 99]]\n");
+}
+
+// --- String functions: contains, replace, split ------------------------------
+// Pinned before implementation (flex, 2026-08-04) — expected values measured
+// against rustc/go/swiftc, so these fix the semantics rather than ratify whatever
+// the first implementation happens to do. See ~/notes/lux_string_functions.md.
+
+/// The interpreter is the reference, so a behaviour pin has to include it — the
+/// three backends agreeing with each other and not with `lux run` is the exact
+/// failure this catches. `assert_prints_everywhere` covers the compiled legs; this
+/// adds the fourth and keeps a case to one call.
+fn assert_all_four(src: &str, tag: &str, expected: &str) {
+    let path = std::env::temp_dir().join(format!("lux_{tag}_{}.lux", std::process::id()));
+    std::fs::write(&path, src).expect("write lux");
+    let run = Command::new(env!("CARGO_BIN_EXE_lux"))
+        .arg("run")
+        .arg(&path)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("run lux");
+    let _ = std::fs::remove_file(&path);
+    assert!(
+        run.status.success(),
+        "{tag}: interpreter should run it:\n{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        expected,
+        "{tag}: interpreter output"
+    );
+    assert_prints_everywhere(src, tag, expected);
+}
+
+/// `contains` answers the same question on all four legs. Two of these are the
+/// footgun on purpose: `contains("sunday", "sun")` is true, because it asks about a
+/// substring and not about a word — a learner writing a guessing game will meet that
+/// on their own, so it is pinned rather than left to be discovered.
+#[test]
+fn contains_answers_the_same_everywhere() {
+    let src = "print(contains(\"hello world\", \"world\"))\n\
+               print(contains(\"hello world\", \"xyz\"))\n\
+               print(contains(\"sunday\", \"sun\"))\n\
+               print(contains(\"yesterday\", \"yes\"))\n\
+               print(contains(\"caf\u{e9}\", \"\u{e9}\"))\n\
+               print(contains(\"ABC\", \"abc\"))\n";
+    assert_all_four(src, "contains", "true\nfalse\ntrue\ntrue\ntrue\nfalse\n");
+}
+
+/// `replace` changes every occurrence, scanning left to right and never
+/// overlapping — `replace("aaa", "aa", "b")` is `ba`, not `bb` and not `ab`. An
+/// empty replacement is deletion and is deliberately allowed; only an empty
+/// *pattern* is refused.
+#[test]
+fn replace_answers_the_same_everywhere() {
+    let src = "print(replace(\"hello\", \"l\", \"L\"))\n\
+               print(replace(\"aaa\", \"aa\", \"b\"))\n\
+               print(replace(\"hello\", \"l\", \"\"))\n\
+               print(replace(\"hello\", \"z\", \"Q\"))\n\
+               print(replace(\"caf\u{e9}\", \"\u{e9}\", \"e\"))\n";
+    assert_all_four(src, "replace", "heLLo\nba\nheo\nhello\ncafe\n");
+}
+
+/// `split` keeps empty fields, including leading and trailing ones, so the field
+/// count is stable and a learner can trust position. Each field is bracketed in the
+/// output because an empty field is otherwise a blank line, and a pin that reads as
+/// whitespace is a pin nobody can check.
+#[test]
+fn split_keeps_every_field_everywhere() {
+    let src = "for w in split(\"a,b,c\", \",\") {\n    print(\"[\" + w + \"]\")\n}\n\
+               for w in split(\"a,,b\", \",\") {\n    print(\"[\" + w + \"]\")\n}\n\
+               for w in split(\"a,\", \",\") {\n    print(\"[\" + w + \"]\")\n}\n\
+               for w in split(\",a\", \",\") {\n    print(\"[\" + w + \"]\")\n}\n\
+               for w in split(\"a::b::c\", \"::\") {\n    print(\"[\" + w + \"]\")\n}\n";
+    assert_all_four(
+        src,
+        "splitfields",
+        "[a]\n[b]\n[c]\n\
+         [a]\n[]\n[b]\n\
+         [a]\n[]\n\
+         []\n[a]\n\
+         [a]\n[b]\n[c]\n",
+    );
+}
+
+/// The two degenerate subjects both yield one field rather than none: splitting the
+/// empty string gives one empty field, and a separator that never occurs gives the
+/// whole string back. Both are the shape a `for` loop over the result depends on.
+#[test]
+fn split_of_a_degenerate_subject_still_has_one_field() {
+    let src = "print(length(split(\"\", \",\")))\n\
+               print(length(split(\"abc\", \"x\")))\n\
+               print(length(split(\"a,b,c\", \",\")))\n";
+    assert_all_four(src, "splitlen", "1\n1\n3\n");
+}
+
+/// The one place the three targets disagree, closed by refusing it rather than by
+/// picking a winner. Left alone, `split(s, "")` is three different answers — Rust
+/// yields 13 fields for "hello world" with leading and trailing empties, Go yields
+/// 11 runes, Swift yields the whole string — and `replace(s, "", to)` interleaves on
+/// Rust and Go but is a no-op on Swift, and `contains(s, "")` is true on Rust and Go
+/// and false on Swift. All three spellings are refused, which also catches what
+/// actually causes them: a variable that was accidentally empty.
+///
+/// The bar is the one the divide-by-zero and out-of-bounds work set — lux's own
+/// words, a non-zero exit, and no host runtime showing through.
+#[test]
+fn an_empty_pattern_is_refused_on_every_backend() {
+    let cases: &[(&str, &str, &str)] = &[
+        (
+            "emptyneedle",
+            "print(\"before\")\nprint(contains(\"hello\", \"\"))\n",
+            "search text is empty",
+        ),
+        (
+            "emptyfrom",
+            "print(\"before\")\nprint(replace(\"hello\", \"\", \"-\"))\n",
+            "text to replace is empty",
+        ),
+        (
+            "emptysep",
+            "print(\"before\")\nprint(length(split(\"hello\", \"\")))\n",
+            "separator is empty",
+        ),
+    ];
+
+    for (tag, src, clause) in cases {
+        // The interpreter defines the message; the backends have to carry it.
+        let path = std::env::temp_dir().join(format!("lux_{tag}_{}.lux", std::process::id()));
+        std::fs::write(&path, src).expect("write lux");
+        let run = Command::new(env!("CARGO_BIN_EXE_lux"))
+            .arg("run")
+            .arg(&path)
+            .output()
+            .expect("run lux");
+        let _ = std::fs::remove_file(&path);
+        assert!(!run.status.success(), "{tag}: interpreter should refuse it");
+        assert!(
+            String::from_utf8_lossy(&run.stderr).contains(clause),
+            "{tag}: interpreter should say `{clause}`, got:\n{}",
+            String::from_utf8_lossy(&run.stderr)
+        );
+
+        for backend in ["rust", "swift", "go"] {
+            let Some(out) = build_run(tag, backend, src) else {
+                continue;
+            };
+            assert!(
+                !out.status.success(),
+                "{backend}/{tag}: an empty pattern should fail, not succeed"
+            );
+            let err = String::from_utf8_lossy(&out.stderr);
+            assert!(
+                err.contains(clause),
+                "{backend}/{tag}: should name the fault in lux's words, got:\n{err}"
+            );
+            assert!(
+                !err.contains("panic")
+                    && !err.contains("Illegal instruction")
+                    && !err.contains("goroutine"),
+                "{backend}/{tag}: should not leak the host runtime's crash, got:\n{err}"
+            );
+            assert!(
+                String::from_utf8_lossy(&out.stdout).contains("before"),
+                "{backend}/{tag}: output printed before the fault should survive"
+            );
+        }
+    }
+}
+
+/// A lux string is a sequence of Unicode scalars, and these three match at that
+/// level — the same level `length` counts at and `==` compares at. This is the pin
+/// that stops Swift drifting back to Foundation: `range(of:)`,
+/// `replacingOccurrences(of:with:)`, and `components(separatedBy:)` all match on
+/// graphemes with canonical equivalence, so they would answer five of these
+/// differently. `==` already made this choice — the Swift backend emits
+/// `unicodeScalars.elementsEqual` rather than String `==` for exactly this reason —
+/// and these three have to make it the same way.
+///
+/// `cafe` + combining acute and `caf` + precomposed é look identical and are not the
+/// same string in lux; two of the cases below are the two directions of that, and
+/// the third reaches inside the pair to the plain `e`, which Foundation will not do.
+/// The last splits a ZWJ family emoji, which is one grapheme and five scalars.
+#[test]
+fn string_functions_match_scalars_not_graphemes() {
+    let src = "print(contains(\"cafe\u{301}\", \"\u{e9}\"))\n\
+               print(contains(\"caf\u{e9}\", \"e\u{301}\"))\n\
+               print(contains(\"cafe\u{301}\", \"e\"))\n\
+               print(replace(\"cafe\u{301}\", \"e\", \"E\"))\n\
+               print(length(split(\"\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F466}\", \"\u{200D}\")))\n";
+    assert_all_four(src, "scalarmatch", "false\nfalse\ntrue\ncafE\u{301}\n3\n");
 }
