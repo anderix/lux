@@ -519,7 +519,7 @@ fn update_cmd(rest: &[String]) {
             Ok(s) if s.success() => {
                 println!("Done. Run `lux --version` to see what you're on.");
                 // Point at editor highlighting without touching a single config file
-                // here — writing is `lux editors install`'s job, not update's.
+                // here — writing is `lux editors highlighting`'s job, not update's.
                 if let Some(tip) = editors::nudge() {
                     println!("{}", tip);
                 }

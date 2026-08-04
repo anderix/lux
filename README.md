@@ -4,11 +4,13 @@ lux is a small language built to be a great first language and then to be
 outgrown. Every feature is the simplest version of something shared by
 Rust, Swift, and Go, so what you learn here carries straight over when you move
 on to one of those. The few hard ideas lux leaves out — ownership, classes,
-goroutines — are the lessons those bigger languages exist to teach.
+goroutines — are the ideas those bigger languages are built around, and they
+land better once you have written something that needs them.
 
-The full language fits on one page. Read [learn-lux.md](learn-lux.md): it is the
-reference, the tutorial, and the test corpus all at once — the suite runs every
-example in it. The same material is built into the binary, so once lux is
+It is small enough to count: fourteen keywords and fourteen built-in functions.
+The whole of it is one file — read [learn-lux.md](learn-lux.md): it is the
+reference, the tutorial, and the test corpus all at once, and the suite runs
+every example in it. The same material is built into the binary, so once lux is
 installed you can read it in your terminal with `lux learn`.
 
 ## Installing

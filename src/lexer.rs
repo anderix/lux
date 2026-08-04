@@ -69,6 +69,27 @@ pub struct Token {
     pub span: Span,
 }
 
+/// The language's keywords, as data rather than an inline match, so the count is a
+/// single pinned source: the README and anderix.com both say "fourteen keywords",
+/// the `; 14]` makes adding one a compile error, and a test asserts the number
+/// alongside `BUILTINS` (#55). One entry per reserved word, paired with its token.
+pub(crate) const KEYWORDS: [(&str, Tok); 14] = [
+    ("let", Tok::Let),
+    ("var", Tok::Var),
+    ("if", Tok::If),
+    ("else", Tok::Else),
+    ("while", Tok::While),
+    ("for", Tok::For),
+    ("in", Tok::In),
+    ("func", Tok::Func),
+    ("return", Tok::Return),
+    ("struct", Tok::Struct),
+    ("enum", Tok::Enum),
+    ("match", Tok::Match),
+    ("true", Tok::True),
+    ("false", Tok::False),
+];
+
 pub fn lex(source: &str) -> Result<Vec<Token>, LuxError> {
     let bytes = source.as_bytes();
     let n = bytes.len();
@@ -141,23 +162,10 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LuxError> {
                 i += 1;
             }
             let text = &source[start..i];
-            let tok = match text {
-                "let" => Tok::Let,
-                "var" => Tok::Var,
-                "if" => Tok::If,
-                "else" => Tok::Else,
-                "while" => Tok::While,
-                "for" => Tok::For,
-                "in" => Tok::In,
-                "func" => Tok::Func,
-                "return" => Tok::Return,
-                "struct" => Tok::Struct,
-                "enum" => Tok::Enum,
-                "match" => Tok::Match,
-                "true" => Tok::True,
-                "false" => Tok::False,
-                _ => Tok::Ident(text.to_string()),
-            };
+            let tok = KEYWORDS
+                .iter()
+                .find(|(kw, _)| *kw == text)
+                .map_or_else(|| Tok::Ident(text.to_string()), |(_, t)| t.clone());
             tokens.push(Token {
                 tok,
                 span: Span::new(start, i),
@@ -290,6 +298,21 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LuxError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::interpreter::BUILTINS;
+
+    /// The README and anderix.com/lux/ both state "fourteen keywords and fourteen
+    /// built-in functions." Adding a keyword is already a compile error against the
+    /// `[...; 14]` on `KEYWORDS`; this pins the built-in count the same way, so a
+    /// documented number can't drift silently (#55).
+    #[test]
+    fn the_documented_counts_still_hold() {
+        assert_eq!(KEYWORDS.len(), 14, "the README says fourteen keywords");
+        assert_eq!(
+            BUILTINS.len(),
+            14,
+            "the README says fourteen built-in functions"
+        );
+    }
 
     // The line and column a diagnostic prints come from the byte at span.start,
     // so a string missing its " must anchor there — on the line it opened —
