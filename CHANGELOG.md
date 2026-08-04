@@ -4,6 +4,29 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.4] - 2026-08-04
+
+### Added
+
+- **`lux learn trace`** — a card for the `lux trace` tool, next to `errors` in the
+  topic list and the tour. `lux trace` is aimed at a beginner whose program runs but
+  gives the wrong answer — the situation with no error to read — and it had appeared
+  only in `lux --help`, invisible to exactly the people who need it. The card shows a
+  small program and its trace; the more page names where a wrong-answer bug usually
+  hides (#56).
+
+### Changed
+
+- **The README opening is reworded and sharpened.** "The bigger languages exist to
+  teach ownership, classes, goroutines" was a false claim about those languages'
+  purpose, made to prop up a claim about lux; it is now "the ideas those bigger
+  languages are built around, and they land better once you have written something
+  that needs them." And "fits on one page" gains its countable version — "fourteen
+  keywords and fourteen built-in functions" — which the lexer now pins: the keywords
+  moved into a `const KEYWORDS: [(&str, Tok); 14]`, so adding one is a compile error
+  against the count, and a test asserts both numbers against `BUILTINS`. A documented
+  claim is now a checked one (#55).
+
 ## [0.17.3] - 2026-08-04
 
 ### Changed
