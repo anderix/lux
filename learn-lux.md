@@ -58,6 +58,40 @@ doing now, reading it and trying the next thing, is the same move there.
 
 > see: result — the other side of errors: the ones your program expects and handles as values
 
+<!-- topic: trace -->
+## trace — see what your program did
+
+The `errors` card is for when lux stops and tells you what went wrong. But
+sometimes a program runs all the way through and gives the *wrong answer* — no
+error, no line number, nothing to read. `lux trace` is for exactly that: it runs
+your program and, beside each line, shows the value that line changed, so you can
+watch what actually happened.
+
+```lux
+var count = 0
+count = count + 1
+count = count + 1
+print(count)
+```
+
+> try: run `lux trace` on this file. Beside the lines you will see `count` become 0, then 1, then 2 — a real bug is almost always a spot where a value isn't what you expected.
+
+<!-- more -->
+Read a trace as a running commentary. A line that just *does* something — a
+`print` — is announced before it runs. A line that *names* a value — a binding or
+an assignment — is reported after, showing what the value landed on, with strings
+in quotes so you see them exactly. Nothing about your program changes: the trace
+goes to a separate channel, so `lux trace prog 2> trace.log` plays the program
+normally on screen and saves the commentary to read afterward.
+
+The bug you are hunting lives in the gap between what you expected a value to be
+and what the trace shows it became — most often a function that hands back a new
+value you forgot to keep, or a change you thought you made to something that was
+really a copy. No amount of re-reading the source shows it as clearly as watching
+it run.
+
+> see: errors — for when lux does tell you what went wrong · variables — the `let` and `var` a trace watches · functions — where a forgotten return value most often hides
+
 <!-- topic: variables -->
 ## variables — let and var
 

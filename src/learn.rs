@@ -26,6 +26,7 @@ const PATHS: &[(&str, &[&str])] = &[
         &[
             "hello",
             "errors",
+            "trace",
             "variables",
             "numbers",
             "strings",
