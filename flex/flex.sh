@@ -51,8 +51,22 @@ invocation () {
         # what you can see, the others count Unicode scalars. Every other string in
         # this corpus is ASCII, so the first accented name or emoji a learner types
         # would land outside everything ever tested.
-        wcl)   echo "printf 'one\nwe won 🇨🇦\ncafé costs 3\n' | BIN" ;;
+        #
+        # The whitespace is equally deliberate, now that the third column is a real
+        # word count rather than an apology. A run of spaces, a leading and trailing
+        # space, a tab, and an empty line are the four ways splitting on a space
+        # produces a field that isn't a word, and each is a line here — otherwise the
+        # skip-the-empties branch never runs and the count is right only by luck.
+        wcl)   echo "printf 'one\nwe won 🇨🇦\ncafé  costs   3\n\tone\ttab  and spaces \n\nlast\n' | BIN" ;;
         uniqc) echo "printf 'a\na\nb\na\na\na\n' | BIN" ;;
+        # Every shape a row can be wrong in, because the program's whole claim is
+        # that the field count is trustworthy: an empty field in the middle, empties
+        # at both ends, a row with too many fields, one with too few, and a row that
+        # is nothing but separators. The space in "new york" reaches the quoting
+        # note. Run twice, the second with no input at all — the no-header branch is
+        # otherwise unreachable, which is how three of this corpus's coverage holes
+        # started.
+        fields) echo "printf 'name,city,role\nada,london,maths\nalan,,logic\n,manchester,\ngrace,new york,navy,extra\nshort\n,,\n' | BIN; printf '' | BIN" ;;
         # Stray spaces on purpose: real input has them, whether it came from a
         # column-aligned file, a paste, or a person typing. `parseInt` trims, so the
         # program's answer shouldn't change — and where it does, that's a finding.
@@ -147,7 +161,7 @@ PROGRAMS=(fizzbuzz fib gcd sieve collatz roman
           binsearch list bst expr machine safe
           pascal matrix lcs tictactoe queens maze
           stats points logic
-          catn head wcl uniqc hist
+          catn head wcl uniqc hist fields
           bridge keep)
 
 if [ $# -gt 0 ]; then

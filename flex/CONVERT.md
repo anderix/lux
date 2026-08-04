@@ -141,7 +141,7 @@ Rust has the type by that name:
 ```rust
 fn find(xs: Vec<i64>, target: i64) -> Option<i64> {
     ...
-        if xs[(mid) as usize] == target {
+        if *lux_index(&xs, mid) == target {
             return Some(mid);
     ...
     return None;
@@ -154,7 +154,7 @@ is `Optional<Int>`:
 ```swift
 func find(_ xs: [Int], _ target: Int) -> Int? {
     ...
-        if xs[mid] == target {
+        if luxIndex(xs, mid) == target {
             return .some(mid)
     ...
     return nil
@@ -171,12 +171,18 @@ func ptr[T any](v T) *T {
 
 func find(xs []int, target int) *int {
     ...
-		if xs[mid] == target {
+		if luxIndex(xs, mid) == target {
 			return ptr(mid)
     ...
 	return nil
 }
 ```
+
+`luxIndex` is in all three, and it is not decoration. lux reports a friendly error
+for an index past the end of a row; the translations have to carry that error rather
+than fall back to a Rust panic, a Swift trap, or Go reading whatever is there. So the
+subscript a learner wrote as `xs[mid]` comes out as a checked call on every target —
+one of the places the generated code is doing work the source doesn't show.
 
 Here the three are not equal and it is worth being honest about it. Rust and Swift
 will not let the caller read the value without handling the empty case. Go will: a
@@ -263,8 +269,8 @@ be the only rule under which one source can become all three of these.
 Every sort in this directory starts the same way, from [`bubble.lux`](bubble.lux):
 
 ```lux
-func bubble(input: [int]) -> [int] {
-    var xs = input
+func bubble(values: [int]) -> [int] {
+    var xs = values
     ...
 }
 ```
@@ -273,15 +279,15 @@ A parameter is immutable, so the row is copied into a local first. What that cos
 depends entirely on where you're standing.
 
 ```rust
-let mut xs: Vec<i64> = input.clone();
+let mut xs: Vec<i64> = values.clone();
 ```
 
 ```swift
-var xs = input
+var xs = values
 ```
 
 ```go
-xs := append([]int{}, input...)
+xs := append([]int{}, values...)
 ```
 
 Swift pays nothing to write, because its arrays are already value types. Rust names
@@ -295,7 +301,7 @@ copySlice(a, func(__e []int) []int { return append([]int{}, __e...) })
 ```
 
 That line is the single best answer to "why would I use a small language first." The
-learner wrote `var xs = input`. Somebody has to write the rest, and it may as well
+learner wrote `var xs = values`. Somebody has to write the rest, and it may as well
 not be a thirteen-year-old on their second week.
 
 The copy only appears where it could actually be observed. A function that takes a

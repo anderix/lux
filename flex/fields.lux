@@ -1,0 +1,109 @@
+// fields — read comma-separated rows and line them up under a header.
+//
+//   printf 'name,city\nada,london\n' | lux run fields.lux
+//
+// `wcl` uses `split` and immediately throws away the empty pieces, because a word
+// count doesn't want them. This program is the other half of that argument: it
+// wants them, and would be wrong without them.
+//
+// The rule is that `split` keeps every field, including empty ones at the start
+// and the end. Splitting "ada,,london" on a comma gives three pieces and the
+// middle one is empty — not two pieces, and not a piece that quietly vanishes.
+// That is what lets *position* mean something: the third field is the city
+// whether or not anybody filled in the second. A splitter that dropped empties
+// would shift every later column left, and the row would still look fine.
+//
+// So this reads a header row, then checks each row against it. A row with the
+// wrong number of fields is the commonest real fault in a file like this, and it
+// is only detectable because the count is trustworthy.
+
+struct Row {
+    cells: [string]
+    number: int
+}
+
+func more(o: Option<string>) -> bool {
+    return match o {
+        some(let s) => true
+        none        => false
+    }
+}
+
+func text(o: Option<string>) -> string {
+    return match o {
+        some(let s) => s
+        none        => ""
+    }
+}
+
+// An empty field is real and has to be visible, or a reader can't tell it from a
+// space. Anything else is shown as it came.
+func show(cell: string) -> string {
+    if length(cell) == 0 {
+        return "(empty)"
+    }
+    return cell
+}
+
+// A field with a space in it would need quoting in a real CSV, which this
+// deliberately doesn't implement — but it can say so, which is more useful than
+// pretending the case doesn't exist.
+func needsQuoting(cell: string) -> bool {
+    return contains(cell, " ")
+}
+
+func describe(r: Row, names: [string]) {
+    print("row", r.number)
+    if length(r.cells) != length(names) {
+        print("  expected", length(names), "fields, found", length(r.cells))
+    }
+    var i = 0
+    for cell in r.cells {
+        if i < length(names) {
+            print("  " + names[i] + ":", show(cell))
+        } else {
+            print("  (unnamed):", show(cell))
+        }
+        if needsQuoting(cell) {
+            print("    ^ has a space, so a real CSV would quote it")
+        }
+        i += 1
+    }
+}
+
+let first = readLine()
+if more(first) == false {
+    print("no header, so nothing to line up")
+}
+
+// The header names every column, and its length is the count every later row is
+// measured against. Tabs are folded to nothing here on purpose: a header pasted
+// out of a spreadsheet often arrives padded, and a name with a stray tab in it
+// would never match anything a person typed.
+let names = split(replace(text(first), "\t", ""), ",")
+print("header of", length(names), "fields")
+for name in names {
+    print("  " + show(name))
+}
+print("")
+
+var number = 0
+var reading = true
+var ragged = 0
+
+while reading {
+    let line = readLine()
+    reading = more(line)
+    if reading {
+        number += 1
+        let cells = split(text(line), ",")
+        if length(cells) != length(names) {
+            ragged += 1
+        }
+        describe(Row(cells: cells, number: number), names)
+    }
+}
+
+print("")
+print("rows    ", number)
+print("ragged  ", ragged)

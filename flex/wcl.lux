@@ -1,14 +1,19 @@
-// wcl — wc -l, and a note about the two columns it can't do.
+// wcl — wc, all three columns.
 //
 //   printf 'one\ntwo\nthree\n' | lux run wcl.lux
 //
 // Counting lines is a counter and a loop. Counting *characters* is `length` on
-// each line plus one for the newline. Counting *words* is where this stops: it
-// needs the text split on whitespace, and lux has no way to take a string apart.
+// each line plus one for the newline. Counting *words* used to be where this
+// stopped — it needs the text taken apart, and until `split` arrived lux had no
+// way to do that. This program said so in its own output for as long as that was
+// true. It isn't any more, so it counts words.
 //
-// So this reports two of `wc`'s three columns and says plainly that the third is
-// out of reach. That is the honest shape of the gap — not a bug, and not a
-// permanent rule either; splitting is wanted and hasn't been built.
+// The interesting part is that `split` alone doesn't get you there. Splitting
+// "two  words" on a space gives three pieces, not two, because a run of spaces
+// has an empty field between each pair — and that is deliberate: keeping empty
+// fields is what makes position mean something when you split a row of data. A
+// word count wants the opposite, so it skips the empties itself. `replace` folds
+// tabs into spaces first, so the two built-ins do the job together.
 
 func more(o: Option<string>) -> bool {
     return match o {
@@ -24,8 +29,29 @@ func width(o: Option<string>) -> int {
     }
 }
 
+// A word is a run of characters with nothing but spaces or tabs around it. Tabs
+// become spaces so one separator covers both, and the empty fields a run of
+// spaces produces are skipped rather than counted.
+func words(s: string) -> int {
+    var n = 0
+    for piece in split(replace(s, "\t", " "), " ") {
+        if length(piece) > 0 {
+            n += 1
+        }
+    }
+    return n
+}
+
+func wordsIn(o: Option<string>) -> int {
+    return match o {
+        some(let s) => words(s)
+        none        => 0
+    }
+}
+
 var lines = 0
 var characters = 0
+var wordCount = 0
 var longest = 0
 var reading = true
 
@@ -36,6 +62,7 @@ while reading {
         lines += 1
         let w = width(line)
         characters += w + 1
+        wordCount += wordsIn(line)
         if w > longest {
             longest = w
         }
@@ -43,6 +70,6 @@ while reading {
 }
 
 print("lines      ", lines)
+print("words      ", wordCount)
 print("characters ", characters)
 print("longest    ", longest)
-print("words       — needs splitting a string, which lux cannot do")

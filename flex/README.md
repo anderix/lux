@@ -95,9 +95,10 @@ line can come back empty.
 |---|---|
 | `catn` | `cat -n` — the smallest useful filter, and the read-until-empty loop |
 | `head` | `args()`, `args()[0]` being the program itself, and a bad count that doesn't crash |
-| `wcl` | two of `wc`'s three columns, and a plain statement about the third |
+| `wcl` | all three of `wc`'s columns, the third built from `split` and `replace` together |
 | `uniqc` | `uniq -c`, writable precisely because the real one only collapses adjacent runs |
 | `hist` | a bar chart, scaling, and junk input counted rather than fatal |
+| `fields` | `split` keeping every empty field, and why a trustworthy count catches a ragged row |
 
 **The bridge out.** Every program above runs top to bottom, which is what lux does and
 what a first year needs. This one has a `main`, and it is the only one that does —
@@ -185,12 +186,22 @@ clothes. The compiled targets give IEEE's answer. Everything else about a non-fi
 float agrees: `inf`, `-inf` and `NaN` print the same on all four, and `int()` of one
 saturates the same way. Only ordering differs, and only after you have made a NaN.
 
-**Not built yet, and wanted.** Strings cannot be split or indexed, and there is no
-map type. Both are on the list ahead of anything else, pulled by programs that
-needed them rather than by a wish list. Their absence shapes three programs here:
-`wcl` reports lines and characters but not words, `uniqc` collapses only adjacent
+**Not built yet, and wanted.** Strings cannot be indexed, and there is no map type.
+Both are on the list, pulled by programs that needed them rather than by a wish
+list. The map's absence shapes two programs here: `uniqc` collapses only adjacent
 runs, and `safe` searches two rows kept in step where a real lookup would use a
 map. Each says so where it stops.
+
+**One of these walls fell, which is the point of writing them down.** Until 0.18.0
+a string could not be taken apart at all, and `wcl` printed a line saying so where
+`wc`'s word count belongs. `split` arrived, so it counts words — and the shape of
+the fix is worth more than the fix. `split` keeps empty fields, deliberately, so
+that position still means something in a row of data; splitting `"two  words"` on a
+space therefore gives three pieces. A word count wants the opposite and skips the
+empties itself, with `replace` folding tabs into spaces first so one separator
+covers both. Two built-ins doing one job between them, and the corpus now agrees
+with `wc` on all three columns. A wall recorded here is a claim with a date on it,
+not a permanent feature of the language.
 
 **Smaller edges.** A function sees only its parameters and its own locals — there
 are no globals to reach up for, which is why `roman` keeps its tables inside the
@@ -274,9 +285,31 @@ flow onward into whatever the program saved or compared. Fixed. The lesson kept 
 the probe finds what it finds rather than what you predicted, so a row worth little is
 still worth working.
 
+The most useful thing this directory did, it did before there was any code to test.
+`contains`, `replace` and `split` were specified before they were written, and the
+spec proposed the obvious Swift spellings — `range(of:)`, `replacingOccurrences`,
+`components(separatedBy:)` — noting that the three targets disagreed only on an empty
+search string. Run against the real compilers, they disagreed on a great deal more:
+those are Foundation calls that match on graphemes and treat canonically equivalent
+text as identical, so an accented name typed on a Mac and the same name typed on Linux
+would have been one string on Swift and two everywhere else, and a word count of a
+family emoji would have split three ways. lux had already bought that argument once —
+`==` on strings emits `unicodeScalars.elementsEqual` rather than Swift's `==`, which
+is what closed the grapheme divergence in the first place — so the three new built-ins
+were written to match at the scalar level too, and they shipped agreeing on all four
+legs. Nothing had to be found, filed and fixed, which is the cheapest a finding ever
+gets.
+
 Nothing is open. Every divergence this corpus has found is either fixed or, in exactly
 one case, examined and deliberately kept — see the seam in *Where lux stops*, and the
 first of the rules below.
+
+One instrument is now a script rather than a habit. `./excerpts.sh` pulls every code
+block out of `CONVERT.md` and checks each line against the corpus sources and against
+what the emitters actually produce. Two findings came from doing that by hand, and
+doing it by hand missed four lines that had gone stale — a parameter renamed in
+`bubble`, and three array subscripts written before indexing became a bounds-checked
+call on every target. A document made of quotations needs its quotations tested.
 
 ## The rules
 
