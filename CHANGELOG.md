@@ -4,6 +4,31 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.3] - 2026-08-04
+
+### Changed
+
+- **`lux editors install` is now `lux editors highlighting`.** "editors install" read
+  like it was about to install an editor; "highlighting" names what the command
+  actually writes. Bare `lux editors` still reports status, and the old word now meets
+  a lux-flavoured "knows `highlighting`, not `install`" rather than failing blankly.
+- **gedit is no longer claimed as supported.** Modern gedit forked GtkSourceView into
+  `libgedit-gtksourceview` and reads its own language-specs path, so the `.lang` lux
+  writes to `~/.local/share/gtksourceview-5/` never reached it — it never actually
+  worked. GNOME Text Editor (real GtkSourceView 5) is the covered editor; the report
+  and the "looked for" list no longer mention gedit.
+
+### Fixed
+
+- **A program whose reader stops early no longer panics.** `lux run prog | head` — or
+  `| less` and quitting, or `| grep -q` — now dies quietly on SIGPIPE (exit 141) like
+  `seq | head` and the Go and Swift translations, instead of a rustc backtrace about a
+  broken pipe (exit 101), the least lux-like output the tool produced. Rust's runtime
+  sets SIGPIPE to `SIG_IGN`; the interpreter restores the default disposition at
+  startup, dependency-free (#57). The Rust translation is deliberately left as-is —
+  fixing it would clutter the generated code learners read, for a gap only a compiled
+  binary piped into `head` exhibits.
+
 ## [0.17.2] - 2026-08-02
 
 ### Fixed
