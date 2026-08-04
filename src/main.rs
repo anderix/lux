@@ -30,7 +30,30 @@ const INSTALL_PS_URL: &str = "https://anderix.com/lux/install.ps1";
 const STARTER_WORLD: &str = include_str!("../examples/keep.lux");
 const STARTER_SCROLL: &str = include_str!("../examples/crawl-readme.txt");
 
+/// Restore the default `SIGPIPE` disposition on Unix. Rust's runtime sets it to
+/// `SIG_IGN`, so a write to a closed pipe returns `EPIPE` and `println!` panics with
+/// a rustc backtrace — the least lux-like output the tool can produce, and what a
+/// learner sees the moment they type `lux run world.lux | head`. With the default
+/// restored, the process dies quietly on the signal (exit 141) the way `seq | head`
+/// and every other Unix tool does, matching the Go and Swift translations (#57).
+/// The disposition is process-wide, so it also covers the interpreter's worker
+/// thread. Declared here rather than depending on the `libc` crate.
+#[cfg(unix)]
+fn reset_sigpipe() {
+    unsafe extern "C" {
+        fn signal(signum: i32, handler: usize) -> usize;
+    }
+    // signal(SIGPIPE = 13, SIG_DFL = 0)
+    unsafe {
+        signal(13, 0);
+    }
+}
+
+#[cfg(not(unix))]
+fn reset_sigpipe() {}
+
 fn main() {
+    reset_sigpipe();
     let args: Vec<String> = std::env::args().collect();
 
     match args.get(1).map(String::as_str) {
@@ -188,7 +211,7 @@ fn magic_cmd(rest: &[String]) {
 }
 
 /// `lux editors`: with no argument, report which editors are here and whether
-/// lux highlighting is installed; `lux editors install` writes it for each.
+/// lux highlighting is installed; `lux editors highlighting` writes it for each.
 fn editors_cmd(rest: &[String]) {
     if wants_help(rest) {
         sub_usage("editors");
@@ -196,9 +219,9 @@ fn editors_cmd(rest: &[String]) {
     }
     match rest.first().map(String::as_str) {
         None => println!("{}", editors::report()),
-        Some("install") => println!("{}", editors::install()),
+        Some("highlighting") => println!("{}", editors::install()),
         Some(other) => {
-            eprintln!("`lux editors` knows `install`, not `{}`.\n", other);
+            eprintln!("`lux editors` knows `highlighting`, not `{}`.\n", other);
             println!("{}", editors::report());
             exit(1);
         }
@@ -308,8 +331,10 @@ fn sub_usage(cmd: &str) {
             println!("lux editors — syntax highlighting for your editors");
             println!();
             println!("usage:");
-            println!("  lux editors          report which editors are here and what's installed");
-            println!("  lux editors install  write highlighting for each one found");
+            println!(
+                "  lux editors               report which editors are here and what's installed"
+            );
+            println!("  lux editors highlighting  write highlighting for each one found");
         }
         "update" => {
             println!("lux update — update lux to the latest release");

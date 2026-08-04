@@ -3,7 +3,7 @@
 //! lux ships highlighting for a few editors as small files under `editors/` in
 //! the repo. They are embedded here so the installed binary carries its own copy
 //! — the same trick `lux learn` uses for its reference — and `lux editors
-//! install` writes them into the right per-user config directories. Nothing here
+//! highlighting` writes them into the right per-user config directories. Nothing here
 //! needs the network or root: every path lives under the user's own home.
 //!
 //! `lux update` never writes these files. It only reads the state to print a
@@ -119,10 +119,12 @@ fn integrations() -> Option<Vec<Integration>> {
             }],
             nanorc_include: Some(home.join(".nanorc")),
         },
-        // The engine behind gedit and GNOME Text Editor; one .lang file serves both.
+        // GtkSourceView 5, the engine behind GNOME Text Editor. gedit is NOT covered:
+        // it forked GtkSourceView (`libgedit-gtksourceview`) and reads its own
+        // language-specs path, so the upstream .lang here never reaches it.
         Integration {
-            name: "gedit / GNOME Text Editor",
-            present: on_path("gedit") || on_path("gnome-text-editor"),
+            name: "GNOME Text Editor",
+            present: on_path("gnome-text-editor"),
             files: vec![EditorFile {
                 path: home.join(".local/share/gtksourceview-5/language-specs/lux.lang"),
                 body: GTKSOURCEVIEW_LANG,
@@ -181,18 +183,18 @@ pub fn report() -> String {
         } else if it.installed() {
             "highlighting installed"
         } else {
-            "found — run `lux editors install`"
+            "found — run `lux editors highlighting`"
         };
         lines.push(format!("  {:<26}{}", it.name, state));
     }
     format!(
         "lux editor syntax highlighting\n\n{}\n\n\
-         `lux editors install` writes highlighting for every editor found above.",
+         `lux editors highlighting` writes highlighting for every editor found above.",
         lines.join("\n")
     )
 }
 
-/// `lux editors install`: write the highlighting for every editor that's here.
+/// `lux editors highlighting`: write the highlighting for every editor that's here.
 pub fn install() -> String {
     let Some(list) = integrations() else {
         return no_home();
@@ -222,7 +224,7 @@ pub fn install() -> String {
 
 /// A one-line tip for `lux update` to print after refreshing the binary, or
 /// nothing when there's no editor to mention. `update` never writes these files
-/// itself — it only points at `lux editors install`.
+/// itself — it only points at `lux editors highlighting`.
 pub fn nudge() -> Option<String> {
     let present: Vec<Integration> = integrations()?.into_iter().filter(|i| i.present).collect();
     if present.is_empty() {
@@ -231,13 +233,13 @@ pub fn nudge() -> Option<String> {
     if present.iter().any(|i| i.installed()) {
         Some(
             "Your editor highlighting may be a version behind — \
-             `lux editors install` refreshes it."
+             `lux editors highlighting` refreshes it."
                 .to_string(),
         )
     } else {
         let names: Vec<&str> = present.iter().map(|i| i.name).collect();
         Some(format!(
-            "Tip: `lux editors install` adds lux syntax highlighting for {}.",
+            "Tip: `lux editors highlighting` adds lux syntax highlighting for {}.",
             names.join(", ")
         ))
     }
@@ -265,7 +267,7 @@ fn no_home() -> String {
 #[cfg(unix)]
 fn no_editors_found() -> String {
     "No supported editors found on your PATH \
-     (looked for nvim, vim, nano, gedit, gnome-text-editor)."
+     (looked for nvim, vim, nano, gnome-text-editor)."
         .to_string()
 }
 
