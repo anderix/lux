@@ -81,7 +81,7 @@ func unpack(start: string) -> [string] {
 
     while length(pending) > 0 {
         round += 1
-        var next = []
+        var next: [string] = []
         for item in pending {
             for found in contents(item) {
                 everything += found

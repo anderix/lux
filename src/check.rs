@@ -28,7 +28,11 @@ pub fn check(program: &[Stmt]) -> Result<(), LuxError> {
     // syntactic — the annotation says `Result<…>` — so it's refused on every path,
     // making `lux run` agree with the targets rather than accepting what Go can't
     // emit (#42).
-    reject_result_parameter(program)
+    reject_result_parameter(program)?;
+    // An empty array literal bound without a type annotation: the same declaration
+    // rule an empty `none` already meets — name what it holds — settled here so all
+    // four legs agree it's illegal until annotated (#66).
+    reject_untyped_empty_array(program)
 }
 
 // ----- reserved names and shadowing ----------------------------------------
@@ -504,6 +508,64 @@ fn find_main_call(e: &Expr) -> Result<(), LuxError> {
             }
         }
         Expr::Int(..) | Expr::Float(..) | Expr::Str(..) | Expr::Bool(..) | Expr::Ident(..) => {}
+    }
+    Ok(())
+}
+
+/// An empty array literal bound without a type annotation leaves its element type
+/// open, and the four legs each settle it differently — the interpreter waits to see
+/// what's appended, Swift and Rust refuse it, Go infers `[]any` and fails wherever
+/// the variable later meets a typed position (#66). lux closes the divergence the
+/// way it already closes an empty `none`: name what it holds. This is a declaration
+/// rule — the binding is under-determined on its own, whatever a later line appends —
+/// so it belongs here and holds on every path, and all four legs agree the program is
+/// illegal until it carries the annotation the arrays card already teaches.
+fn reject_untyped_empty_array(stmts: &[Stmt]) -> Result<(), LuxError> {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Let {
+                ty: None, value, ..
+            } => reject_empty_array_value(value)?,
+            Stmt::Var {
+                ty: None,
+                value: Some(value),
+                ..
+            } => reject_empty_array_value(value)?,
+            Stmt::If {
+                then_body,
+                else_body,
+                ..
+            } => {
+                reject_untyped_empty_array(then_body)?;
+                if let Some(e) = else_body {
+                    reject_untyped_empty_array(e)?;
+                }
+            }
+            Stmt::While { body, .. } | Stmt::For { body, .. } | Stmt::Func { body, .. } => {
+                reject_untyped_empty_array(body)?
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// Refuse a binding whose value is the bare `[]` literal, pointing at it with the
+/// same words an empty `none` meets, so the two under-determined literals read as
+/// one rule rather than two accidents.
+fn reject_empty_array_value(value: &Expr) -> Result<(), LuxError> {
+    if let Expr::Array(items, span) = value
+        && items.is_empty()
+    {
+        return Err(LuxError::new(
+            "can't tell what type this is — an empty array leaves it open",
+            *span,
+        )
+        .with_note("name the type, like `let xs: [int] = []`")
+        .with_learn(
+            "arrays",
+            "lux usually guesses the type, but an empty array needs you to say",
+        ));
     }
     Ok(())
 }

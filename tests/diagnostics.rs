@@ -340,6 +340,35 @@ fn a_result_parameter_is_refused_everywhere() {
     );
 }
 
+/// An empty array literal bound without a type is refused, in the same words an
+/// empty `none` meets, and — like the naming and Result-parameter rules — on every
+/// path, so `lux run`, `lux convert` and `lux build` all agree it's illegal rather
+/// than each inferring a different element type (#66).
+#[test]
+fn an_untyped_empty_array_is_refused_everywhere() {
+    let src = "var xs = []\nxs += 1\nprint(xs)\n";
+    let run = err_of("runemptyarr", src);
+    assert!(
+        run.contains("an empty array leaves it open"),
+        "run should refuse an untyped empty array, got:\n{run}"
+    );
+    let conv = convert_err("cemptyarr", "swift", src);
+    assert!(
+        conv.contains("an empty array leaves it open"),
+        "convert should refuse an untyped empty array, got:\n{conv}"
+    );
+    // The nested case — an accumulator declared inside a loop — is the ordinary way
+    // the mistake is written, so it must be reached by the walk too.
+    let nested = err_of(
+        "runemptyarrnested",
+        "var pending = [\"a\"]\nwhile length(pending) > 0 {\n    var next = []\n    for item in pending {\n        next += item\n    }\n    pending = next\n}\n",
+    );
+    assert!(
+        nested.contains("an empty array leaves it open"),
+        "the rule should reach a binding nested in a loop, got:\n{nested}"
+    );
+}
+
 #[test]
 fn convert_refuses_an_unknown_function() {
     let conv = convert_err("cunknown", "go", "print(frobnicate(3))\n");
