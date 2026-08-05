@@ -1,16 +1,33 @@
 # Flex
 
-How far the language goes, and exactly where it stops.
+What the language can carry, and what the toolchain does when you lean on it.
 
 `conformance/` asks whether lux keeps its promise that one source behaves the same
-on three targets. This directory asks a different question: what can you actually
-*write* in it? The programs here are chosen from the ones a first course reaches
-for, each written the way lux wants it rather than the way the textbook prints it.
-Some of them stop early, and where they stop is the most useful thing here.
+on three targets, and it gates: red there means something regressed. This directory
+started by asking a different question — what can you actually *write* in a language
+this small? — and the programs below are the answer. They are the ones a first course
+reaches for, each written the way lux wants it rather than the way the textbook
+prints it, and some of them stop early. Where they stop is a real part of what is
+here.
 
-Nothing in this directory is a tutorial. It is written for someone weighing lux up
-— a parent, a teacher, anyone deciding whether a language this small can carry a
-first year — who would rather read working programs than a feature list.
+That was the whole job once and it isn't now. Writing the programs mapped the reach,
+and then the reach stopped moving while the *findings* kept coming — from probing the
+toolchain rather than from adding another program. So this directory does two things.
+The corpus documents what lux can carry, and it is read by someone weighing lux up: a
+parent, a teacher, anyone deciding whether a language this small can carry a first
+year, who would rather read working programs than a feature list. The probing is the
+part that finds bugs, and most of what it finds now is not in the language at all —
+it is in what the compiler does that the interpreter doesn't, and in the gap between
+what lux is and what lux says about itself.
+
+Which means the tally at the bottom of a run should be read carefully, and it is the
+one thing worth carrying away from here. A green corpus is a statement about
+coverage, not about correctness. Every program in it is a program that *works*, so no
+number of them can say how the toolchain treats a program that doesn't — and that
+turned out to be where the sharpest finding was hiding, under a suite that had been
+fully green for months.
+
+Nothing in this directory is a tutorial.
 
 ```
 ./flex.sh              # every program, every target
@@ -38,6 +55,7 @@ algorithms are ones you already know, so all that is new is the language.
 | `gcd` | the same algorithm written recursively and as a loop, plus `%` |
 | `sieve` | crossing out multiples in place — assignment into the middle of a row |
 | `collatz` | a `while` whose termination is an unsolved problem, said out loud |
+| `worklist` | a `for` walks the row as it was when the loop began, so a list that grows is walked in rounds |
 | `roman` | table-driven conversion, and why a function reaches only its own locals |
 
 **Sorting.** Five algorithms, one shape: a row goes in, a sorted row comes back.

@@ -160,7 +160,7 @@ PROGRAMS=(fizzbuzz fib gcd sieve collatz roman
           bubble selection mergesort quicksort
           binsearch list bst expr machine safe
           pascal matrix lcs tictactoe queens maze
-          stats points logic
+          stats points logic worklist
           catn head wcl uniqc hist fields
           bridge keep)
 

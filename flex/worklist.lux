@@ -1,0 +1,110 @@
+// worklist — what a `for` loop actually walks, and how to grow a list anyway.
+//
+//   lux run worklist.lux
+//
+// A `for` loop walks the row as it was when the loop began. You may add to that
+// row inside the loop, and the new items are simply not visited — the loop took
+// its snapshot before the first pass. Assigning into the row behaves the same
+// way: the loop keeps handing you the values it already had.
+//
+// That reads like a restriction and is closer to a guarantee. A loop that noticed
+// its own additions would never finish the moment a job created another job,
+// which is exactly what this program does — unpacking a crate finds smaller
+// crates, and unpacking those finds more. The snapshot is what makes each pass
+// end.
+//
+// So a list that grows is walked in rounds: go through what you have, collect
+// what that produced, and go again until a round produces nothing new. The
+// `while` is where the growth lives, and the `for` stays a snapshot. That split
+// is the whole idea, and it is the same shape as a queue, a crawler, or anything
+// that discovers work while doing it.
+
+// What's inside a thing, if it's the kind of thing that holds things.
+func contents(item: string) -> [string] {
+    if item == "big crate" {
+        return ["small crate", "coil of rope"]
+    }
+    if item == "small crate" {
+        return ["tin", "folded map"]
+    }
+    if item == "tin" {
+        return ["brass key"]
+    }
+    return []
+}
+
+func opensUp(item: string) -> bool {
+    return length(contents(item)) > 0
+}
+
+// First, the thing that surprises people, done on purpose so the rule is visible
+// rather than folklore. This walks one crate and adds what it finds to the very
+// row it is walking.
+print("one pass, adding as we go:")
+var pile = ["big crate"]
+var passes = 0
+for item in pile {
+    passes += 1
+    print("  opened", item)
+    for found in contents(item) {
+        pile += found
+    }
+}
+print("  the loop ran", passes, "time and the pile now holds", length(pile), "things")
+print("  pile:", pile)
+print("")
+
+// The pile really did grow — the additions are there. The loop just never saw
+// them, because it was walking the row from before they existed.
+print("nothing was lost, it simply wasn't visited:")
+for item in pile {
+    print("  in the pile:", item)
+}
+print("")
+
+// Assigning into the row is the same story from the other side. The loop keeps
+// reading what it snapshotted, so `first` never becomes "replaced" mid-walk.
+print("assigning into the row while walking it:")
+var labels = ["first", "second", "third"]
+for label in labels {
+    labels[0] = "replaced"
+    print("  loop sees", label, "| row now starts with", labels[0])
+}
+print("")
+
+// Now the version that finishes the job. Each round walks a snapshot, and
+// whatever that round discovers waits for the next one.
+func unpack(start: string) -> [string] {
+    var everything = [start]
+    var pending = [start]
+    var round = 0
+
+    while length(pending) > 0 {
+        round += 1
+        var next = []
+        for item in pending {
+            for found in contents(item) {
+                everything += found
+                next += found
+            }
+        }
+        print("  round", round, "opened", length(pending), "and found", length(next))
+        pending = next
+    }
+
+    return everything
+}
+
+print("in rounds, until a round finds nothing:")
+let all = unpack("big crate")
+print("")
+print("everything, in the order it turned up:")
+for item in all {
+    if opensUp(item) {
+        print("  " + item, "(holds more)")
+    } else {
+        print("  " + item)
+    }
+}
+print("")
+print("total", length(all), "things")
