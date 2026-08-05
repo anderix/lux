@@ -456,21 +456,30 @@ Reaching the chamber writes `the-secret.txt`, unless it is already there. Two th
 that can fail, one nested inside the other, and no variable holding either:
 
 ```rust
-match { let p = "the-secret.txt".to_string(); std::fs::read_to_string(&p).map_err(|e| format!("could not read {}: {}", p, e)) } {
+match { let p = "the-secret.txt".to_string(); std::fs::read_to_string(&p).map_err(|e| format!("could not read {}: {}", p, lux_io_reason(&e))) } {
     Ok(_) => println!("{}", "(Your copy is already saved in the-secret.txt.)"),
-    Err(_) => match { let p = "the-secret.txt".to_string(); std::fs::write(&p, note.clone()).map_err(|e| format!("could not write {}: {}", p, e)) } {
+    Err(_) => match { let p = "the-secret.txt".to_string(); std::fs::write(&p, note.clone()).map_err(|e| format!("could not write {}: {}", p, lux_io_reason(&e))) } {
         Ok(_) => println!("{}", "(There's a copy in the-secret.txt now, so it's not lost when you leave.)"),
         Err(_) => println!("{}", "(I couldn't leave a copy on disk, but it's all here on the screen.)"),
     },
 };
 ```
 
-The block around each call is doing something worth noticing. `std::fs` would hand
-back its own message — `No such file or directory (os error 2)` — which doesn't say
-*which* file. lux binds the path first so it can build `could not read <path>: <reason>`,
-the same sentence on all three targets. A program that reads several files and reports
-only "no such file" has told the reader almost nothing, so the wrapper exists to keep
-the path in the message.
+The block around each call is doing two things worth noticing, and both are there so
+that one lux program says one thing everywhere.
+
+`std::fs` would hand back its own message, which doesn't say *which* file. lux binds
+the path first so it can build `could not read <path>: <reason>` — a program that reads
+several files and reports only "no such file" has told the reader almost nothing.
+
+`lux_io_reason` is the second half, and it exists because the three host libraries word
+the same failure three different ways: Rust says `No such file or directory (os error
+2)`, Swift drops the parenthetical, Go drops it and lowercases the sentence. That
+difference used to reach the program — the err string is a value a learner can print or
+compare, not a diagnostic — so all three now build the reason from the same form and a
+missing file reads `No such file or directory` wherever you run it. Worth seeing,
+because it is the shape of most parity work here: the interesting part is not the call,
+it is the small amount of code each target needs so the call means the same thing.
 
 This is the rule from *A value that might fail* doing real work rather than
 demonstrating itself. The keep never asks "did that succeed?" and stores the answer —

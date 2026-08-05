@@ -1,0 +1,123 @@
+// stocktake — comparing yesterday's shelves with today's.
+//
+//   lux run stocktake.lux
+//
+// `==` in lux asks whether two values *are the same value*, all the way down. Two
+// shelves are equal when their labels match and their contents match, item for
+// item, in order — and that holds without writing a comparison for `Shelf`,
+// because a struct is its fields and an array is its items.
+//
+// That is worth saying out loud because it is not what every language does. In
+// several of them `==` on two lists asks whether they are the same list — the
+// same object in memory — so two separately built lists holding "tea" and "flour"
+// come back unequal, and the bug that follows is the kind you stare at. lux has
+// no references to be the same as, so the question can only mean one thing.
+//
+// The same rule reaches the types built on top. Two enum values are equal when
+// they are the same case carrying equal payloads; `some(x)` equals `some(y)`
+// exactly when `x` equals `y`, and never equals `none`.
+//
+// One thing it does not give you is *order*. `<` on two shelves is refused —
+// there is no answer to which of two records is smaller that lux could pick for
+// you — so equality is the whole of what a compound value supports.
+
+struct Shelf {
+    label: string
+    items: [string]
+}
+
+struct Aisle {
+    name: string
+    shelves: [Shelf]
+}
+
+enum Change {
+    untouched
+    restocked(added: int)
+    emptied
+}
+
+func describe(c: Change) -> string {
+    return match c {
+        untouched      => "unchanged"
+        restocked(let n) => "restocked with " + string(n)
+        emptied        => "emptied"
+    }
+}
+
+// The whole comparison is one `==`. There is no field-by-field walk here because
+// there doesn't need to be.
+func changeBetween(before: Shelf, after: Shelf) -> Change {
+    if before == after {
+        return Change.untouched
+    }
+    if length(after.items) == 0 {
+        return Change.emptied
+    }
+    return Change.restocked(added: length(after.items) - length(before.items))
+}
+
+func find(shelves: [Shelf], label: string) -> Option<Shelf> {
+    for s in shelves {
+        if s.label == label {
+            return some(s)
+        }
+    }
+    return none
+}
+
+let yesterday = [
+    Shelf(label: "dry goods", items: ["flour", "rice"]),
+    Shelf(label: "tea", items: ["assam", "sencha"]),
+    Shelf(label: "tins", items: ["beans"])
+]
+
+let today = [
+    Shelf(label: "dry goods", items: ["flour", "rice"]),
+    Shelf(label: "tea", items: ["assam", "sencha", "oolong"]),
+    Shelf(label: "tins", items: [])
+]
+
+print("shelf by shelf:")
+for i in 0..length(yesterday) {
+    let was = yesterday[i]
+    let now = today[i]
+    print("  " + was.label + ":", describe(changeBetween(was, now)))
+}
+print("")
+
+// Built separately, holding the same things. Nothing is shared between these two
+// and they are still equal, which is the point of the whole program.
+print("two shelves built independently:")
+let a = Shelf(label: "tea", items: ["assam", "sencha"])
+let b = Shelf(label: "tea", items: ["assam", "sencha"])
+print("  equal:      ", a == b)
+print("  same items: ", a.items == b.items)
+print("  one differs:", a == Shelf(label: "tea", items: ["assam"]))
+print("  order counts:", a.items == ["sencha", "assam"])
+print("")
+
+// Nesting changes nothing. An aisle is equal when its shelves are.
+print("nested a level deeper:")
+let left = Aisle(name: "west", shelves: [a, Shelf(label: "tins", items: ["beans"])])
+let right = Aisle(name: "west", shelves: [b, Shelf(label: "tins", items: ["beans"])])
+print("  aisles equal:", left == right)
+print("  after a swap:", left == Aisle(name: "west", shelves: [b]))
+print("")
+
+// Enums compare by case first, then by what the case carries.
+print("comparing changes themselves:")
+print("  same case, same payload:", Change.restocked(added: 1) == Change.restocked(added: 1))
+print("  same case, different:   ", Change.restocked(added: 1) == Change.restocked(added: 2))
+print("  different cases:        ", Change.untouched == Change.emptied)
+print("  a case with no payload: ", Change.untouched == Change.untouched)
+print("")
+
+// And an Option is equal when what's inside is.
+print("looking things up:")
+let found = find(today, "tea")
+let alsoFound = find(today, "tea")
+print("  two lookups agree: ", found == alsoFound)
+print("  missing is missing:", find(today, "cheese") == none)
+print("  found is not none: ", found != none)
+print("  wrong shelf:       ", found == find(today, "tins"))

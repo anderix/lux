@@ -80,6 +80,7 @@ are trying to decide whether it's a toy.
 | `expr` | an expression tree whose division can fail, and a `Result` travelling up two levels |
 | `machine` | a vending machine where every state must answer every event |
 | `safe` | chaining two things that might be missing, without a null anywhere |
+| `stocktake` | `==` comparing compound values by what they hold, all the way down, and `<` refusing to |
 
 **Grids.** An array of arrays, which is the shape most of a first course's
 interesting problems arrive in. Nothing else in the repo uses one — `conformance`'s
@@ -328,7 +329,8 @@ were written to match at the scalar level too, and they shipped agreeing on all 
 legs. Nothing had to be found, filed and fixed, which is the cheapest a finding ever
 gets.
 
-Four findings are open, and how they were found is the point. 0.18.0's naming rule was
+The most recent round is the clearest illustration of all of this, so it is worth
+following from start to finish. 0.18.0's naming rule was
 discovered by accident — a new built-in brushed against a corpus program and exposed
 three silent semantic bugs that had sat under a fully green suite for months. That
 suggested the suites were confirming what somebody had thought to test rather than
@@ -341,11 +343,31 @@ refused by every target (#59), that `lux convert` and `lux build` skip the type 
 not copy a value into an array literal, leaving the original and the stored copy
 entangled (#61).
 
+Four more followed from the same question asked of the things around the language
+rather than the language itself: `readFile`'s failure text still read three different
+ways, and did so inside the `io` learn card's own example (#62); all four editor
+highlighting files knew fourteen of the seventeen built-ins (#63); `lux --help`
+advertised a subcommand lux answers by correcting (#64); and the *gating* suite was
+still normalizing away a float difference that had been fixed, so it carried a standing
+agreement to ignore the exact class of bug it exists to catch (#65).
+
 None of that needed a new instrument. It needed the admission that a corpus of programs
 which *work* cannot tell you how the tool handles programs that don't, and that a green
-tally is a statement about coverage rather than about correctness. Every divergence
-found before these is either fixed or, in exactly one case, examined and deliberately
-kept — see the seam in *Where lux stops*, and the first of the rules below.
+tally is a statement about coverage rather than about correctness.
+
+0.18.1 fixed eight of the nine, added no language surface, and left the corpus at 102
+of 102. What remains open is the largest one: `lux convert` and `lux build` still run
+only some of the checks `lux run` does, so `print("Score: " + 42)` is refused by the
+interpreter — with a `lux learn strings` trail, and a rule the language teaches — and
+compiled by `lux build` into a program that prints `Score: 42` (#60). Until that closes,
+the four legs agree about what programs *mean* considerably more than they agree about
+which programs *exist*. Two smaller ones are open beside it: a bare `some(x)` bound
+without an annotation builds on three legs and not Swift (#67), and the new sweep of
+the learn examples covers the cards but not the `more` pages (#68).
+
+Every divergence found before these is either fixed or, in exactly one case, examined
+and deliberately kept — see the seam in *Where lux stops*, and the first of the rules
+below.
 
 One instrument is now a script rather than a habit. `./excerpts.sh` pulls every code
 block out of `CONVERT.md` and checks each line against the corpus sources and against
