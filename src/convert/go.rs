@@ -530,13 +530,22 @@ impl Gen {
         if self.uses_read_file || self.uses_write_file {
             // A file error from os is a *PathError whose message repeats the path
             // (`open <path>: <reason>`); unwrap it to the bare reason, so lux's own
-            // `could not read <path>:` prefix doesn't state the path twice.
+            // `could not read <path>:` prefix doesn't state the path twice. Go writes
+            // an error string lowercase by convention (`no such file or directory`);
+            // the other three legs build it from strerror with a capital, so lift the
+            // first letter and the reason reads the same on all four (#62).
             head.push_str(
                 "func ioReason(err error) string {\n\
                  \tif pe, ok := err.(*os.PathError); ok {\n\
-                 \t\treturn pe.Err.Error()\n\
+                 \t\terr = pe.Err\n\
                  \t}\n\
-                 \treturn err.Error()\n\
+                 \ts := err.Error()\n\
+                 \tif len(s) > 0 && s[0] >= 'a' && s[0] <= 'z' {\n\
+                 \t\tb := []byte(s)\n\
+                 \t\tb[0] -= 32\n\
+                 \t\treturn string(b)\n\
+                 \t}\n\
+                 \treturn s\n\
                  }\n\n",
             );
         }

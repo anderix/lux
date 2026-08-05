@@ -1486,7 +1486,8 @@ impl Interp {
                     Ok(contents) => Ok(result_ok(Value::Str(contents))),
                     Err(e) => Ok(result_err(Value::Str(format!(
                         "could not read {}: {}",
-                        path, e
+                        path,
+                        io_reason(&e)
                     )))),
                 }
             }
@@ -1499,7 +1500,8 @@ impl Interp {
                     Ok(()) => Ok(result_ok(Value::Unit)),
                     Err(e) => Ok(result_err(Value::Str(format!(
                         "could not write {}: {}",
-                        path, e
+                        path,
+                        io_reason(&e)
                     )))),
                 }
             }
@@ -2807,6 +2809,26 @@ fn variant_names(data: &EnumData) -> String {
 /// The error for declaring two types with the same name.
 fn already_defined(name: &str, span: Span) -> LuxError {
     LuxError::new(format!("type `{}` is already defined", name), span)
+}
+
+/// A file error's reason with the platform tail stripped. Rust renders an
+/// `io::Error` as `<reason> (os error <n>)`; the other three legs build the reason
+/// from `strerror` without that tail, so drop it here — `No such file or directory`,
+/// not `... (os error 2)` — and one source reads the same on all four (#62).
+fn io_reason(e: &std::io::Error) -> String {
+    let full = e.to_string();
+    match full.rfind(" (os error ") {
+        Some(cut)
+            if full.ends_with(')')
+                && cut + 11 < full.len() - 1
+                && full[cut + 11..full.len() - 1]
+                    .bytes()
+                    .all(|b| b.is_ascii_digit()) =>
+        {
+            full[..cut].to_string()
+        }
+        _ => full,
+    }
 }
 
 /// "1 value" / "2 values" — small helper for argument-count errors.

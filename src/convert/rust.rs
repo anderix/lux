@@ -73,6 +73,10 @@ struct Gen {
     uses_lux_contains: bool,
     uses_lux_replace: bool,
     uses_lux_split: bool,
+    /// `readFile`/`writeFile` route their error reason through `lux_io_reason`, which
+    /// strips the ` (os error <n>)` tail Rust's `io::Error` appends, so the reason
+    /// reads the same as it does on Swift and Go (#62). Emitted only when used.
+    uses_io_reason: bool,
 }
 
 /// Render a float the way the interpreter does: positional, with a decimal point,
@@ -227,6 +231,26 @@ fn run(program: String, args: Vec<String>) -> Result<Output, String> {
 }
 ";
 
+/// Render a file error's reason the way the other three legs do. `to_string()` on a
+/// `std::io::Error` appends ` (os error <n>)` — the platform detail Swift's `strerror`
+/// and Go's error string don't carry — so strip that tail and the reason matches:
+/// `No such file or directory`, not `... (os error 2)` (#62).
+const LUX_IO_REASON_HELPER: &str = "\
+fn lux_io_reason(e: &std::io::Error) -> String {
+    let full = e.to_string();
+    match full.rfind(\" (os error \") {
+        Some(cut)
+            if full.ends_with(')')
+                && cut + 11 < full.len() - 1
+                && full[cut + 11..full.len() - 1].bytes().all(|b| b.is_ascii_digit()) =>
+        {
+            full[..cut].to_string()
+        }
+        _ => full,
+    }
+}
+";
+
 /// Translate a whole program to Rust source text.
 pub fn to_rust(program: &[Stmt]) -> String {
     let mut g = Gen {
@@ -249,6 +273,7 @@ pub fn to_rust(program: &[Stmt]) -> String {
         uses_lux_contains: false,
         uses_lux_replace: false,
         uses_lux_split: false,
+        uses_io_reason: false,
     };
 
     for stmt in program {
@@ -318,6 +343,10 @@ pub fn to_rust(program: &[Stmt]) -> String {
     }
     if g.uses_run {
         preamble.push_str(RUN_HELPER);
+        preamble.push('\n');
+    }
+    if g.uses_io_reason {
+        preamble.push_str(LUX_IO_REASON_HELPER);
         preamble.push('\n');
     }
     if g.uses_lux_contains {
@@ -1252,16 +1281,18 @@ impl Gen {
             // interpreter and the other targets build, so one source reads the same
             // on all four (#43). The path is bound once so the closure can name it.
             "readFile" => {
+                self.uses_io_reason = true;
                 let p = self.emit_moved(&args[0]);
                 format!(
-                    "{{ let p = {p}; std::fs::read_to_string(&p).map_err(|e| format!(\"could not read {{}}: {{}}\", p, e)) }}"
+                    "{{ let p = {p}; std::fs::read_to_string(&p).map_err(|e| format!(\"could not read {{}}: {{}}\", p, lux_io_reason(&e))) }}"
                 )
             }
             "writeFile" => {
+                self.uses_io_reason = true;
                 let p = self.emit_moved(&args[0]);
                 let c = self.emit_moved(&args[1]);
                 format!(
-                    "{{ let p = {p}; std::fs::write(&p, {c}).map_err(|e| format!(\"could not write {{}}: {{}}\", p, e)) }}"
+                    "{{ let p = {p}; std::fs::write(&p, {c}).map_err(|e| format!(\"could not write {{}}: {{}}\", p, lux_io_reason(&e))) }}"
                 )
             }
             "args" => "std::env::args().collect::<Vec<String>>()".to_string(),

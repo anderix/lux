@@ -67,62 +67,132 @@ fn every_topic_converts() {
     }
 }
 
-#[test]
-fn every_topic_compiles_as_rust() {
-    if !tool_available("rustc", "--version") {
-        eprintln!("skipping: rustc not on PATH");
-        return;
-    }
+/// Compile `src` for `lang` and run it with an empty stdin, returning its stdout. A
+/// compile failure fails the test by name — this is where "did not compile as Rust /
+/// Go / Swift" is caught, Swift included, the one backend the teaching material was
+/// never checked against before.
+fn build_and_run(lang: &str, src: &str, id: &str) -> String {
     let tmp = std::env::temp_dir();
-    for t in learn::topics() {
-        let rust = convert::to_rust(&program(&t.example));
-        let rs = tmp.join(format!("lux_learn_{}.rs", t.id));
-        std::fs::write(&rs, &rust).expect("write rust");
-        let out = Command::new("rustc")
-            .arg(&rs)
-            .arg("-o")
-            .arg(tmp.join(format!("lux_learn_{}.bin", t.id)))
-            .output()
-            .expect("run rustc");
-        assert!(
-            out.status.success(),
-            "`{}` did not compile as Rust:\n{}",
-            t.id,
-            String::from_utf8_lossy(&out.stderr)
-        );
-    }
+    let bin = match lang {
+        "rust" => {
+            let rs = tmp.join(format!("lux_learn_{id}.rs"));
+            let bin = tmp.join(format!("lux_learn_{id}_rs"));
+            std::fs::write(&rs, src).expect("write rust");
+            let out = Command::new("rustc")
+                .arg(&rs)
+                .arg("-o")
+                .arg(&bin)
+                .output()
+                .expect("run rustc");
+            assert!(
+                out.status.success(),
+                "`{id}` did not compile as Rust:\n{}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            bin
+        }
+        // Go treats an unused local as a hard error, so building every example also
+        // enforces that each one uses what it binds — which is what makes "try it"
+        // show output.
+        "go" => {
+            let dir = tmp.join(format!("lux_learn_go_{id}"));
+            std::fs::create_dir_all(&dir).expect("mkdir");
+            std::fs::write(dir.join("go.mod"), "module luxlearn\n\ngo 1.21\n").expect("go.mod");
+            std::fs::write(dir.join("main.go"), src).expect("write go");
+            let bin = dir.join("bin");
+            let out = Command::new("go")
+                .arg("build")
+                .arg("-o")
+                .arg(&bin)
+                .current_dir(&dir)
+                .env("GOCACHE", tmp.join("lux_learn_go_cache"))
+                .output()
+                .expect("run go build");
+            assert!(
+                out.status.success(),
+                "`{id}` did not compile as Go:\n{}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            bin
+        }
+        "swift" => {
+            let sw = tmp.join(format!("lux_learn_{id}.swift"));
+            let bin = tmp.join(format!("lux_learn_{id}_sw"));
+            std::fs::write(&sw, src).expect("write swift");
+            let out = Command::new("swiftc")
+                .arg(&sw)
+                .arg("-o")
+                .arg(&bin)
+                .output()
+                .expect("run swiftc");
+            assert!(
+                out.status.success(),
+                "`{id}` did not compile as Swift:\n{}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            bin
+        }
+        _ => unreachable!("unknown backend {lang}"),
+    };
+    let out = Command::new(&bin)
+        .stdin(Stdio::null())
+        .output()
+        .expect("run compiled example");
+    String::from_utf8_lossy(&out.stdout).into_owned()
 }
 
+/// Every topic's example prints the same on all four legs. The card examples are the
+/// most-read lux programs there are, yet each was only ever built and thrown away, so
+/// an example that *ran* differently on a target passed unseen — which is how the `io`
+/// card's readFile reason came to differ three ways (#62). This runs each through the
+/// interpreter and every backend whose compiler is present, holding them to one
+/// output, and compiles Swift too — the backend the teaching material was never
+/// checked against. Stdin is empty, since the `input` card reads a line (#53).
 #[test]
-fn every_topic_compiles_as_go() {
-    if !tool_available("go", "version") {
-        eprintln!("skipping: go not on PATH");
-        return;
-    }
-    // Go treats an unused local as a hard error, so this also enforces that every
-    // example actually uses what it binds — which is what makes "try it" show output.
+fn every_topic_agrees_on_every_backend() {
+    let backends: Vec<&str> = [
+        ("rust", "rustc", "--version"),
+        ("go", "go", "version"),
+        ("swift", "swiftc", "--version"),
+    ]
+    .into_iter()
+    .filter(|(_, cmd, ver)| tool_available(cmd, ver))
+    .map(|(lang, _, _)| lang)
+    .collect();
     let tmp = std::env::temp_dir();
-    let cache = tmp.join("lux_learn_go_cache");
     for t in learn::topics() {
-        let go = convert::to_go(&program(&t.example));
-        let dir = tmp.join(format!("lux_learn_go_{}", t.id));
-        std::fs::create_dir_all(&dir).expect("mkdir");
-        std::fs::write(dir.join("go.mod"), "module luxlearn\n\ngo 1.21\n").expect("write go.mod");
-        std::fs::write(dir.join("main.go"), &go).expect("write go");
-        let out = Command::new("go")
-            .arg("build")
-            .arg("-o")
-            .arg(dir.join("bin"))
-            .current_dir(&dir)
-            .env("GOCACHE", &cache)
+        // The interpreter is the reference every backend must match.
+        let path = tmp.join(format!("lux_agree_{}_{}.lux", std::process::id(), t.id));
+        std::fs::write(&path, &t.example).expect("write example");
+        let run = Command::new(env!("CARGO_BIN_EXE_lux"))
+            .arg("run")
+            .arg(&path)
+            .stdin(Stdio::null())
             .output()
-            .expect("run go build");
+            .expect("run lux");
+        let _ = std::fs::remove_file(&path);
         assert!(
-            out.status.success(),
-            "`{}` did not compile as Go:\n{}",
+            run.status.success(),
+            "`{}` does not run:\n{}",
             t.id,
-            String::from_utf8_lossy(&out.stderr)
+            String::from_utf8_lossy(&run.stderr)
         );
+        let want = String::from_utf8_lossy(&run.stdout).into_owned();
+
+        for lang in &backends {
+            let src = match *lang {
+                "rust" => convert::to_rust(&program(&t.example)),
+                "go" => convert::to_go(&program(&t.example)),
+                "swift" => convert::to_swift(&program(&t.example)),
+                _ => unreachable!(),
+            };
+            let got = build_and_run(lang, &src, &format!("{}_{}", t.id, lang));
+            assert_eq!(
+                got, want,
+                "`{}` prints differently on {} than the interpreter",
+                t.id, lang
+            );
+        }
     }
 }
 
