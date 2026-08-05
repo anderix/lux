@@ -4,6 +4,59 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.1] - 2026-08-05
+
+A hardening release: eight parity and correctness fixes, and no new language surface.
+Each change makes the four legs — the interpreter, Rust, Swift, and Go — agree where
+one had drifted, or refuses on every path what only one leg was already refusing. The
+set of programs that work identically on all four is larger; the set of things the
+language can do is unchanged.
+
+### Fixed
+
+- **Comparing compound values with `==` on Go.** `==` and `!=` on an array, a struct
+  that holds one, or two cases of an enum did not build on the Go backend, and
+  `some(a) == some(a)` compiled and returned `false` — a lux `Option` is a Go pointer,
+  so the comparison read the address rather than the contents. A generated `luxEqual`
+  now compares structurally, the way the interpreter, Rust, and Swift already did (#58).
+
+- **Value semantics into an array literal on Go.** A place stored as an array-literal
+  element — a struct holding an array, or a bare array — kept sharing its inner slice
+  with the source, so mutating the source afterwards reached into the stored copy. The
+  typed array path now deep-copies each element, like every other place a value flows
+  into a new home (#61).
+
+- **`readFile`'s failure reason reads the same on every leg.** The reason half of a file
+  error differed three ways — the interpreter and Rust appended Rust's ` (os error 2)`,
+  Swift dropped it, Go dropped it and lowercased the sentence. All four now build the
+  reason from the same `strerror` form — `No such file or directory`. That program is
+  the `io` learn card's own example, so the teaching material no longer contradicts the
+  parity claim (#62).
+
+- **`lux --help`** no longer advertises `lux editors install`, a name lux renamed to
+  `highlighting` and now answers by correcting (#64).
+
+- **Editor highlighting** for all four editors — GtkSourceView, nano, Notepad++, and
+  Vim — now colours `contains`, `replace`, and `split`, the built-ins 0.18.0 added
+  (#63).
+
+- **The conformance suite** compares every byte, dropping a normalization that had
+  outlived the whole-float rendering difference it once smoothed over — the exact class
+  of difference the gating suite exists to catch (#65).
+
+### Changed
+
+- **An empty array literal now needs a type annotation.** `var xs = []` left its element
+  type open: the interpreter guessed it from later use, Swift and Rust refused it, and
+  Go inferred `[]any` and failed wherever the variable later met a typed position. lux
+  now asks for the annotation up front — `var xs: [int] = []` — the same rule an empty
+  `none` already meets, so all four legs agree it's illegal until named (#66).
+
+- **Three more duplicate declarations are refused.** No enum may name a case twice, no
+  struct a field twice, and no function may take a type's name — each was accepted by
+  the interpreter and refused by the compiled targets, so each is settled now where the
+  program is checked, on every path (#59).
+
 ## [0.18.0] - 2026-08-04
 
 ### Added
