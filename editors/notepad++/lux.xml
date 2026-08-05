@@ -45,7 +45,7 @@
             <Keywords name="Folders in comment, close"></Keywords>
             <Keywords name="Keywords1">let var if else while for in func return struct enum match true false</Keywords>
             <Keywords name="Keywords2">int float bool string Option Result Output some none ok err</Keywords>
-            <Keywords name="Keywords3">print eprint input readLine readFile writeFile args run length parseInt parseFloat</Keywords>
+            <Keywords name="Keywords3">print eprint input readLine readFile writeFile args run length contains replace split parseInt parseFloat</Keywords>
             <Keywords name="Keywords4"></Keywords>
             <Keywords name="Keywords5"></Keywords>
             <Keywords name="Keywords6"></Keywords>

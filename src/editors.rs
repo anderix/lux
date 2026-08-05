@@ -338,7 +338,111 @@ fn display(p: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use super::*;
+    use crate::interpreter::BUILTINS;
+    use crate::lexer::KEYWORDS;
+
+    /// Is this token a lux identifier — a highlighted name — rather than a scrap of
+    /// regex or markup that happened to sit inside a highlight construct?
+    fn is_ident(tok: &str) -> bool {
+        let mut chars = tok.chars();
+        matches!(chars.next(), Some(c) if c.is_ascii_alphabetic() || c == '_')
+            && tok.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    }
+
+    /// The names a GtkSourceView `.lang` highlights: every `<keyword>NAME</keyword>`,
+    /// across its keyword, boolean, type, constructor and builtin contexts.
+    fn gtk_names(s: &str) -> HashSet<&str> {
+        s.split("<keyword>")
+            .skip(1)
+            .filter_map(|part| part.split("</keyword>").next())
+            .collect()
+    }
+
+    /// The names a Notepad++ UDL highlights: the contents of its `Keywords1..8`
+    /// groups — keywords, types and built-ins live in 1, 2 and 3. The Comments,
+    /// Numbers and Delimiters groups have other names, so they're never reached.
+    fn npp_names(s: &str) -> HashSet<&str> {
+        let mut out = HashSet::new();
+        for part in s.split("<Keywords name=\"Keywords").skip(1) {
+            if let Some((_, rest)) = part.split_once('>') {
+                let content = rest.split("</Keywords>").next().unwrap_or("");
+                out.extend(content.split_whitespace().filter(|t| is_ident(t)));
+            }
+        }
+        out
+    }
+
+    /// The names a Vim syntax file highlights: the words on each `syntax keyword
+    /// lux…` line, past the group name. The `syntax match`/`syntax region` lines are
+    /// left out on purpose — that's where Vim's own `contains=` directive sits, which
+    /// is not the lux built-in of the same name.
+    fn vim_names(s: &str) -> HashSet<&str> {
+        let mut out = HashSet::new();
+        for line in s.lines() {
+            if let Some(rest) = line.trim_start().strip_prefix("syntax keyword ") {
+                out.extend(rest.split_whitespace().skip(1));
+            }
+        }
+        out
+    }
+
+    /// The names a nano rc highlights: the identifiers inside each `\<( … )\>`
+    /// alternation on a `color` line. The number, string and comment `color` lines
+    /// carry no such alternation of identifiers, so nothing from them slips in.
+    fn nano_names(s: &str) -> HashSet<&str> {
+        let mut out = HashSet::new();
+        for line in s.lines() {
+            if !line.trim_start().starts_with("color ") {
+                continue;
+            }
+            let mut rest = line;
+            while let Some(open) = rest.find('(') {
+                rest = &rest[open + 1..];
+                let Some(close) = rest.find(')') else { break };
+                for tok in rest[..close].split('|') {
+                    if is_ident(tok) {
+                        out.insert(tok);
+                    }
+                }
+                rest = &rest[close + 1..];
+            }
+        }
+        out
+    }
+
+    /// Every built-in and every keyword is highlighted in every editor asset that
+    /// carries a name list — the check that would have failed the moment 0.18.0 added
+    /// contains, replace and split and left all four files a release behind (#63).
+    /// It asserts two lists agree and holds no number to go stale, unlike the retired
+    /// builtin-count claim; and it reads each file's highlight constructs rather than
+    /// scanning for a substring, so Vim's `contains=@Spell` can't stand in for the
+    /// built-in `contains`. The files are embedded here directly, unguarded by
+    /// platform, so the pin covers Notepad++ on a Unix build too — the production
+    /// embeds are per-platform, drift isn't.
+    #[test]
+    fn every_editor_asset_highlights_every_builtin_and_keyword() {
+        let gtk = include_str!("../editors/gtksourceview/lux.lang");
+        let npp = include_str!("../editors/notepad++/lux.xml");
+        let vim = include_str!("../editors/vim/syntax/lux.vim");
+        let nano = include_str!("../editors/nano/lux.nanorc");
+        let assets = [
+            ("gtksourceview/lux.lang", gtk_names(gtk)),
+            ("notepad++/lux.xml", npp_names(npp)),
+            ("vim/syntax/lux.vim", vim_names(vim)),
+            ("nano/lux.nanorc", nano_names(nano)),
+        ];
+        for (file, names) in &assets {
+            for b in BUILTINS {
+                assert!(names.contains(b), "{file} is missing built-in `{b}`");
+            }
+            for (kw, _) in KEYWORDS {
+                assert!(names.contains(kw), "{file} is missing keyword `{kw}`");
+            }
+        }
+    }
 
     // A scratch HOME that cleans itself up, named per-test so parallel runs
     // never share a directory.

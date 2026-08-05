@@ -102,6 +102,9 @@
       <keyword>args</keyword>
       <keyword>run</keyword>
       <keyword>length</keyword>
+      <keyword>contains</keyword>
+      <keyword>replace</keyword>
+      <keyword>split</keyword>
       <keyword>parseInt</keyword>
       <keyword>parseFloat</keyword>
     </context>

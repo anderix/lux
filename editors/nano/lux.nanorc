@@ -43,7 +43,7 @@ color teal "\<(int|float|bool|string|Option|Result|Output)\>"
 color teal "\<(some|none|ok|err)\>"
 
 # built-in functions
-color rosy "\<(print|eprint|input|readLine|readFile|writeFile|args|run|length|parseInt|parseFloat)\>"
+color rosy "\<(print|eprint|input|readLine|readFile|writeFile|args|run|length|contains|replace|split|parseInt|parseFloat)\>"
 
 # numbers
 color ocher "\<[0-9]+(\.[0-9]+)?\>"

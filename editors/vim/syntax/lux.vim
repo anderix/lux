@@ -21,7 +21,7 @@ syntax keyword luxType        int float bool string Option Result Output
 syntax keyword luxConstructor some none ok err
 
 " the built-in functions
-syntax keyword luxBuiltin     print eprint input readLine readFile writeFile args run length parseInt parseFloat
+syntax keyword luxBuiltin     print eprint input readLine readFile writeFile args run length contains replace split parseInt parseFloat
 
 " comments run // to end of line
 syntax match   luxComment     "//.*$" contains=@Spell
