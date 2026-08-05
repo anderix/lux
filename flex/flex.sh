@@ -156,6 +156,24 @@ build () { # <target> <program>
     return 0
 }
 
+# How many warnings a build produced. The bar is lux's own: `tests/transpile.rs`
+# holds every example to warning-clean Rust and Swift, because the backends' job is
+# source a learner can read without a warning about code they didn't write. Nothing
+# applied that bar to this corpus, which is four times the size — and one program
+# was failing it (a dead initializer in `lcs`, which also turned up anderix/lux#69).
+#
+# Counted from the stderr the build already captured, so it costs nothing extra, and
+# reported rather than failed: a warning is a finding, the same as a divergence.
+# `go build` has no warning tier — an unused local is a hard error there — so Go
+# contributes nothing here and that is not an omission.
+#
+# rustc's closing "N warnings emitted" is itself a line matching `warning`, so it is
+# excluded — counting it turns one warning into two.
+warnings_in () { # <program> <target>
+    grep -E '^warning|warning:' "$WORK/$1.$2.err" 2>/dev/null \
+        | grep -cvE 'warnings? emitted' || echo 0
+}
+
 PROGRAMS=(fizzbuzz fib gcd sieve collatz roman
           bubble selection mergesort quicksort
           binsearch list bst expr machine safe
@@ -176,10 +194,18 @@ echo "building translations"
 # the other two still get compared, so one broken backend doesn't hide the state
 # of the others.
 BUILDS=0
+WARNED=0
 for prog in "${PROGRAMS[@]}"; do
     for target in "${TARGETS[@]}"; do
         if build "$target" "$prog"; then
             BUILDS=$((BUILDS + 1))
+            n="$(warnings_in "$prog" "$target")"
+            if [ "$n" -gt 0 ] 2>/dev/null; then
+                printf '  WARN    %-5s %-11s %s in generated source\n' "$target" "$prog" "$n"
+                grep -E '^warning|warning:' "$WORK/$prog.$target.err" 2>/dev/null \
+                    | grep -vE 'warnings? emitted' | head -2 | sed 's/^/            /'
+                WARNED=$((WARNED + 1))
+            fi
         else
             printf '  BUILD   %-5s %s\n' "$target" "$prog"
             head -3 "$WORK/$prog.$target.err" 2>/dev/null | sed 's/^/          /'
@@ -187,7 +213,7 @@ for prog in "${PROGRAMS[@]}"; do
         fi
     done
 done
-printf '  %d of %d translations built\n' "$BUILDS" "$(( ${#PROGRAMS[@]} * ${#TARGETS[@]} ))"
+printf '  %d of %d translations built, %d with warnings\n' "$BUILDS" "$(( ${#PROGRAMS[@]} * ${#TARGETS[@]} ))" "$WARNED"
 
 echo
 echo "comparing behaviour"

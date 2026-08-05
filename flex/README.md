@@ -43,6 +43,13 @@ Every program here is deterministic, because lux has no way to produce a random
 number and that is [deliberate](https://github.com/anderix/lux/issues/3) — so the
 comparison needs no seeding and no tolerance. Same bytes, or a failure.
 
+The run also counts warnings in the generated source, because agreeing on the answer
+is not the whole bar. lux holds its own examples to translations that compile
+warning-clean, on the grounds that a learner should be able to read the generated code
+without meeting a complaint about a line they didn't write — and until recently nothing
+applied that bar to this corpus, which is four times the size. One program was failing
+it, and the cause turned out not to be the program (#69).
+
 ## The corpus
 
 **Ground everyone recognizes.** Read these first if you have never seen lux; the

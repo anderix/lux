@@ -93,10 +93,12 @@ func draw(table: [[int]], a: [int], b: [int]) {
     }
     print(header)
     for i in 0..length(table) {
-        var line = ""
-        if i == 0 {
-            line = "   "
-        } else {
+        // The first row has no letter of its own, so blank is the default and a
+        // real label replaces it. Written this way round because the other one —
+        // an empty string, then both branches assigning over it — leaves a value
+        // nothing ever reads.
+        var line = "   "
+        if i != 0 {
             line = pad(a[i - 1]) + " "
         }
         line = line + " "
