@@ -1637,6 +1637,37 @@ print(b2.grids[0].cells)
     assert_prints_everywhere(src, "structcopy", "[1, 2]\n[99, 2]\n[1]\n[77]\n");
 }
 
+/// Value semantics reach into an array *literal* too: a place stored as an
+/// element — a struct that holds an array (A), or a bare array (D) — is deep-copied
+/// as the literal is built, so mutating the source afterwards can't reach into the
+/// stored copy. Go used to copy on the struct-field path (B, C) but not the
+/// array-literal path, and silently shared the inner slice (#61). All four legs
+/// must print 1 for every case; a leak prints 42.
+#[test]
+fn a_place_stored_in_an_array_literal_is_copied_on_every_backend() {
+    let src = r#"
+struct Bag { items: [int] }
+struct Holder { bag: Bag }
+var s1 = Bag(items: [1])
+var arr = [s1]
+s1.items[0] = 42
+print(arr[0].items[0])
+var s2 = Bag(items: [1])
+var h = Holder(bag: s2)
+s2.items[0] = 42
+print(h.bag.items[0])
+var raw = [1]
+var h2 = Bag(items: raw)
+raw[0] = 42
+print(h2.items[0])
+var raw2 = [1]
+var nested = [raw2]
+raw2[0] = 42
+print(nested[0][0])
+"#;
+    assert_all_four(src, "arraylitcopy", "1\n1\n1\n1\n");
+}
+
 /// Printing a struct, an enum case (with or without a payload), an array of
 /// structs, and a recursive tree reads the same on every backend and matches the
 /// interpreter — `P(x: 1, y: 2)`, `Shape.circle(radius: 5)`, `Shape.dot`,
@@ -1664,6 +1695,56 @@ print(Tree.node(left: Tree.leaf, value: 7, right: Tree.node(left: Tree.leaf, val
         Bag(items: [1, 2], shape: Shape.dot)\n\
         Tree.node(left: Tree.leaf, value: 7, right: Tree.node(left: Tree.leaf, value: 9, right: Tree.leaf))\n";
     assert_prints_everywhere(src, "compound", expected);
+}
+
+/// `==`/`!=` on a compound value answers the same on every backend and matches the
+/// interpreter: two arrays by contents, a struct that holds one, two cases of an
+/// enum, and an `Option` of an array. Go's own `==` won't build for a slice or a
+/// struct holding one, and it compared an `Option` (a pointer) by address — so
+/// `some(a) == some(a)` silently came back false; both are routed through a
+/// generated `luxEqual` now (#58). The `some(p) == some(q)` line is the one that
+/// used to compile and lie.
+#[test]
+fn compound_equality_matches_on_every_backend() {
+    let src = r#"
+enum E { a(x: int)  b }
+struct B { xs: [int] }
+print([1, 2] == [1, 2])
+print([1, 2] == [1, 3])
+print([1, 2] != [1, 3])
+print(B(xs: [1]) == B(xs: [1]))
+print(B(xs: [1]) == B(xs: [2]))
+print(E.a(x: 1) == E.a(x: 1))
+print(E.a(x: 1) == E.b)
+print(E.a(x: 1) != E.b)
+let p = [1, 2]
+let q = [1, 2]
+print(some(p) == some(q))
+print(some(p) == some(p))
+"#;
+    assert_all_four(
+        src,
+        "compoundeq",
+        "true\nfalse\ntrue\ntrue\nfalse\ntrue\nfalse\ntrue\ntrue\ntrue\n",
+    );
+}
+
+/// Comparing an `Option` against the bare `none` literal still works after that
+/// routing: `none` emits as an untyped nil that `luxEqual` can't compare, so a
+/// comparison against the literal stays native `== nil` on Go, while a comparison
+/// between two `Option` *variables* goes through `luxEqual`. Both must agree with
+/// the interpreter (#58).
+#[test]
+fn comparing_an_option_against_none_still_works() {
+    let src = r#"
+let m: Option<int> = some(5)
+let n: Option<int> = none
+print(m == none)
+print(n == none)
+print(m == n)
+print(m != none)
+"#;
+    assert_all_four(src, "opteqnone", "false\ntrue\nfalse\ntrue\n");
 }
 
 /// Printing an `Option` reads `some(v)` / `none` on every backend. A typed one —

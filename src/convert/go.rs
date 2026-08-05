@@ -64,6 +64,12 @@ struct Gen {
     /// renders it — `[1, 2, 3]`, `P(x: 1, y: 2)`, `Shape.circle(radius: 5)` —
     /// rather than `fmt`'s `[1 2 3]`, `{1 2}`, `{5}`.
     uses_lux_show: bool,
+    /// `==`/`!=` on a compound value (array, struct, enum, `Option`, `Result`) routes
+    /// through the generated `luxEqual` so the comparison is structural, the way lux
+    /// and the other backends compare. Go's own `==` won't build for a slice or a
+    /// struct holding one, and compares an `Option` by pointer address rather than by
+    /// the value it points at (#58).
+    uses_lux_equal: bool,
     /// Structs that need a generated deep-copy function, because they hold a slice
     /// (directly or through another struct) that Go would otherwise share. Filled
     /// as copies are emitted; the functions are generated in name order.
@@ -128,6 +134,7 @@ pub fn to_go(program: &[Stmt]) -> String {
         uses_run: false,
         scratches: Vec::new(),
         uses_lux_show: false,
+        uses_lux_equal: false,
         copy_structs: HashSet::new(),
         uses_copy_slice: false,
         bound_id: 0,
@@ -291,8 +298,9 @@ impl Gen {
         if self.uses_os {
             imports.push("os");
         }
-        // `luxShow` walks a slice or a pointer of any type by reflection.
-        if self.uses_lux_show {
+        // `luxShow` walks a slice or a pointer of any type by reflection, and
+        // `luxEqual` compares two of any type with `reflect.DeepEqual`.
+        if self.uses_lux_show || self.uses_lux_equal {
             imports.push("reflect");
         }
         // luxFloat classifies infinities and NaN before formatting; luxInt saturates
@@ -461,6 +469,18 @@ impl Gen {
         }
         if self.uses_lux_show {
             head.push_str(&self.lux_show_fn());
+        }
+        if self.uses_lux_equal {
+            // Compare two values the way lux does — structurally. Go's `==` won't
+            // build for a slice or a struct that holds one, and compares an `Option`
+            // (a pointer here) by address; `reflect.DeepEqual` walks slices element by
+            // element, structs field by field, and follows a pointer to the value it
+            // points at, which is exactly lux's value-equality (#58).
+            head.push_str(
+                "func luxEqual(a, b any) bool {\n\
+                 \treturn reflect.DeepEqual(a, b)\n\
+                 }\n\n",
+            );
         }
         if self.uses_copy_slice {
             // Copy a slice element by element, so a slice of copyable things (a
@@ -953,11 +973,21 @@ impl Gen {
             // each element, so a nested empty literal keeps its type — `[[], [1]]` as
             // `[[int]]` emits `[][]int{[]int{}, []int{1}}` rather than degrading the
             // empty inner one to `[]any{}` and forcing the whole thing to `[][]any`
-            // (#45). The recursion reaches any depth of ragged nesting.
-            let parts: Vec<String> = els.iter().map(|e| self.emit_expr_typed(e, elem)).collect();
+            // (#45). The recursion reaches any depth of ragged nesting. It goes through
+            // `emit_copied`, not a bare `emit_expr_typed`, so a place stored as an
+            // element is deep-copied — otherwise the new array shares a slice with the
+            // source and mutating the source reaches into it (#61).
+            let parts: Vec<String> = els.iter().map(|e| self.emit_copied(e, elem)).collect();
             return format!("[]{}{{{}}}", self.ty_text(elem), parts.join(", "));
         }
         self.emit_expr(value)
+    }
+
+    /// Is this expression the bare `none` literal — the value that emits as an
+    /// untyped `nil`? Comparing against it stays native `== nil` rather than routing
+    /// through `luxEqual`, which can't compare an untyped nil.
+    fn is_bare_none(&self, e: &Expr) -> bool {
+        matches!(e, Expr::Ident(n, _) if n == "none" && !self.t.in_scope("none"))
     }
 
     /// The declared type of `field` on struct `name`, when both are known — so a
@@ -1511,6 +1541,25 @@ impl Gen {
                         "luxMod"
                     };
                     format!("{}({}, {})", helper, l, r)
+                } else if matches!(op, BinOp::Eq | BinOp::Ne)
+                    && is_compound(&self.t.type_of(lhs))
+                    && !self.is_bare_none(lhs)
+                    && !self.is_bare_none(rhs)
+                {
+                    // A compound `==`/`!=` compares structurally through `luxEqual`,
+                    // since Go's `==` won't build for a slice or a struct holding one
+                    // and compares an `Option` by address (#58). A comparison against
+                    // the bare `none` literal stays native `== nil` — that already
+                    // holds, and `none` emits as an untyped nil `luxEqual` can't type.
+                    self.uses_lux_equal = true;
+                    let l = self.emit_expr(lhs);
+                    let r = self.emit_expr(rhs);
+                    let eq = format!("luxEqual({}, {})", l, r);
+                    if *op == BinOp::Ne {
+                        format!("!{}", eq)
+                    } else {
+                        eq
+                    }
                 } else {
                     let p = bin_prec(*op);
                     let l = self.emit_child(lhs, p, false);
@@ -1992,4 +2041,13 @@ fn arm_uses_a_binding(arm: &MatchArm) -> bool {
             .any(|b| b != "_" && expr_mentions(&arm.body, b)),
         _ => false,
     }
+}
+
+/// A compound value — one whose `==` lux compares structurally, and Go's own `==`
+/// either won't build for or answers by identity. Scalars keep native `==`.
+fn is_compound(ty: &Ty) -> bool {
+    matches!(
+        ty,
+        Ty::Array(_) | Ty::User(_) | Ty::Option(_) | Ty::Result(_, _)
+    )
 }
