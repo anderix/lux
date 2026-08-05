@@ -50,15 +50,10 @@ PATH is skipped, so the suite runs on whatever toolchains are present.
 
 ## Declared seams
 
-A few differences are declared rather than treated as failures — each a place a
+A difference is sometimes declared rather than treated as a failure — a place a
 target's host language legitimately shows through, documented instead of papered
 over. This is the same call lux makes elsewhere: fix a footgun, but document a
 real seam.
-
-**Float rendering (global).** Go's `fmt` prints a whole float without the
-trailing `.0` the interpreter, Rust, and Swift keep — `5` where they write `5.0`.
-Same value, only Go's rendering differs, so the harness normalizes that one thing
-before comparing and every other byte still has to match.
 
 **`swift` / `doctor` (skipped).** Swift launches subprocesses through
 `/usr/bin/env` — the same PATH lookup Rust and Go do — so a *missing* program

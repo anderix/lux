@@ -59,16 +59,10 @@ build () {
     esac
 }
 
-# The one global tolerance: Go's fmt prints a whole float without the trailing
-# `.0` the interpreter, Rust, and Swift keep (`5` vs `5.0`). Same value, only the
-# rendering differs — declared here, not fixed in the backend. Normalize that one
-# thing, nothing else, so every other byte still has to match.
-norm () { sed -E 's/([0-9])\.0($|[^0-9])/\1\2/g'; }
-
 # check <program> <label> <command with BIN placeholder>
 check () {
     local name="$1" label="$2" cmd="$3" ref out target bin
-    ref="$(eval "${cmd//BIN/lux run $DEMOS/$name.lux}" 2>&1 | norm)"
+    ref="$(eval "${cmd//BIN/lux run $DEMOS/$name.lux}" 2>&1)"
     for target in "${TARGETS[@]}"; do
         if declared_seam "$target" "$name"; then
             printf '  SEAM    %-5s %s (declared, see README)\n' "$target" "$label"
@@ -79,7 +73,7 @@ check () {
             printf '  SKIP    %-5s %s (no build)\n' "$target" "$label"
             continue
         fi
-        out="$(eval "${cmd//BIN/$bin}" 2>&1 | norm)"
+        out="$(eval "${cmd//BIN/$bin}" 2>&1)"
         if [ "$out" = "$ref" ]; then
             printf '  MATCH   %-5s %s\n' "$target" "$label"
             PASS=$((PASS + 1))
@@ -108,7 +102,7 @@ for prog in rpn life stats doctor decide tree; do
 done
 
 echo
-echo "comparing behaviour  (whole-float .0 rendering is a declared seam, normalized)"
+echo "comparing behaviour  (every byte compared, nothing normalized)"
 check rpn    "rpn — arithmetic"        'BIN 3 4 + 2 x'
 check rpn    "rpn — divide by zero"    'BIN 5 0 /'
 check rpn    "rpn — stack underflow"   'BIN 1 +'

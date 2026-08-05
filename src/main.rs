@@ -572,7 +572,7 @@ fn print_usage() {
     println!("  lux convert <lang> <file.lux> translate to rust, swift, or go source");
     println!("  lux learn [topic] [more]      read the language, built in");
     println!("  lux magic [spell]             working shapes for what you want to do now");
-    println!("  lux editors [install]         syntax highlighting for your editors");
+    println!("  lux editors [highlighting]    syntax highlighting for your editors");
     println!("  lux update                    update lux to the latest release");
     println!();
     println!("  -V, --version                 print version");
