@@ -24,6 +24,10 @@ pub fn check(program: &[Stmt]) -> Result<(), LuxError> {
     // One rule instead of the several de-facto behaviours that shadowing used to leave
     // lying on a learner's path.
     check_names(program)?;
+    // No enum may name a case twice, and no struct a field twice — the interpreter
+    // built both (a struct with two `x` fields no learner should have to choose
+    // between), while every target refused them (#59).
+    reject_duplicate_members(program)?;
     // A `Result` parameter is the store-a-Result rule seen at a binding, and it's
     // syntactic — the annotation says `Result<…>` — so it's refused on every path,
     // making `lux run` agree with the targets rather than accepting what Go can't
@@ -66,15 +70,36 @@ fn reserved_kind(name: &str) -> Option<&'static str> {
 /// variables still visible around it.
 fn check_names(program: &[Stmt]) -> Result<(), LuxError> {
     let mut globals: HashSet<&str> = HashSet::new();
+    // What each top-level name is — "a function" or "a type" — so a name claimed by
+    // both can be turned away. A `func` sharing a `struct`/`enum` name builds on Rust,
+    // where the two live in separate namespaces, but not on Swift or Go; lux settles
+    // it here the way 0.18.0 settled a variable taking a function's name (#59). Two of
+    // the *same* kind is a plain redefinition, named where the program is loaded.
+    let mut roles: HashMap<&str, &'static str> = HashMap::new();
     for s in program {
-        let (name, span) = match s {
-            Stmt::Func { name, span, .. }
-            | Stmt::Struct { name, span, .. }
-            | Stmt::Enum { name, span, .. } => (name.as_str(), *span),
+        let (name, span, role) = match s {
+            Stmt::Func { name, span, .. } => (name.as_str(), *span, "a function"),
+            Stmt::Struct { name, span, .. } | Stmt::Enum { name, span, .. } => {
+                (name.as_str(), *span, "a type")
+            }
             _ => continue,
         };
         if let Some(kind) = reserved_kind(name) {
             return Err(reserved_error(name, kind, span));
+        }
+        match roles.get(name) {
+            Some(prior) if *prior != role => {
+                return Err(LuxError::new(
+                    format!("`{}` is already the name of {}", name, prior),
+                    span,
+                )
+                .with_note("a name is one thing — a function or a type, not both — choose another")
+                .with_learn("scope", "a name means one thing wherever it can be seen"));
+            }
+            Some(_) => {}
+            None => {
+                roles.insert(name, role);
+            }
         }
         globals.insert(name);
     }
@@ -508,6 +533,45 @@ fn find_main_call(e: &Expr) -> Result<(), LuxError> {
             }
         }
         Expr::Int(..) | Expr::Float(..) | Expr::Str(..) | Expr::Bool(..) | Expr::Ident(..) => {}
+    }
+    Ok(())
+}
+
+/// Within one enum no two cases may share a name, and within one struct no two
+/// fields — the interpreter accepted both, building a struct with two fields of the
+/// same name where which one `s.x` reads is a question a learner should never be in a
+/// position to ask, while every target refused them (#59). A case or field name may
+/// still repeat across *different* types: those are separate namespaces, and each is
+/// checked on its own here.
+fn reject_duplicate_members(program: &[Stmt]) -> Result<(), LuxError> {
+    for s in program {
+        match s {
+            Stmt::Enum { variants, .. } => {
+                let mut seen: HashSet<&str> = HashSet::new();
+                for v in variants {
+                    if !seen.insert(v.name.as_str()) {
+                        return Err(LuxError::new(
+                            format!("`{}` is already a case of this enum", v.name),
+                            v.span,
+                        )
+                        .with_note("each case of an enum needs its own name"));
+                    }
+                }
+            }
+            Stmt::Struct { fields, .. } => {
+                let mut seen: HashSet<&str> = HashSet::new();
+                for f in fields {
+                    if !seen.insert(f.name.as_str()) {
+                        return Err(LuxError::new(
+                            format!("`{}` is already a field of this struct", f.name),
+                            f.span,
+                        )
+                        .with_note("each field of a struct needs its own name"));
+                    }
+                }
+            }
+            _ => {}
+        }
     }
     Ok(())
 }

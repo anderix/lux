@@ -22,6 +22,25 @@ fn err_of(tag: &str, src: &str) -> String {
     String::from_utf8_lossy(&out.stderr).into_owned()
 }
 
+/// Run a program expected to be accepted — the guard that a refusal rule doesn't
+/// also turn away the valid near-misses beside it.
+fn runs_ok(tag: &str, src: &str) {
+    let path = std::env::temp_dir().join(format!("lux-ok-{}-{}.lux", std::process::id(), tag));
+    std::fs::write(&path, src).unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_lux"))
+        .arg("run")
+        .arg(&path)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let _ = std::fs::remove_file(&path);
+    assert!(
+        out.status.success(),
+        "`{src}` should run, but was rejected:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 #[test]
 fn an_empty_struct_is_refused_with_a_pointer_to_enums() {
     // A struct with no fields can't be built (`Name()` reads as a call), so it's
@@ -366,6 +385,60 @@ fn an_untyped_empty_array_is_refused_everywhere() {
     assert!(
         nested.contains("an empty array leaves it open"),
         "the rule should reach a binding nested in a loop, got:\n{nested}"
+    );
+}
+
+/// The three duplicate-declaration holes the naming rule left open, each refused now
+/// and on every path: a case named twice in one enum, a field named twice in one
+/// struct, and a function taking a type's name (the cross-namespace case that builds
+/// on Rust but not Swift or Go). The struct-field one is the sharpest — the
+/// interpreter built `S(x: 1, x: 1)`, two fields no `s.x` could choose between (#59).
+#[test]
+fn duplicate_declarations_are_refused() {
+    let dup_case = err_of("dupcase", "enum E {\n    a\n    a\n}\nprint(E.a)\n");
+    assert!(
+        dup_case.contains("`a` is already a case of this enum"),
+        "got:\n{dup_case}"
+    );
+    let dup_field = err_of(
+        "dupfield",
+        "struct S {\n    x: int\n    x: int\n}\nprint(S(x: 1))\n",
+    );
+    assert!(
+        dup_field.contains("`x` is already a field of this struct"),
+        "got:\n{dup_field}"
+    );
+    let src = "struct S {\n    x: int\n}\nfunc S() -> int {\n    return 1\n}\nprint(S())\n";
+    let run = err_of("funcastype", src);
+    assert!(
+        run.contains("`S` is already the name of a type"),
+        "run should refuse a function taking a type's name, got:\n{run}"
+    );
+    // Uniform across paths, the way the Result-parameter rule is — the emitters must
+    // never be handed a program `lux run` turns away.
+    let conv = convert_err("cfuncastype", "swift", src);
+    assert!(
+        conv.contains("`S` is already the name of a type"),
+        "convert should refuse it too, got:\n{conv}"
+    );
+}
+
+/// The near-misses the rule must leave alone: a case name and a field name are each
+/// their own namespace, so they may repeat across different types, and a field may
+/// take its own struct's name. Refusing any of these would be over-reach (#59).
+#[test]
+fn sibling_namespaces_may_reuse_a_name() {
+    runs_ok(
+        "twoenumcases",
+        "enum A {\n    x\n}\nenum B {\n    x\n}\nprint(A.x)\n",
+    );
+    runs_ok(
+        "fieldownstruct",
+        "struct S {\n    s: int\n}\nprint(S(s: 1))\n",
+    );
+    runs_ok(
+        "casenamedstruct",
+        "struct P {\n    x: int\n}\nenum E {\n    P\n}\nprint(E.P)\n",
     );
 }
 
