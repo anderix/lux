@@ -1771,6 +1771,25 @@ print(none)
     );
 }
 
+/// Binding a bare `some(x)` without an annotation — the ordinary way a learner
+/// first reaches for an optional — reads the same on every backend. The element
+/// type is known from the argument, but Swift emitted `let a = .some(5)`, which
+/// it can't resolve without a contextual type, so it alone refused a program the
+/// other three ran. The Swift backend now carries the inferred element type onto
+/// the binding (`let a: Int? = .some(5)`), the way it already did for a source
+/// annotation (#67). The unannotated `none` case stays its own rule: its element
+/// type really is open, so it still asks the learner to say what it holds (#66).
+#[test]
+fn a_bare_some_binding_prints_the_same_on_every_backend() {
+    let src = r#"
+let a = some(5)
+let b = some("north")
+print(a)
+print(b)
+"#;
+    assert_prints_everywhere(src, "baresome", "some(5)\nsome(north)\n");
+}
+
 /// Matching one enum case and defaulting the rest — `match it { potion(let a) => …
 /// _ => … }` — reads the same on every backend. Go used to drop the `_` arm from
 /// its type switch and `panic("unreachable")` on every case the match didn't name;

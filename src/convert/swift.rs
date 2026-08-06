@@ -724,12 +724,14 @@ impl Gen {
         let vty = ann
             .map(ty_from_ann)
             .unwrap_or_else(|| self.t.type_of(value));
-        // Annotate when the value can't stand on its own type: a bare `none`
-        // (its element type is open), or a leading-dot `.some(…)` / `.success(…)`
-        // / `.failure(…)`, which Swift can't resolve without a contextual type.
-        // The source supplied the annotation — `let a: Option<int> = some(5)` — so
-        // carry it through rather than dropping it and leaving `.some(5)` to infer
-        // from nothing (#33).
+        // Annotate when the value can't stand on its own type: a leading-dot
+        // `.some(…)` / `.success(…)` / `.failure(…)`, which Swift can't resolve
+        // without a contextual type. The annotation can come from the source
+        // (`let a: Option<int> = some(5)`, #33) or from inference alone (`let a =
+        // some(5)`, whose element type is known from the argument, #67) — either
+        // way, carry the type onto the binding rather than leaving `.some(5)` to
+        // infer from nothing. A bare `none` or `ok`/`err` whose other side is open
+        // still reads as unknown, so it stays for its own "say what it holds" rule.
         let value_open = self.t.type_of(value).has_unknown() || needs_type_context(value);
         // `var` only when the binding is actually mutated; a `var` that's only
         // read binds with `let`, so Swift doesn't warn it was never mutated.
@@ -740,7 +742,7 @@ impl Gen {
         };
         let ident = swift_ident(name);
         let expr = self.emit_expr(value);
-        if ann.is_some() && value_open && !vty.has_unknown() {
+        if value_open && !vty.has_unknown() {
             self.line(format!("{} {}: {} = {}", kw, ident, ty_text(&vty), expr));
         } else {
             self.line(format!("{} {} = {}", kw, ident, expr));
