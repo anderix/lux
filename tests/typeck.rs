@@ -273,3 +273,253 @@ fn every_leg_rejects_the_same_program_the_same_way() {
     assert_eq!(run, convert, "run and convert must reject the same way");
     assert_eq!(run, build, "run and build must reject the same way");
 }
+
+// ----- the rest of the interpreter's type rules, on every path ----------------
+
+#[test]
+fn comparing_two_different_types_is_caught() {
+    reads_like(
+        "eq",
+        "if false { print(1 == \"a\") }\nprint(\"ok\")\n",
+        &[
+            "cannot compare int with string",
+            "both sides of == and != must be the same type",
+        ],
+    );
+}
+
+#[test]
+fn ordering_two_different_types_is_caught() {
+    reads_like(
+        "ord",
+        "if false { print(1 < \"a\") }\nprint(\"ok\")\n",
+        &[
+            "cannot compare an int with a string",
+            "both sides must be the same type",
+        ],
+    );
+}
+
+#[test]
+fn ordering_two_bools_is_caught() {
+    reads_like(
+        "ordbool",
+        "if false { print(true < false) }\nprint(\"ok\")\n",
+        &[
+            "cannot order bool values with < or >",
+            "use == or != to compare bools",
+            "lux learn booleans",
+        ],
+    );
+}
+
+#[test]
+fn not_on_a_non_bool_is_caught() {
+    reads_like(
+        "not",
+        "if false { print(!5) }\nprint(\"ok\")\n",
+        &[
+            "cannot apply ! to an int",
+            "! works on bool values",
+            "lux learn booleans",
+        ],
+    );
+}
+
+#[test]
+fn negating_a_non_number_is_caught() {
+    reads_like(
+        "neg",
+        "if false { print(-\"x\") }\nprint(\"ok\")\n",
+        &["cannot negate a string"],
+    );
+}
+
+#[test]
+fn indexing_a_non_array_is_caught() {
+    reads_like(
+        "idxbase",
+        "if false {\n  let n = 5\n  print(n[0])\n}\nprint(\"ok\")\n",
+        &[
+            "cannot index into int; only arrays can be indexed",
+            "lux learn arrays",
+        ],
+    );
+}
+
+#[test]
+fn a_non_int_index_is_caught() {
+    reads_like(
+        "idxnum",
+        "if false {\n  let xs = [1, 2, 3]\n  print(xs[\"a\"])\n}\nprint(\"ok\")\n",
+        &[
+            "an array index must be an int, but this is string",
+            "lux learn arrays",
+        ],
+    );
+}
+
+#[test]
+fn a_range_over_non_ints_is_caught() {
+    reads_like(
+        "range",
+        "if false {\n  for i in 0..\"x\" { print(i) }\n}\nprint(\"ok\")\n",
+        &[
+            "a range needs two ints, but got int and string",
+            "write something like 0..10",
+            "lux learn for",
+        ],
+    );
+}
+
+#[test]
+fn a_struct_built_with_an_unknown_field_is_caught() {
+    reads_like(
+        "sfield",
+        "struct Point { x: int, y: int }\nif false { let p = Point(x: 1, z: 2) }\nprint(\"ok\")\n",
+        &["struct `Point` has no field `z`", "lux learn structs"],
+    );
+}
+
+#[test]
+fn a_struct_built_missing_a_field_is_caught() {
+    reads_like(
+        "smiss",
+        "struct Point { x: int, y: int }\nif false { let p = Point(x: 1) }\nprint(\"ok\")\n",
+        &[
+            "missing field `y` for struct `Point`",
+            "`Point` has a field `y: int`",
+            "lux learn structs",
+        ],
+    );
+}
+
+#[test]
+fn a_struct_field_of_the_wrong_type_is_caught() {
+    reads_like(
+        "stype",
+        "struct Point { x: int, y: int }\nif false { let p = Point(x: 1, y: \"no\") }\nprint(\"ok\")\n",
+        &[
+            "field `y` of `Point` should be int, but got string",
+            "lux learn structs",
+        ],
+    );
+}
+
+#[test]
+fn an_enum_case_that_does_not_exist_is_caught() {
+    reads_like(
+        "ecase",
+        "enum Shape { dot, circle(r: int) }\nif false { let s = Shape.square(a: 2) }\nprint(\"ok\")\n",
+        &[
+            "enum `Shape` has no case `square`",
+            "cases are: dot, circle",
+            "lux learn enums",
+        ],
+    );
+}
+
+#[test]
+fn an_enum_payload_of_the_wrong_type_is_caught() {
+    reads_like(
+        "etype",
+        "enum Shape { dot, circle(r: int) }\nif false { let s = Shape.circle(r: \"no\") }\nprint(\"ok\")\n",
+        &[
+            "`r` in `Shape.circle` should be int, but got string",
+            "lux learn enums",
+        ],
+    );
+}
+
+#[test]
+fn a_payload_less_case_that_does_not_exist_is_caught() {
+    reads_like(
+        "eaccess",
+        "enum Color { red, green, blue }\nif false { let c = Color.purple }\nprint(\"ok\")\n",
+        &[
+            "enum `Color` has no case `purple`",
+            "cases are: red, green, blue",
+        ],
+    );
+}
+
+#[test]
+fn matching_on_something_unmatchable_is_caught() {
+    reads_like(
+        "mstruct",
+        "struct Point { x: int, y: int }\nif false {\n  let p = Point(x: 1, y: 2)\n  let r = match p { _ => 0 }\n}\nprint(\"ok\")\n",
+        &[
+            "cannot match on Point; match works on enums, int, string, and bool",
+            "lux learn match",
+        ],
+    );
+}
+
+#[test]
+fn a_value_match_without_a_wildcard_is_caught() {
+    reads_like(
+        "mscalar",
+        "if false { let r = match 5 { 1 => \"a\" } }\nprint(\"ok\")\n",
+        &[
+            "this match on int needs a `_` case",
+            "matching a value (not an enum) can't be exhaustive",
+            "lux learn match",
+        ],
+    );
+}
+
+#[test]
+fn a_case_pattern_on_a_scalar_is_caught() {
+    reads_like(
+        "mvariant",
+        "if false { let r = match 5 { red => \"a\"  _ => \"b\" } }\nprint(\"ok\")\n",
+        &[
+            "this is int, not an enum, so it has no cases",
+            "lux learn enums",
+        ],
+    );
+}
+
+#[test]
+fn a_function_that_can_run_off_its_end_is_caught() {
+    reads_like(
+        "fallthru",
+        "func f(n: int) -> int {\n    if n > 0 { return 1 }\n}\nprint(\"ok\")\n",
+        &[
+            "`f` must return int, but it ended without returning a value",
+            "lux learn functions",
+        ],
+    );
+}
+
+#[test]
+fn a_bare_return_where_a_value_is_promised_is_caught() {
+    reads_like(
+        "bareret",
+        "func f() -> int {\n    return\n}\nprint(\"ok\")\n",
+        &["`f` must return int, but it ended without returning a value"],
+    );
+}
+
+#[test]
+fn the_valid_near_misses_of_every_rule_still_run() {
+    // Each construct the extended rules judge, used correctly: same-type compares,
+    // an ordered string compare, an Option match, a struct and an enum built right,
+    // and functions that return on every path — through both arms of an `if`, and
+    // via `return match`. None may be turned away.
+    runs_ok(
+        "nearmiss",
+        "enum Shape { dot, circle(r: int) }\n\
+         struct Point { x: int, y: int }\n\
+         func area(s: Shape) -> int {\n  return match s {\n    dot => 0\n    circle(let r) => r * r\n  }\n}\n\
+         func sign(n: int) -> string {\n  if n < 0 { return \"neg\" } else { return \"nonneg\" }\n}\n\
+         let p = Point(x: 3, y: 4)\n\
+         print(p.x == 3)\n\
+         print(\"a\" < \"b\")\n\
+         print(area(Shape.dot))\n\
+         print(area(Shape.circle(r: 5)))\n\
+         print(sign(-2))\n\
+         print(match some(7) { some(let v) => v  none => -1 })\n\
+         for i in 0..3 { print(i) }\n",
+    );
+}

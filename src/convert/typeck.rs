@@ -28,7 +28,8 @@ use std::collections::HashMap;
 
 use super::{Ty, Types, ty_from_ann};
 use crate::ast::*;
-use crate::diagnostic::LuxError;
+use crate::diagnostic::{LuxError, Span};
+use crate::interpreter::count;
 
 /// Check a whole program's types before it runs or is emitted. Returns the first
 /// type error found, or `Ok(())` if every concrete type lines up.
@@ -173,8 +174,8 @@ impl Checker {
                 params,
                 ret,
                 body,
-                ..
-            } => self.check_func(name, params, ret, body),
+                span,
+            } => self.check_func(name, params, ret, body, *span),
             Stmt::Return { value, span } => {
                 if let Some(e) = value {
                     self.expr(e)?;
@@ -214,7 +215,18 @@ impl Checker {
                         "functions",
                         "add a `-> type` if it should hand something back",
                     )),
-                    _ => Ok(()),
+                    // A bare `return` where a value is promised ends the function
+                    // without one, the same as running off the end (see check_func).
+                    (Some(ann), None) => Err(LuxError::new(
+                        format!(
+                            "`{}` must return {}, but it ended without returning a value",
+                            self.fname,
+                            describe_ann(ann)
+                        ),
+                        *span,
+                    )
+                    .with_learn("functions", "a `-> type` is a promise to hand that back")),
+                    (None, None) => Ok(()),
                 }
             }
             Stmt::If {
@@ -278,6 +290,7 @@ impl Checker {
         params: &[Param],
         ret: &Option<TypeAnn>,
         body: &[Stmt],
+        span: Span,
     ) -> Result<(), LuxError> {
         let mut frame = HashMap::new();
         for p in params {
@@ -293,7 +306,26 @@ impl Checker {
         self.t.scopes = saved_scopes;
         self.ret = saved_ret;
         self.fname = saved_fname;
-        r
+        r?;
+
+        // A function that promises `-> T` must return one on every path. If it can
+        // run off the end, the interpreter reaches that only when a call happens to
+        // take the un-returning path; the target compilers reject it outright. Catch
+        // it here, in the interpreter's words — the same message a bare `return` gets.
+        if let Some(ann) = ret
+            && !body_always_returns(body)
+        {
+            return Err(LuxError::new(
+                format!(
+                    "`{}` must return {}, but it ended without returning a value",
+                    name,
+                    describe_ann(ann)
+                ),
+                span,
+            )
+            .with_learn("functions", "a `-> type` is a promise to hand that back"));
+        }
+        Ok(())
     }
 
     /// Walk an expression, checking every concrete-type rule it can reach. The
@@ -309,7 +341,10 @@ impl Checker {
                 }
                 Ok(())
             }
-            Expr::Unary { rhs, .. } => self.expr(rhs),
+            Expr::Unary { op, rhs, span } => {
+                self.expr(rhs)?;
+                self.unary(*op, rhs, *span)
+            }
             Expr::Binary { op, lhs, rhs, span } => {
                 self.expr(lhs)?;
                 self.expr(rhs)?;
@@ -319,21 +354,26 @@ impl Checker {
                     BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod => {
                         self.arithmetic(*op, &l, &r, *span)
                     }
+                    // Both sides of `==`/`!=` must be the same type.
+                    BinOp::Eq | BinOp::Ne => self.equality(&l, &r, *span),
+                    // `<`/`>`/`<=`/`>=` order two ints, two floats, or two strings.
+                    BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => self.ordering(&l, &r, *span),
                     // `&&` and `||` run on bool, the same as any condition does.
                     BinOp::And | BinOp::Or => {
                         self.condition(lhs)?;
                         self.condition(rhs)
                     }
-                    _ => Ok(()),
                 }
             }
             Expr::Index { base, index, .. } => {
                 self.expr(base)?;
-                self.expr(index)
+                self.expr(index)?;
+                self.index_check(base, index)
             }
-            Expr::Range { start, end, .. } => {
+            Expr::Range { start, end, span } => {
                 self.expr(start)?;
-                self.expr(end)
+                self.expr(end)?;
+                self.range_check(start, end, *span)
             }
             Expr::Call { name, args, .. } => {
                 for a in args {
@@ -341,17 +381,22 @@ impl Checker {
                 }
                 self.check_call(name, args)
             }
-            Expr::StructLit { fields, .. } => {
+            Expr::StructLit { name, fields, span } => {
                 for (_, v) in fields {
                     self.expr(v)?;
                 }
-                Ok(())
+                self.check_struct_lit(name, fields, *span)
             }
-            Expr::EnumLit { fields, .. } => {
+            Expr::EnumLit {
+                enum_name,
+                variant,
+                fields,
+                span,
+            } => {
                 for (_, v) in fields {
                     self.expr(v)?;
                 }
-                Ok(())
+                self.check_enum_lit(enum_name, variant, fields, *span)
             }
             Expr::Field { base, field, .. } => {
                 self.expr(base)?;
@@ -479,10 +524,307 @@ impl Checker {
         Ok(())
     }
 
+    /// `-x` needs a number; `!x` needs a bool. Only fires on a known type.
+    fn unary(&self, op: UnOp, rhs: &Expr, span: Span) -> Result<(), LuxError> {
+        let ty = self.t.type_of(rhs);
+        match op {
+            UnOp::Neg => {
+                if !matches!(ty, Ty::Int | Ty::Float)
+                    && let Some(n) = self.runtime_name(&ty)
+                {
+                    return Err(LuxError::new(format!("cannot negate {}", named(&n)), span));
+                }
+            }
+            UnOp::Not => {
+                if !matches!(ty, Ty::Bool)
+                    && let Some(n) = self.runtime_name(&ty)
+                {
+                    return Err(
+                        LuxError::new(format!("cannot apply ! to {}", named(&n)), span)
+                            .with_note("! works on bool values")
+                            .with_learn("booleans", "! flips true to false and back"),
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Both sides of `==`/`!=` must be the same type.
+    fn equality(&self, l: &Ty, r: &Ty, span: Span) -> Result<(), LuxError> {
+        if same_ty(l, r) == Fit::No
+            && let (Some(a), Some(b)) = (value_name(l), value_name(r))
+        {
+            return Err(
+                LuxError::new(format!("cannot compare {} with {}", a, b), span)
+                    .with_note("both sides of == and != must be the same type"),
+            );
+        }
+        Ok(())
+    }
+
+    /// `<`/`>`/`<=`/`>=` order two ints, two floats, or two strings. Bool values
+    /// aren't ordered, and get their own message; any other known pair can't be
+    /// compared together.
+    fn ordering(&self, l: &Ty, r: &Ty, span: Span) -> Result<(), LuxError> {
+        if matches!(
+            (l, r),
+            (Ty::Int, Ty::Int) | (Ty::Float, Ty::Float) | (Ty::Str, Ty::Str)
+        ) {
+            return Ok(());
+        }
+        if matches!((l, r), (Ty::Bool, Ty::Bool)) {
+            return Err(LuxError::new("cannot order bool values with < or >", span)
+                .with_note("use == or != to compare bools")
+                .with_learn(
+                    "booleans",
+                    "true and false aren't ordered, only equal or not",
+                ));
+        }
+        if let (Some(a), Some(b)) = (self.runtime_name(l), self.runtime_name(r)) {
+            return Err(LuxError::new(
+                format!("cannot compare {} with {}", named(&a), named(&b)),
+                span,
+            )
+            .with_note("both sides must be the same type"));
+        }
+        Ok(())
+    }
+
+    /// Indexing `base[index]`: the base must be an array and the index an int.
+    fn index_check(&self, base: &Expr, index: &Expr) -> Result<(), LuxError> {
+        let bt = self.t.type_of(base);
+        if !matches!(bt, Ty::Array(_))
+            && let Some(shown) = value_name(&bt)
+        {
+            return Err(LuxError::new(
+                format!("cannot index into {}; only arrays can be indexed", shown),
+                base.span(),
+            )
+            .with_learn("arrays", "a numbered row of values, all one type, from 0"));
+        }
+        let it = self.t.type_of(index);
+        if !matches!(it, Ty::Int)
+            && let Some(shown) = value_name(&it)
+        {
+            return Err(LuxError::new(
+                format!("an array index must be an int, but this is {}", shown),
+                index.span(),
+            )
+            .with_learn(
+                "arrays",
+                "you reach an element by its position, counting from 0",
+            ));
+        }
+        Ok(())
+    }
+
+    /// A range `start..end` counts over two ints.
+    fn range_check(&self, start: &Expr, end: &Expr, span: Span) -> Result<(), LuxError> {
+        let a = self.t.type_of(start);
+        let b = self.t.type_of(end);
+        if (!matches!(a, Ty::Int) || !matches!(b, Ty::Int))
+            && let (Some(sa), Some(sb)) = (value_name(&a), value_name(&b))
+        {
+            return Err(LuxError::new(
+                format!("a range needs two ints, but got {} and {}", sa, sb),
+                span,
+            )
+            .with_note("write something like 0..10")
+            .with_learn("for", "a range like 0..10 counts, end not included"));
+        }
+        Ok(())
+    }
+
+    /// Building a struct: every provided field must belong to it, every declared
+    /// field must be supplied, and each supplied value must match its field's type.
+    /// An unknown struct name is left to run time.
+    fn check_struct_lit(
+        &self,
+        name: &str,
+        provided: &[(String, Expr)],
+        span: Span,
+    ) -> Result<(), LuxError> {
+        let Some(decl) = self.t.env.structs.get(name) else {
+            return Ok(());
+        };
+        for (k, e) in provided {
+            if !decl.iter().any(|f| &f.name == k) {
+                return Err(LuxError::new(
+                    format!("struct `{}` has no field `{}`", name, k),
+                    e.span(),
+                )
+                .with_learn("structs", "a struct's fields are fixed when you define it"));
+            }
+        }
+        for f in decl {
+            match provided.iter().find(|(k, _)| k == &f.name) {
+                None => {
+                    return Err(LuxError::new(
+                        format!("missing field `{}` for struct `{}`", f.name, name),
+                        span,
+                    )
+                    .with_note(format!(
+                        "`{}` has a field `{}: {}`",
+                        name,
+                        f.name,
+                        describe_ann(&f.ty)
+                    ))
+                    .with_learn(
+                        "structs",
+                        "every field gets a value when you build a struct",
+                    ));
+                }
+                Some((_, e)) => {
+                    let ty = self.t.type_of(e);
+                    if self.satisfies_ty(&f.ty, &ty) == Fit::No
+                        && let Some(got) = value_name(&ty)
+                    {
+                        return Err(LuxError::new(
+                            format!(
+                                "field `{}` of `{}` should be {}, but got {}",
+                                f.name,
+                                name,
+                                describe_ann(&f.ty),
+                                got
+                            ),
+                            e.span(),
+                        )
+                        .with_learn(
+                            "structs",
+                            "each field has a type, set when you define the struct",
+                        ));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Building an enum case with a payload: the case must exist, carry the number
+    /// of values given, and each must match its declared type. An unknown enum is
+    /// left to run time.
+    fn check_enum_lit(
+        &self,
+        enum_name: &str,
+        variant: &str,
+        provided: &[(String, Expr)],
+        span: Span,
+    ) -> Result<(), LuxError> {
+        let Some(variants) = self.t.env.enums.get(enum_name) else {
+            return Ok(());
+        };
+        let Some(vdef) = variants.iter().find(|v| v.name == variant) else {
+            return Err(LuxError::new(
+                format!("enum `{}` has no case `{}`", enum_name, variant),
+                span,
+            )
+            .with_note(format!(
+                "cases are: {}",
+                variants
+                    .iter()
+                    .map(|v| v.name.clone())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ))
+            .with_learn(
+                "enums",
+                "an enum's cases are the fixed set of shapes it allows",
+            ));
+        };
+        if provided.len() != vdef.fields.len() {
+            return Err(LuxError::new(
+                format!(
+                    "`{}.{}` carries {}, but you gave {}",
+                    enum_name,
+                    variant,
+                    count(vdef.fields.len(), "value"),
+                    provided.len()
+                ),
+                span,
+            )
+            .with_learn("enums", "each case can carry its own values"));
+        }
+        for f in &vdef.fields {
+            match provided.iter().find(|(k, _)| k == &f.name) {
+                None => {
+                    return Err(LuxError::new(
+                        format!("missing value `{}` for `{}.{}`", f.name, enum_name, variant),
+                        span,
+                    )
+                    .with_learn(
+                        "enums",
+                        "a case carries its values, named like a struct's fields",
+                    ));
+                }
+                Some((_, e)) => {
+                    let ty = self.t.type_of(e);
+                    if self.satisfies_ty(&f.ty, &ty) == Fit::No
+                        && let Some(got) = value_name(&ty)
+                    {
+                        return Err(LuxError::new(
+                            format!(
+                                "`{}` in `{}.{}` should be {}, but got {}",
+                                f.name,
+                                enum_name,
+                                variant,
+                                describe_ann(&f.ty),
+                                got
+                            ),
+                            e.span(),
+                        )
+                        .with_learn("enums", "each value a case carries has a type"));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Reading a field with a dot: the base has to be a struct that owns the
     /// field. A known struct missing the field, or a scalar that has no fields at
     /// all, is caught; anything the pass cannot resolve is left to run time.
     fn check_field(&self, base: &Expr, field: &str) -> Result<(), LuxError> {
+        // `Enum.case` — a payload-less case, written without parentheses — parses
+        // as a field. Unless a variable of the enum's name shadows it, resolve it
+        // against the enum's cases: a name that isn't a case, or one that carries
+        // values but was written bare, is the same mistake the interpreter catches
+        // when it builds the value.
+        if let Expr::Ident(n, _) = base
+            && !self.t.in_scope(n)
+            && let Some(variants) = self.t.env.enums.get(n)
+        {
+            return match variants.iter().find(|v| v.name == field) {
+                None => Err(LuxError::new(
+                    format!("enum `{}` has no case `{}`", n, field),
+                    base.span(),
+                )
+                .with_note(format!(
+                    "cases are: {}",
+                    variants
+                        .iter()
+                        .map(|v| v.name.clone())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ))
+                .with_learn(
+                    "enums",
+                    "an enum's cases are the fixed set of shapes it allows",
+                )),
+                Some(v) if !v.fields.is_empty() => Err(LuxError::new(
+                    format!(
+                        "`{}.{}` carries {}, but you gave {}",
+                        n,
+                        field,
+                        count(v.fields.len(), "value"),
+                        0
+                    ),
+                    base.span(),
+                )
+                .with_learn("enums", "each case can carry its own values")),
+                Some(_) => Ok(()),
+            };
+        }
         let bt = self.t.type_of(base);
         match &bt {
             Ty::User(n) => {
@@ -516,15 +858,17 @@ impl Checker {
         }
     }
 
-    /// A `match` on a known enum, with no `_`, must handle every case. Arm bodies
-    /// are then walked with each pattern's captured values in scope, so a mistake
-    /// inside an arm is checked too. Everything else about a `match` — matching a
-    /// plain int/string/bool, an unreachable case name — is left to run time.
+    /// Check a `match`. On a known enum, every case must be handled unless a `_`
+    /// stands in, and each arm body is walked with its captured values in scope. On
+    /// a plain int/string/bool, a `_` is required (bool is covered by `true` and
+    /// `false`) and a case-name pattern is refused. Anything else concrete — a
+    /// float, an array, a struct — can't be matched at all. An `Option`/`Result` or
+    /// a scrutinee whose type can't be pinned defers to run time.
     fn check_match(
         &mut self,
         scrutinee: &Expr,
         arms: &[MatchArm],
-        span: crate::diagnostic::Span,
+        span: Span,
     ) -> Result<(), LuxError> {
         self.expr(scrutinee)?;
         let sty = self.t.type_of(scrutinee);
@@ -575,7 +919,69 @@ impl Checker {
             return Ok(());
         }
 
-        // Scrutinee type unknown, or not an enum: check the arm bodies plainly.
+        match &sty {
+            // A plain int, string, or bool matches literal patterns. It can't be
+            // exhaustive (except bool, covered by both `true` and `false`), so it
+            // needs a `_`; and a case-name pattern belongs to an enum, not this.
+            Ty::Int | Ty::Str | Ty::Bool => {
+                let shown = value_name(&sty).unwrap();
+                for a in arms {
+                    if let Pattern::Variant { span: psp, .. } = &a.pattern {
+                        return Err(LuxError::new(
+                            format!("this is {}, not an enum, so it has no cases", shown),
+                            *psp,
+                        )
+                        .with_learn("enums", "only an enum has named cases to match"));
+                    }
+                }
+                let has_wildcard = arms
+                    .iter()
+                    .any(|a| matches!(a.pattern, Pattern::Wildcard(_)));
+                let bool_exhaustive = matches!(sty, Ty::Bool)
+                    && arms
+                        .iter()
+                        .any(|a| matches!(a.pattern, Pattern::Bool(true, _)))
+                    && arms
+                        .iter()
+                        .any(|a| matches!(a.pattern, Pattern::Bool(false, _)));
+                if !has_wildcard && !bool_exhaustive {
+                    return Err(LuxError::new(
+                        format!("this match on {} needs a `_` case", shown),
+                        span,
+                    )
+                    .with_note(
+                        "matching a value (not an enum) can't be exhaustive, so add `_ => ...`",
+                    )
+                    .with_learn(
+                        "match",
+                        "`_` is the catch-all that covers every other value",
+                    ));
+                }
+            }
+            // An `Option` or `Result` is an enum too, matched with some/none or
+            // ok/err. Type-checking its exhaustiveness and bindings is left to run
+            // time; walk the arm bodies for mistakes inside them.
+            Ty::Option(_) | Ty::Result(..) | Ty::Unknown => {}
+            // Anything else with a concrete type — a float, an array, a struct — has
+            // nothing to match on.
+            other => {
+                if let Some(shown) = value_name(other) {
+                    return Err(LuxError::new(
+                        format!(
+                            "cannot match on {}; match works on enums, int, string, and bool",
+                            shown
+                        ),
+                        scrutinee.span(),
+                    )
+                    .with_learn(
+                        "match",
+                        "match takes apart an enum or a plain int, string, or bool",
+                    ));
+                }
+            }
+        }
+
+        // Walk the arm bodies for mistakes inside them.
         for a in arms {
             self.expr(&a.body)?;
         }
@@ -687,6 +1093,30 @@ impl Checker {
             }
             .to_string(),
         )
+    }
+}
+
+/// Does every path through a function body reach a `return`? A `-> type` function
+/// that doesn't must be able to run off its end without a value — which the target
+/// compilers reject and the interpreter only meets when a call takes that path.
+/// Deliberately conservative, mirroring the compilers' own control-flow rule: a
+/// `return` returns; an `if`/`else` returns only if both arms do; a loop, which may
+/// not run, never guarantees it. lux has no fall-through value, so a match arm
+/// (which is an expression, not a block) can't return — only an explicit `return`,
+/// including `return match { ... }`, does.
+fn body_always_returns(stmts: &[Stmt]) -> bool {
+    stmts.iter().any(stmt_always_returns)
+}
+
+fn stmt_always_returns(s: &Stmt) -> bool {
+    match s {
+        Stmt::Return { .. } => true,
+        Stmt::If {
+            then_body,
+            else_body: Some(else_body),
+            ..
+        } => body_always_returns(then_body) && body_always_returns(else_body),
+        _ => false,
     }
 }
 
