@@ -523,3 +523,122 @@ fn the_valid_near_misses_of_every_rule_still_run() {
          for i in 0..3 { print(i) }\n",
     );
 }
+
+// ----- built-in argument types, on every path (#70) ---------------------------
+
+#[test]
+fn a_wrong_argument_type_to_a_builtin_is_caught() {
+    // The string and conversion built-ins, and the file/process seams, each read
+    // like the interpreter — same message, same trail — from a dead branch.
+    reads_like(
+        "blen",
+        "if false { print(length(5)) }\nprint(\"ok\")\n",
+        &[
+            "length expects an array or a string, but got int",
+            "lux learn arrays",
+            "length counts an array's items or a string's characters",
+        ],
+    );
+    reads_like(
+        "bcontains",
+        "if false { print(contains(\"a\", 5)) }\nprint(\"ok\")\n",
+        &["contains expects argument 2 to be a string, but got int"],
+    );
+    reads_like(
+        "bparse",
+        "if false { print(parseInt(5)) }\nprint(\"ok\")\n",
+        &["parseInt reads text, but got an int"],
+    );
+    reads_like(
+        "bint",
+        "if false { print(int(\"x\")) }\nprint(\"ok\")\n",
+        &[
+            "int converts between numbers, not from text",
+            "lux learn conversions",
+            "parseInt reads a number from text and gives back an Option",
+        ],
+    );
+    reads_like(
+        "bfloatother",
+        "if false { print(float([1])) }\nprint(\"ok\")\n",
+        &["cannot convert an array to a float"],
+    );
+    reads_like(
+        "breadfile",
+        "if false { print(readFile(5)) }\nprint(\"ok\")\n",
+        &["readFile expects a string, but got int"],
+    );
+}
+
+#[test]
+fn int_of_a_string_is_refused_before_any_swift_is_emitted() {
+    // Refusing the call also removes a wrong Swift program: `int("x")` compiled to
+    // Swift's failable `Int("x")`, which prints `nil` — a value lux has no concept
+    // of. Convert must now refuse it, on the same footing as run, not emit it.
+    let path = std::env::temp_dir().join(format!("lux-tc-intstr-{}.lux", std::process::id()));
+    std::fs::write(&path, "print(int(\"x\"))\n").unwrap();
+    let run = error_line(&["run"], &path);
+    let swift = error_line(&["convert", "swift"], &path);
+    let _ = std::fs::remove_file(&path);
+    assert!(
+        run.contains("int converts between numbers, not from text"),
+        "run: {run}"
+    );
+    assert_eq!(run, swift, "run and convert swift must refuse the same way");
+}
+
+#[test]
+fn well_typed_builtin_calls_still_run() {
+    // The other side of the rule: every built-in used correctly is left alone.
+    runs_ok(
+        "bok",
+        "print(length([1, 2, 3]))\n\
+         print(length(\"cafe\"))\n\
+         print(contains(\"hello\", \"ell\"))\n\
+         print(replace(\"a-b\", \"-\", \"+\"))\n\
+         print(split(\"a,b\", \",\"))\n\
+         print(int(3.7))\n\
+         print(float(5))\n\
+         print(parseInt(\"42\"))\n",
+    );
+}
+
+// ----- duplicate declarations, on every path (#71) ----------------------------
+
+#[test]
+fn two_declarations_of_the_same_name_are_caught() {
+    reads_like(
+        "dupstruct",
+        "struct S { x: int }\nstruct S { y: int }\nprint(\"done\")\n",
+        &["type `S` is already defined"],
+    );
+    reads_like(
+        "dupenum",
+        "enum E { a }\nenum E { b }\nprint(\"done\")\n",
+        &["type `E` is already defined"],
+    );
+    reads_like(
+        "dupfunc",
+        "func f() -> int { return 1 }\nfunc f() -> int { return 2 }\nprint(\"done\")\n",
+        &["function `f` is already defined"],
+    );
+}
+
+#[test]
+fn a_duplicate_declaration_is_refused_on_every_leg() {
+    // Before, `run` refused a second `struct S` and the three converts emitted
+    // both, leaving the target compiler to reject the duplicate in its own words.
+    let path = std::env::temp_dir().join(format!("lux-tc-dup-{}.lux", std::process::id()));
+    std::fs::write(
+        &path,
+        "struct S { x: int }\nstruct S { y: int }\nprint(\"done\")\n",
+    )
+    .unwrap();
+    let run = error_line(&["run"], &path);
+    let convert = error_line(&["convert", "go"], &path);
+    let build = error_line(&["build"], &path);
+    let _ = std::fs::remove_file(&path);
+    assert!(run.contains("type `S` is already defined"), "run: {run}");
+    assert_eq!(run, convert, "run and convert must refuse the same way");
+    assert_eq!(run, build, "run and build must refuse the same way");
+}

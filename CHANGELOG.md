@@ -4,6 +4,47 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.2] - 2026-08-06
+
+Another hardening release, no new language surface. It closes the last concrete-type
+checks the static pass didn't reach — the built-in functions' argument types — and the
+last declaration-level divergence where `lux run` refused a program the three target
+languages emitted anyway. It also corrects a compatibility claim the 0.19.0 and 0.19.1
+notes stated too broadly.
+
+### Changed
+
+- **A built-in called with the wrong argument type is caught on every path.** The static
+  check reached a wrong argument to a function you wrote, but not to a built-in one:
+  `length(5)`, `contains(5, "a")`, `replace`/`split` on a non-string, `parseInt`/
+  `parseFloat` on something that isn't text, `int`/`float` handed a string or anything
+  that isn't a number, and the file and process seams `readFile`/`writeFile`/`run`. On a
+  path that never ran, each slipped past `lux run` and reached the target compiler as an
+  error in its words, not lux's. They are now refused ahead of running or emitting, in
+  the interpreter's own wording, and still only where the argument's type is concretely
+  known. One of these also emitted a wrong program: `int("x")` on Swift compiled to
+  `Int("x")`, which is failable and prints `nil` — a value lux has no concept of, from a
+  program lux refuses; the check now turns it away before any Swift is emitted (#70).
+
+### Fixed
+
+- **Two structs, enums, or functions of the same name are refused on every leg.** A
+  second `struct S`, `enum E`, or `func f` was caught by `lux run` — `type `S` is already
+  defined` — but `lux convert` and `lux build` emitted both definitions and left the
+  target compiler to reject the duplicate in its own words, with no lux message on the
+  path. Writing a second `func total(...)` further down a file rather than editing the
+  first is the ordinary way this is met. It is now refused up front on every leg, with
+  the message and span `lux run` already gave (#71).
+
+- **A compatibility claim is corrected.** The 0.19.0 and 0.19.1 notes said the static
+  check never rejects a program the interpreter would accept. It can: a `-> type`
+  function whose only `return` sits inside a `while true` ran on the interpreter but not
+  on Swift or Go, which reject the emitted code as a missing return, and the check now
+  refuses it on every leg — the right answer, a split verdict replaced by one, but not
+  what those words promised. The accurate claim, the one the corpus demonstrates, is that
+  no program that behaves the same on all four legs is turned away; the wording in both
+  entries above is fixed to say so (#72).
+
 ## [0.19.1] - 2026-08-06
 
 A hardening release, no new language surface. It finishes the static type check that
@@ -20,8 +61,8 @@ is tested against.
   value built with wrong or missing fields, a match on something unmatchable or a value
   match with no `_`, and a `-> type` function that can run off its end are all refused
   ahead of running or emitting — in the interpreter's own words, on any path. It still
-  declines every case it can't pin to a concrete type, so no program the interpreter
-  would accept is turned away (#60).
+  declines every case it can't pin to a concrete type, so no program that behaves the
+  same on all four legs is turned away (#60).
 
 ### Fixed
 
@@ -53,9 +94,9 @@ divergences ride along.
   struct field — ahead of running or emitting. A mistake inside `if false { ... }` is
   refused up front, with the same message and `lux learn` trail it would have shown at
   run time, rather than compiling to a cryptic error from the target compiler. The pass
-  never rejects a program the interpreter would accept: wherever it cannot pin a
-  concrete type — an empty array, a bare `none` — it stays silent and leaves the call to
-  run time and the target compiler (#60).
+  never turns away a program that behaves the same on all four legs: wherever it cannot
+  pin a concrete type — an empty array, a bare `none` — it stays silent and leaves the
+  call to run time and the target compiler (#60).
 
 ### Fixed
 

@@ -15,14 +15,18 @@
 //! program. It reuses the translator's [`Types`](super::Types) to infer an
 //! expression's type, since that inference already backs every backend.
 //!
-//! The one rule it holds to without exception: it never rejects a program the
-//! interpreter would accept. Wherever inference cannot pin a concrete type — a
-//! bare `none`, a value whose type the pass cannot see — it stays silent and
-//! leaves the call to the interpreter at run time and the target compiler at
-//! build time. Catching a real mistake early is worth a great deal; refusing a
-//! valid program is not worth anything, so the pass declines every uncertain
-//! case. It adds no new type rules of its own: everything it enforces, some
-//! executed path would already have caught.
+//! The one rule it holds to without exception: it never turns away a program that
+//! behaves the same on all four legs. It does reject one the interpreter alone
+//! accepted — a dead-branch type error the interpreter never reached, a `-> type`
+//! whose only `return` sits inside a `while true` that Swift and Go reject — but
+//! only where the four legs already disagreed, replacing a split verdict with one.
+//! Wherever inference cannot pin a concrete type — a bare `none`, a value whose
+//! type the pass cannot see — it stays silent and leaves the call to the
+//! interpreter at run time and the target compiler at build time. Catching a real
+//! mistake early is worth a great deal; refusing a program that would have run
+//! everywhere is not worth anything, so the pass declines every uncertain case. It
+//! adds no new type rules of its own: everything it enforces, some path — here or
+//! on a target — would already have caught.
 
 use std::collections::HashMap;
 
@@ -375,10 +379,11 @@ impl Checker {
                 self.expr(end)?;
                 self.range_check(start, end, *span)
             }
-            Expr::Call { name, args, .. } => {
+            Expr::Call { name, args, span } => {
                 for a in args {
                     self.expr(a)?;
                 }
+                self.check_builtin(name, args, *span)?;
                 self.check_call(name, args)
             }
             Expr::StructLit { name, fields, span } => {
@@ -520,6 +525,211 @@ impl Checker {
                 )
                 .with_learn("functions", "each parameter has a type the call must match"));
             }
+        }
+        Ok(())
+    }
+
+    /// A call to a built-in whose argument types are fixed — the string and
+    /// conversion operations, and the file/process seams. Each rule mirrors the
+    /// interpreter's own check, in its exact words, and fires only where an
+    /// argument's type is concretely known to be wrong. A wrong argument *count*
+    /// is a different rule, left to run time, so every check first confirms the
+    /// call has the arity that check expects. `string`, `some`, `ok`, `err`,
+    /// `print`, `eprint`, and the input built-ins take any value (or none), so
+    /// they have nothing to check here.
+    fn check_builtin(&self, name: &str, args: &[Expr], span: Span) -> Result<(), LuxError> {
+        let ty = |i: usize| self.t.type_of(&args[i]);
+        match name {
+            "length" => {
+                if args.len() != 1 {
+                    return Ok(());
+                }
+                let t = ty(0);
+                if !matches!(t, Ty::Array(_) | Ty::Str)
+                    && let Some(got) = vtype(&t)
+                {
+                    return Err(LuxError::new(
+                        format!("length expects an array or a string, but got {}", got),
+                        span,
+                    )
+                    .with_learn(
+                        "arrays",
+                        "length counts an array's items or a string's characters",
+                    ));
+                }
+            }
+            "contains" => return self.str_arg_check(name, args, span, 2),
+            "replace" => return self.str_arg_check(name, args, span, 3),
+            "split" => return self.str_arg_check(name, args, span, 2),
+            "readFile" => {
+                if args.len() != 1 {
+                    return Ok(());
+                }
+                let t = ty(0);
+                if !matches!(t, Ty::Str)
+                    && let Some(got) = vtype(&t)
+                {
+                    return Err(LuxError::new(
+                        format!("readFile expects a string, but got {}", got),
+                        span,
+                    ));
+                }
+            }
+            "writeFile" => {
+                if args.len() != 2 {
+                    return Ok(());
+                }
+                // Path first, then contents — the order `two_str` reads them.
+                let p = ty(0);
+                if !matches!(p, Ty::Str) {
+                    let Some(got) = vtype(&p) else { return Ok(()) };
+                    return Err(LuxError::new(
+                        format!("writeFile expects the path as a string, but got {}", got),
+                        span,
+                    ));
+                }
+                let c = ty(1);
+                if !matches!(c, Ty::Str)
+                    && let Some(got) = vtype(&c)
+                {
+                    return Err(LuxError::new(
+                        format!(
+                            "writeFile expects the contents as a string, but got {}",
+                            got
+                        ),
+                        span,
+                    ));
+                }
+            }
+            "run" => {
+                if args.len() != 2 {
+                    return Ok(());
+                }
+                let p = ty(0);
+                if !matches!(p, Ty::Str) {
+                    let Some(got) = vtype(&p) else { return Ok(()) };
+                    return Err(LuxError::new(
+                        format!("run expects the program name as a string, but got {}", got),
+                        span,
+                    ));
+                }
+                match &ty(1) {
+                    // A list with a known non-string element: the interpreter walks
+                    // it and stops at the first, naming its type. A whole array of
+                    // one concrete type reads that type either way, so this is safe.
+                    Ty::Array(elem) if !matches!(**elem, Ty::Str) => {
+                        if let Some(got) = vtype(elem) {
+                            return Err(LuxError::new(
+                                format!(
+                                    "run expects the arguments as a list of strings, but one was {}",
+                                    got
+                                ),
+                                span,
+                            ));
+                        }
+                    }
+                    Ty::Array(_) => {}
+                    // Not a list at all.
+                    other => {
+                        if let Some(got) = vtype(other) {
+                            return Err(LuxError::new(
+                                format!(
+                                    "run expects the arguments as a list of strings, but got {}",
+                                    got
+                                ),
+                                span,
+                            ));
+                        }
+                    }
+                }
+            }
+            "parseInt" | "parseFloat" => {
+                if args.len() != 1 {
+                    return Ok(());
+                }
+                let t = ty(0);
+                if !matches!(t, Ty::Str)
+                    && let Some(n) = self.runtime_name(&t)
+                {
+                    return Err(LuxError::new(
+                        format!("{} reads text, but got {}", name, named(&n)),
+                        span,
+                    ));
+                }
+            }
+            "int" | "float" => {
+                if args.len() != 1 {
+                    return Ok(());
+                }
+                match ty(0) {
+                    // A number converts; the string case and everything else do not.
+                    Ty::Int | Ty::Float => {}
+                    Ty::Str => {
+                        let (note, lure) = if name == "int" {
+                            (
+                                "to read a number from text use parseInt, which hands back an Option you match on",
+                                "parseInt reads a number from text and gives back an Option",
+                            )
+                        } else {
+                            (
+                                "to read a number from text use parseFloat, which hands back an Option you match on",
+                                "parseFloat reads a number from text and gives back an Option",
+                            )
+                        };
+                        return Err(LuxError::new(
+                            format!("{} converts between numbers, not from text", name),
+                            span,
+                        )
+                        .with_note(note)
+                        .with_learn("conversions", lure));
+                    }
+                    other => {
+                        if let Some(n) = self.runtime_name(&other) {
+                            let target = if name == "int" { "an int" } else { "a float" };
+                            return Err(LuxError::new(
+                                format!("cannot convert {} to {}", named(&n), target),
+                                span,
+                            ));
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// The shared rule for `contains`, `replace`, and `split`: every argument must
+    /// be a string. Mirrors `str_args`, which reads them in order and names the
+    /// first that isn't one — so this stops at the first argument it cannot pin,
+    /// to keep the position it reports honest.
+    fn str_arg_check(
+        &self,
+        name: &str,
+        args: &[Expr],
+        span: Span,
+        arity: usize,
+    ) -> Result<(), LuxError> {
+        if args.len() != arity {
+            return Ok(());
+        }
+        for (i, a) in args.iter().enumerate() {
+            let t = self.t.type_of(a);
+            if matches!(t, Ty::Str) {
+                continue;
+            }
+            // Can't pin this one — the interpreter might error here or at a later
+            // argument; deferring keeps the reported position honest.
+            let Some(got) = vtype(&t) else { return Ok(()) };
+            return Err(LuxError::new(
+                format!(
+                    "{} expects argument {} to be a string, but got {}",
+                    name,
+                    i + 1,
+                    got
+                ),
+                span,
+            ));
         }
         Ok(())
     }
@@ -1149,6 +1359,27 @@ fn value_name(ty: &Ty) -> Option<String> {
         Ty::Range => "range".to_string(),
         Ty::Unit => "nothing".to_string(),
         Ty::Unknown => return None,
+    })
+}
+
+/// A type rendered as the interpreter's `value_type` would render a value of it,
+/// for a built-in's "but got {}" message — but only where every value of the type
+/// renders the same. `Option`/`Result` read differently per variant (`Option<?>`
+/// vs `Option<int>`), and an unknown part can't be named at all, so those defer
+/// with `None`. Distinct from [`value_name`], which does name the built-in
+/// generics: those messages come from run-time type rules, not from a value's
+/// `value_type`.
+fn vtype(ty: &Ty) -> Option<String> {
+    Some(match ty {
+        Ty::Int => "int".to_string(),
+        Ty::Float => "float".to_string(),
+        Ty::Str => "string".to_string(),
+        Ty::Bool => "bool".to_string(),
+        Ty::Range => "range".to_string(),
+        Ty::Unit => "nothing".to_string(),
+        Ty::Array(inner) => format!("[{}]", vtype(inner)?),
+        Ty::User(n) => n.clone(),
+        Ty::Option(_) | Ty::Result(..) | Ty::Unknown => return None,
     })
 }
 

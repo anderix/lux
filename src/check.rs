@@ -96,7 +96,22 @@ fn check_names(program: &[Stmt]) -> Result<(), LuxError> {
                 .with_note("a name is one thing — a function or a type, not both — choose another")
                 .with_learn("scope", "a name means one thing wherever it can be seen"));
             }
-            Some(_) => {}
+            // Two of the same kind is a plain redefinition. The interpreter catches
+            // it on the run path; caught here it also stops `convert`/`build`, which
+            // otherwise emit two same-named definitions the target compiler then
+            // rejects in its own words, with no lux message on the path (#71). Same
+            // message and span the interpreter gives.
+            Some(_) => {
+                let kind = if role == "a function" {
+                    "function"
+                } else {
+                    "type"
+                };
+                return Err(LuxError::new(
+                    format!("{} `{}` is already defined", kind, name),
+                    span,
+                ));
+            }
             None => {
                 roles.insert(name, role);
             }
