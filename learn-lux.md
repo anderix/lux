@@ -496,7 +496,8 @@ build by attaching behaviour to the data a struct holds.
 ## enums — one of several shapes
 
 An enum says a value is exactly one of a fixed set of cases, and each case can
-carry its own values — the idea that makes illegal states impossible.
+carry its own values — the idea that makes a whole class of bad values impossible
+to even write.
 
 ```lux
 enum Shape {
@@ -513,7 +514,7 @@ An enum whose cases carry values is a *sum type*, also called a *tagged union*:
 a value that is exactly one of several shapes, each with its own data. It is the
 partner to the struct — a struct is "this *and* that," an enum is "this *or*
 that." Rust and Swift have it and lean on it hard; Go does not, which is why
-`lux convert go` has to fake it with structs and a tag field — a clear look at
+`lux convert go` rebuilds it from structs and a tag field — a clear look at
 what the feature actually buys you.
 
 > see: match — how you take an enum apart, one case at a time · structs — its partner shape, "and" to the enum's "or"

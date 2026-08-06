@@ -659,7 +659,7 @@ impl Gen {
     }
 
     /// An enum has no Go equivalent, so it becomes a marker interface and one
-    /// struct per case — the standard way to fake a sum type.
+    /// struct per case — the standard way to build a sum type in Go.
     fn emit_enum(&mut self, name: &str, variants: &[VariantDef]) {
         let marker = format!("is{}", name);
         self.line(format!("type {} interface{{ {}() }}", name, marker));
