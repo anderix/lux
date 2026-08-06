@@ -224,7 +224,7 @@ piped file line by line until it ends — reach for `readLine` instead and let
 `match` tell "a line" from "no more input" apart. Reading a *number* is
 different again: typed text might not be a number at all, so to *parse* one out —
 read a real int from the characters — `parseInt` keeps its `Option` rather than
-guess. Down the ladder `input` is Python's `input`,
+guess. Elsewhere `input` is Python's `input`,
 while `readLine` is how Rust, Swift, and Go each read a line.
 
 > see: option — the underlying shape readLine returns, the one input hides for you · io — readLine, files, and the rest of the outside world · conversions — turning what someone types into a number with parseInt
@@ -619,9 +619,8 @@ that can fail, so its answer is an `Option`: `some(n)` when the text was a
 number, `none` when it was not. Folding the two together is where the crash
 hides — a language that lets `int("oops")` blow up has smuggled a failure into
 something that looked safe. lux keeps them apart: `parseInt` wears its
-fallibility in its type, the same `Option` you already match on. Down the ladder
-this is Rust's total `as` against its fallible `.parse()`, and Swift's
-`Int(3.9)` against its failable `Int("17")`.
+fallibility in its type, the same `Option` you already match on. In Rust this is the total `as` against
+the fallible `.parse()`; in Swift, `Int(3.9)` against the failable `Int("17")`.
 
 > see: option — the shape a parse hands back · strings — the text you parse from · numbers — what you parse into
 
@@ -660,7 +659,7 @@ around unanswered: not stashed in a `let`, not handed to `print` to look at late
 That mirrors how Go works: you check an error at the call site, not three lines
 down. An `Option` you *can* keep in a variable — a missing value
 is still a real value — but a `Result` is a question waiting for an answer. When
-you move up to Rust or Swift, a `Result` becomes an ordinary value you can hold
+you move on to Rust or Swift, a `Result` becomes an ordinary value you can hold
 onto and pass around; that extra freedom is one of the things you graduate into.
 
 > see: option — its sibling, for "missing" rather than "failed" · match — how you handle both arms
@@ -695,7 +694,7 @@ or a file is piped in. That is the quiet point of I/O — your output is the nex
 program's input. `print` writes that output and `eprint` writes errors to a
 separate stream, stderr, so the stream the next program reads stays clean; and
 `args()` is your command line, with your own program sitting at index 0, a
-footgun worth meeting early. Down the ladder these are Rust's `std::fs` and
+footgun worth meeting early. Elsewhere these are Rust's `std::fs` and
 `std::env`, Go's `os` package handing back its `(value, error)` pairs, and
 Swift's `Foundation` with its throwing file calls and a `readLine()` that is
 already an `Optional`.
@@ -734,7 +733,7 @@ separate, the same two streams `print` and `eprint` write to. One real limit:
 `run` collects all of a command's output and hands it back when the command
 finishes — it is not a live pipe feeding another program character by character.
 It gives you the Unix mindset, one program's output becoming your input, without
-the streaming. Down the ladder this is Rust's `std::process::Command`, Go's
+the streaming. Elsewhere this is Rust's `std::process::Command`, Go's
 `os/exec`, and Swift's `Foundation` `Process`.
 
 > see: result — the shape run hands back · structs — what an Output is, a value with named fields · match — how you read both arms
@@ -883,7 +882,7 @@ start.
 | `for x in xs` | `for x in xs` | `for x in xs` | `for _, x := range xs` |
 | `while c` | `while c` | `while c` | `for c` |
 | `match` | `match` | `switch` | `switch` (leaner) |
-| `enum` with values | `enum` with values | `enum` with values | *fake with structs* |
+| `enum` with values | `enum` with values | `enum` with values | *rebuilt from structs* |
 | `Option` / `Result` | `Option` / `Result` | `Optional` | `(value, error)` |
 | `[int]` | `Vec<i32>` | `[Int]` | `[]int` |
 | `[[int]]` | `Vec<Vec<i32>>` | `[[Int]]` | `[][]int` |
@@ -891,10 +890,11 @@ start.
 | `print` / `eprint` | `println!` / `eprintln!` | `print` / `FileHandle` | `fmt` / `os.Stderr` |
 | `run` | `process::Command` | `Process` | `os/exec` |
 
-Going **up** the ladder (Swift, Rust) you gain hard new ideas lux left out on
-purpose: classes and protocols are the Swift lesson; ownership and lifetimes are
-the Rust lesson. Going **down** (Go) you keep the same shapes but rebuild a few
-conveniences by hand — that is the lesson in how they actually work.
+Each language asks something different of you next. Swift and Rust add hard new
+ideas lux left out on purpose — classes and protocols are the Swift lesson,
+ownership and lifetimes the Rust lesson. Go leaves out a few of the shapes lux
+gave you — sum types, a binding that can't change — so you rebuild them by hand,
+and that rebuilding is its own lesson in how they work.
 
 ## Beyond lux
 
