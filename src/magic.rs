@@ -1,12 +1,12 @@
 //! `lux magic` — spells for things you want to do now.
 //!
-//! Where `lux learn` is a concept ladder ("what is X?"), magic is task indexed
+//! Where `lux learn` goes concept by concept ("what is X?"), magic is task indexed
 //! ("how do I X?"). A spell is a small, runnable program that already works,
 //! plus a trail to the `lux learn` topics that explain the ideas it uses. Spells
-//! are allowed to run ahead of where a reader has climbed the learn ladder —
+//! are allowed to run ahead of where a reader has reached in `lux learn` —
 //! that is the point: a working shape now, with a signpost to where the
 //! trick is explained. The same spell reads as plain lux once its trail is
-//! climbed; the magic was never magic.
+//! followed; the magic was never magic.
 //!
 //! The content lives in `magic-lux.md`, baked in at compile time, and is also
 //! the test corpus: every spell is real lux the suite runs and translates.

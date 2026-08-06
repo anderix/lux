@@ -13,7 +13,7 @@
 //! id is the join key — what you type (`lux learn match`), what a guided lesson
 //! lists, and what an error message points at. Everything `lux learn` shows is
 //! some traversal of this one list of topics, plus two pages of furniture: the
-//! `basics` skeleton and the graduation `ladder`.
+//! `basics` skeleton and the `graduation` table.
 
 const DOC: &str = include_str!("../learn-lux.md");
 
@@ -490,20 +490,20 @@ fn section(anchor: &str) -> String {
 }
 
 /// The procedural-language skeleton: the pieces every language shares and where
-/// to learn each in lux. The inward companion to the graduation ladder.
+/// to learn each in lux. The inward companion to the graduation table.
 fn basics_page() -> String {
     section("## The shape every language shares")
 }
 
 /// The graduation table beneath the topics — where each lux feature lands in
 /// Rust, Swift, and Go.
-fn ladder() -> String {
+fn graduation() -> String {
     section("## Where each feature takes you")
 }
 
 /// The closing note: what carries past lux, and past code, once the language
 /// itself is outgrown. The human companion to the basics skeleton and the
-/// graduation ladder.
+/// graduation table.
 fn bridge_page() -> String {
     section("## Beyond lux")
 }
@@ -556,7 +556,7 @@ pub fn menu() -> String {
 }
 
 /// The whole language top to bottom: intro, the basics skeleton, every card,
-/// then the ladder.
+/// then the graduation table.
 pub fn tour() -> String {
     let mut out = String::new();
     out.push_str(&intro());
@@ -573,9 +573,9 @@ pub fn tour() -> String {
         out.push_str(&rule());
         out.push('\n');
     }
-    let ladder = ladder();
-    if !ladder.is_empty() {
-        out.push_str(&format_tables(&plain(&dehead(&ladder))));
+    let graduation = graduation();
+    if !graduation.is_empty() {
+        out.push_str(&format_tables(&plain(&dehead(&graduation))));
         out.push('\n');
     }
     let bridge = bridge_page();

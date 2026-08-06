@@ -969,7 +969,7 @@ The interpreter grew toward that surface in milestones, simplest first:
     lines stay signal. The lure previews *why* the trail is worth taking, turning
     a pointer into an invitation.
 12. **The closing bridge** — `lux learn beyond`, a furniture page beside the
-    `basics` skeleton and the graduation ladder, and the last note of the tour.
+    `basics` skeleton and the graduation table, and the last note of the tour.
     It names what transfers past lux *and* past code — decomposition, precise
     specification, debugging-as-a-stance, and agency (building your own tools).
     Stated once, in the same terse voice; never preached.
