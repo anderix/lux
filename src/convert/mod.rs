@@ -7,20 +7,24 @@
 //! watch their own program turn into the language they're growing toward, so the
 //! output is meant to be read.
 //!
-//! lux has no separate type checker yet, so to decide the handful of places
-//! where the same lux syntax must emit different code — string `+` versus
-//! numeric `+`, `length` on a string versus an array, how a value prints — the
-//! shared `Types` below carries a small `type_of` that infers an expression's
-//! type on demand from the declared signatures. It assumes a well-formed
-//! program; the target compiler is the backstop for anything it can't see.
+//! To decide the handful of places where the same lux syntax must emit different
+//! code — string `+` versus numeric `+`, `length` on a string versus an array,
+//! how a value prints — the shared `Types` below carries a small `type_of` that
+//! infers an expression's type on demand from the declared signatures. Emission
+//! assumes a well-formed program, which the `typeck` pass — built on the same
+//! `Types` — guarantees by running first: it applies the interpreter's
+//! concrete-type rules to every path before any backend sees the program, so a
+//! type error is a lux error here, not a cryptic one from the target compiler.
 
 mod go;
 mod rust;
 mod swift;
+mod typeck;
 
 pub use go::to_go;
 pub use rust::to_rust;
 pub use swift::to_swift;
+pub use typeck::check as type_check;
 
 use std::collections::HashMap;
 

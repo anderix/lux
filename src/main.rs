@@ -558,6 +558,13 @@ fn load(path: &str) -> (String, Vec<lux::ast::Stmt>) {
         diagnostic::report(path, &source, &err);
         exit(1);
     }
+    // Static type check: the same concrete-type rules the interpreter enforces at
+    // run time, applied to every path up front, so `run`, `convert`, and `build`
+    // all agree on what counts as a valid program — whichever leg reaches it.
+    if let Err(err) = convert::type_check(&program) {
+        diagnostic::report(path, &source, &err);
+        exit(1);
+    }
     (source, program)
 }
 
