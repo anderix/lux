@@ -4,6 +4,49 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] - 2026-08-05
+
+lux is now statically type-checked. The interpreter always checked types as it ran, so
+a type error tucked inside a branch that never executed slipped past `lux run` and only
+surfaced when a target compiler rejected the build — the same source legal on one leg
+and not another. A new pass applies those same type rules to every path, before any
+command, so the four legs — the interpreter, Rust, Swift, and Go — agree on what counts
+as a valid program. It enforces the rules the language already had, in the words the
+interpreter already used; it adds no new type system, and no generics. Two backend
+divergences ride along.
+
+### Changed
+
+- **Type errors are caught on every path, not only the ones that run.** `lux run`,
+  `lux convert`, and `lux build` now share one static type check that enforces the
+  interpreter's concrete-type rules — string-and-number arithmetic, mixed int and
+  float, a non-bool condition, looping something that isn't an array, a wrong argument
+  or return type, a var reassigned to another type, a non-exhaustive match, an unknown
+  struct field — ahead of running or emitting. A mistake inside `if false { ... }` is
+  refused up front, with the same message and `lux learn` trail it would have shown at
+  run time, rather than compiling to a cryptic error from the target compiler. The pass
+  never rejects a program the interpreter would accept: wherever it cannot pin a
+  concrete type — an empty array, a bare `none` — it stays silent and leaves the call to
+  run time and the target compiler (#60).
+
+### Fixed
+
+- **A bare `some(x)` binding builds on Swift.** `let a = some(5)` — an optional bound
+  without an annotation, the ordinary way a learner first reaches for one — ran on the
+  interpreter and built on Rust and Go, but failed on Swift, which emitted `.some(5)`
+  with no type to resolve it against. The Swift backend now carries the inferred element
+  type onto the binding — `let a: Int? = .some(5)` — the way it already did for a
+  written annotation. A bare `none`, whose element type really is open, keeps its own
+  "say what it holds" rule (#67).
+
+- **A valueless `var` no longer emits a dead initializer on Rust.** `var s: string`,
+  assigned before it is used, emitted `let mut s: String = String::new();` — a zero the
+  program never reads, which Rust warns about, in code the learner didn't write. The
+  binding now defers its value where Rust can see it is assigned before it is read —
+  straight-line, or both branches of an `if` — and keeps a reachable initializer only
+  where it can't, such as an assignment reached only inside a loop. The output stays
+  warning-clean and still compiles (#69).
+
 ## [0.18.1] - 2026-08-05
 
 A hardening release: eight parity and correctness fixes, and no new language surface.
