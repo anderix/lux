@@ -4,6 +4,22 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.3] - 2026-08-06
+
+A diagnostics fix, no change to what lux accepts or rejects. It corrects the error a
+dropped `}` produced — the commonest structural slip, and the one that pointed nowhere
+useful.
+
+### Fixed
+
+- **A missing `}` now points at the block it left open, not the end of the file.** A
+  block parses statements until it meets `}` or runs out of tokens, so a dropped brace let
+  the parser swallow everything after it and only notice at the end — the `expected '}' to
+  close the block` error landed on the blank line past the last one, the right kind of
+  error at the wrong place. It now names the block that was never closed and points the
+  caret at the `{` that opened it, the region actually worth reading, with a note that the
+  brace runs to the end of the file.
+
 ## [0.19.2] - 2026-08-06
 
 Another hardening release, no new language surface. It closes the last concrete-type

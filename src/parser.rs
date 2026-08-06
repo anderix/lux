@@ -415,10 +415,19 @@ impl Parser {
     }
 
     fn block(&mut self) -> Result<Vec<Stmt>, LuxError> {
-        self.expect(&Tok::LBrace, "'{' to start a block")?;
+        let open = self.expect(&Tok::LBrace, "'{' to start a block")?;
         let mut stmts = Vec::new();
         while !matches!(self.peek_tok(), Tok::RBrace | Tok::Eof) {
             stmts.push(self.statement()?);
+        }
+        // Running out of tokens means this block never got its `}`. Point at the
+        // opening brace, not the end of the file: a missing `}` lets the parser
+        // swallow everything after it, so the honest place to look is where the
+        // block began, not where the source happened to run out.
+        if self.at_eof() {
+            return Err(LuxError::new("this block is never closed", open.span).with_note(
+                "the `{` here opens a block that runs to the end of the file; add the `}` that closes it",
+            ));
         }
         self.expect(&Tok::RBrace, "'}' to close the block")?;
         Ok(stmts)

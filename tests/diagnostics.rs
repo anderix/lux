@@ -86,6 +86,32 @@ fn a_return_inside_a_match_arm_explains_arms_are_values() {
     );
 }
 
+/// A missing `}` is the commonest structural slip, and it used to point nowhere
+/// useful: a dropped brace lets the parser swallow every token after it, so the
+/// "expected `}`" fired at the blank line past the end of the file — the right
+/// kind of error at the wrong place. It now names the block that was left open and
+/// points at the `{` that started it, the region actually worth reading.
+#[test]
+fn a_missing_closing_brace_points_at_the_block_that_opened() {
+    let err = err_of(
+        "nobrace",
+        "func greet(name: string) {\n    if name == \"world\" {\n        print(\"hello\")\n    print(\"done\")\n}\nprint(greet(\"world\"))\n",
+    );
+    assert!(
+        err.contains("this block is never closed"),
+        "should name the unclosed block, got:\n{err}"
+    );
+    // Points at the opening brace on line 1, not the blank line past the end.
+    assert!(
+        err.contains(".lux:1:"),
+        "should point at the opening brace's line, not EOF, got:\n{err}"
+    );
+    assert!(
+        !err.contains("expected '}' to close the block"),
+        "should not fall through to the raw EOF error, got:\n{err}"
+    );
+}
+
 /// Recursion with no reachable base case — the classic beginner mistake, and the
 /// one place the interpreter used to show its own host language: a raw stack
 /// overflow, `SIGABRT`, exit 134, and not one word about the program that was run.
