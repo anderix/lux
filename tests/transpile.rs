@@ -159,6 +159,54 @@ fn a_top_level_main_runs_itself_everywhere() {
     assert_prints_everywhere(src, "mainrun", expected);
 }
 
+/// A built Rust program piped into `head` ends quietly, the way `lux run` and the
+/// Go and Swift builds do — not with the panic and backtrace note Rust's runtime
+/// prints when a closed pipe surfaces as an error `println!` unwraps. A learner
+/// piping into `head` is the Unix mindset the io card teaches, so meeting a panic
+/// about a line they never wrote is the warning-clean bar the backends already hold.
+/// Rust-only and Unix-only: the other backends already pass, and the panic is a Unix
+/// pipe. Skipped where `rustc` isn't present.
+#[test]
+#[cfg(unix)]
+fn a_built_rust_program_survives_a_closed_pipe() {
+    if !tool_available("rustc", "--version") {
+        return;
+    }
+    // Enough lines that stdout's buffer flushes into the closed pipe mid-run, which is
+    // when the write fails and the old code panicked.
+    let src = "func main() {\n    for i in 0..100000 {\n        print(i)\n    }\n}\n";
+    let program = parser::parse(lexer::lex(src).expect("lex")).expect("parse");
+    let tmp = std::env::temp_dir();
+    let rs = tmp.join("lux_sigpipe.rs");
+    std::fs::write(&rs, convert::to_rust(&program)).expect("write rust");
+    let bin = tmp.join("lux_sigpipe_rs");
+    let out = Command::new("rustc")
+        .arg(&rs)
+        .arg("-o")
+        .arg(&bin)
+        .output()
+        .expect("run rustc");
+    assert!(
+        out.status.success(),
+        "sigpipe: should compile:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    // `bin | head -1`: head closes the pipe after one line, and the binary's stderr is
+    // inherited into the pipeline, so a panic would land in what we capture here.
+    let piped = Command::new("sh")
+        .arg("-c")
+        .arg(format!("{} | head -1", bin.display()))
+        .output()
+        .expect("run pipeline");
+    let stderr = String::from_utf8_lossy(&piped.stderr);
+    assert!(
+        !stderr.contains("panicked") && !stderr.contains("Broken pipe"),
+        "a closed pipe should end the program quietly, got stderr:\n{stderr}"
+    );
+    let _ = std::fs::remove_file(&rs);
+    let _ = std::fs::remove_file(&bin);
+}
+
 /// A failed `readFile` and a failed `run` name what was attempted, in lux's own
 /// shape `could not read/run <path>: <reason>`, on every backend — the path
 /// especially, so a program that touches several files says which one failed

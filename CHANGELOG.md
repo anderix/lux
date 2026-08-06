@@ -4,6 +4,45 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.4] - 2026-08-06
+
+Three fixes from a session that wrote real programs in lux — an ASCII Mandelbrot, a
+poker tutor — and hit the seams a tutorial hits. No new language surface: one closes the
+last run-vs-emit split in the `Result` rule, one makes a native build survive a closed
+pipe the way the other three legs already do, and one repairs a teaching trail that led
+to the wrong idea.
+
+### Fixed
+
+- **A stored or printed `Result` is refused on every path, not just where the line
+  runs.** The interpreter catches a `Result` kept in a `let` or handed to `print`, but
+  only on a line it executes — so the misuse in a branch that never ran slipped past `lux
+  run` while `lux convert` and `lux build` refused it, the run-vs-emit split 0.19.2 closed
+  for built-in argument types. The check now runs before any command on every path, so a
+  dead branch is caught up front too. It can't turn away a valid program — a `Result` is
+  never storable — and it also settles a case where the two legs disagreed: `print(readFile(x))`
+  now reads `a Result can't be printed` under both `lux run` and the emitters, where run
+  said that and convert reported the argument type first.
+
+- **A built native binary ends quietly when a pipe closes.** `program | head` stops a
+  program early, and the interpreter and the Go and Swift builds all end on `SIGPIPE`
+  without a word — but the Rust build panicked with a note about a file in the Rust
+  standard library, since Rust's runtime ignores `SIGPIPE` and turns a closed pipe into an
+  error `println!` unwraps. The emitted `main` now restores the default `SIGPIPE`
+  disposition first, so the native binary is the fourth leg to end quietly rather than the
+  one that blames the learner for a pipe working as intended. Dependency-free and
+  `#[cfg(unix)]`, since the panic it prevents is a Unix pipe.
+
+- **A file-level name read inside a function names the boundary that hid it.** A function
+  body sees its parameters and the program's other functions and types, but never the
+  `let`/`var` names around it — lux has no closures — so a tuning constant at the top of a
+  file, reached for inside the function it tunes, failed with `is not defined`. The generic
+  note then sent the learner to `lux learn scope`, whose card confirmed the wrong model. The
+  error now says the name exists at the top of the file and a function only sees what it is
+  handed, and the scope card gains the sentence it was missing. The note fires only for the
+  real case — a top-level name, read from inside a function — so a plain typo and a
+  top-level use-before-declaration keep the ordinary wording.
+
 ## [0.19.3] - 2026-08-06
 
 A diagnostics fix, no change to what lux accepts or rejects. It corrects the error a

@@ -321,6 +321,7 @@ pub fn to_rust(program: &[Stmt]) -> String {
         g.line("fn main() {".into());
         g.indent += 1;
         g.t.push_scope();
+        g.emit_sigpipe_default();
         for stmt in program {
             if !matches!(
                 stmt,
@@ -848,6 +849,28 @@ impl Gen {
             .is_some_and(|p| matches!(ty_from_ann(&p.ty), Ty::Array(_)))
     }
 
+    /// The first thing `main` does: hand SIGPIPE back to its default. Rust's runtime
+    /// ignores SIGPIPE, so a closed pipe surfaces as an error `println!` unwraps into a
+    /// panic — `program | head` prints a backtrace note about a line the learner never
+    /// wrote. The interpreter and the Go and Swift builds all end quietly on the signal;
+    /// this makes the Rust build the fourth to agree. `#[cfg(unix)]`, since SIGPIPE is a
+    /// Unix idea and the panic it prevents is a Unix pipe.
+    fn emit_sigpipe_default(&mut self) {
+        self.line("// End quietly when a pipe closes (as `program | head` does), the way".into());
+        self.line("// `lux run` and the Go and Swift builds do; Rust otherwise panics.".into());
+        self.line("#[cfg(unix)]".into());
+        self.line("{".into());
+        self.indent += 1;
+        self.line("unsafe extern \"C\" {".into());
+        self.indent += 1;
+        self.line("fn signal(sig: i32, handler: usize) -> usize;".into());
+        self.indent -= 1;
+        self.line("}".into());
+        self.line("unsafe { signal(13, 0); } // SIGPIPE -> SIG_DFL".into());
+        self.indent -= 1;
+        self.line("}".into());
+    }
+
     fn emit_func(&mut self, name: &str, params: &[Param], ret: Option<&TypeAnn>, body: &[Stmt]) {
         // An array parameter of a scalar-returning function is borrowed, not owned,
         // so a caller never clones it to pass it. Note which ones for the length of
@@ -890,6 +913,9 @@ impl Gen {
         self.t.push_scope();
         for p in params {
             self.t.declare(p.name.clone(), ty_from_ann(&p.ty));
+        }
+        if name == "main" {
+            self.emit_sigpipe_default();
         }
         for stmt in body {
             self.emit_stmt(stmt);

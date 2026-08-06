@@ -426,8 +426,14 @@ is about.
 A name lives only inside the block where you declare it — the `{ }` of a
 function, an `if`, or a loop. Step outside that block and the name is gone.
 
+A function body is the one block that also starts fresh: it sees its parameters
+and the program's other functions and types, but never the `let` and `var` names
+around it — not even a top-level one. That is why `loud` below takes `word` as a
+parameter instead of reaching for `planet` directly: a value from outside gets
+*passed in*, it isn't borrowed.
+
 ```lux
-let planet = "Earth"            // planet lives in the whole program
+let planet = "Earth"            // a top-level name, passed into loud below
 func loud(word: string) -> string {
     let banged = word + "!"     // banged lives only inside loud
     return banged
@@ -442,9 +448,13 @@ print(planet, "is still here")  // planet is still in scope out here
 Every language has *scope* — the region of a program where a name means
 something. lux keeps it simple: a fresh scope opens at every `{` and closes at
 its matching `}`, and an inner scope can see the names around it but never the
-other way around. The bigger languages add more kinds — file and module scope,
-namespaces, and *closures* that let a function carry its scope around with it —
-but the rule you just learned is the spine that all of them are built on.
+other way around. A function body is the one exception — it starts fresh at the
+root, seeing the program's functions and types but none of the `let`/`var` names
+around it, so everything it works on arrives through a parameter. The bigger
+languages add more kinds — file and module scope, namespaces, and *closures*
+that let a function carry its scope around with it — and that last one is exactly
+what a function's fresh start leaves out. The rule you just learned is the spine
+that all of them are built on.
 
 lux also keeps names from stacking up. A name has to be new where you make it:
 you can't declare one that's still in scope from an outer block, and you can't

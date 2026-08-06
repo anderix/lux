@@ -33,6 +33,14 @@ pub fn check(program: &[Stmt]) -> Result<(), LuxError> {
     // making `lux run` agree with the targets rather than accepting what Go can't
     // emit (#42).
     reject_result_parameter(program)?;
+    // A `Result` stored in a binding or handed to `print` is the same rule as the
+    // parameter case, one step later. The interpreter catches it, but only on a line
+    // it runs: a stored `Result` in a branch that never executes slips past `lux run`
+    // while `lux convert`/`lux build` refuse it, the run-vs-emit split #70 closed for
+    // built-in argument types. Checked here on every path, it can't false-positive —
+    // a `Result` is never storable, so there's no valid program to turn away — so the
+    // gap closes without risk.
+    reject_result_flow(program, &Types::new(program))?;
     // An empty array literal bound without a type annotation: the same declaration
     // rule an empty `none` already meets — name what it holds — settled here so all
     // four legs agree it's illegal until annotated (#66).
@@ -328,16 +336,16 @@ fn walk_expr_names(
 /// switch off at exactly that moment, and hardest for the lux-specific rules the
 /// target compilers describe worst.
 ///
-/// Mostly the checks decidable from the program's structure, with no type
-/// inference: a call to a function that isn't there or is passed the wrong number
-/// of values, and a write through a parameter — the rule the issue leads with, and
-/// one no target language phrases in lux's terms. The one type-directed rule that
-/// belongs here is a stored `Result` (#39) — see `reject_result_flow` for why it's
-/// safe where the others aren't. The remaining type-directed rules (mixing `int`
-/// and `float`, a return type that doesn't match) are left to the target compiler
-/// for now: a static answer to them would lean on inference that assumes a
-/// well-formed program, and refusing a valid one is worse than the wall of rustc it
-/// was meant to prevent.
+/// What's left here are the checks decidable from the program's structure, with no
+/// type inference: a call to a function that isn't there or is passed the wrong
+/// number of values, and a write through a parameter — the rule the issue leads
+/// with, and one no target language phrases in lux's terms. The type-directed
+/// `Result` rules (stored, printed, passed) now run in [`check`] on every path, so
+/// `lux run` refuses them too, not just at runtime on a line it happens to reach.
+/// The remaining type-directed rules (mixing `int` and `float`, a return type that
+/// doesn't match) are left to the target compiler for now: a static answer to them
+/// would lean on inference that assumes a well-formed program, and refusing a valid
+/// one is worse than the wall of rustc it was meant to prevent.
 pub fn check_before_emit(program: &[Stmt]) -> Result<(), LuxError> {
     let funcs: HashMap<&str, usize> = program
         .iter()
@@ -357,14 +365,6 @@ pub fn check_before_emit(program: &[Stmt]) -> Result<(), LuxError> {
         .collect();
     check_calls(program, &funcs, &types)?;
     check_param_writes(program)?;
-    // The store-a-Result rule is the one type-directed check that moves across to
-    // convert/build (#39): unlike mixing int and float or a wrong return type, it
-    // isn't caught by the target compiler — the program builds and prints `Ok(…)`
-    // on Rust and `success(…)` on Swift, the one value lux says can never be
-    // printed. It also can't false-positive: a `Result` is never storable, so
-    // there's no valid program to turn away. It's the rule that keeps one source
-    // crossing three targets, so it's enforced where the value is produced.
-    reject_result_flow(program, &Types::new(program))?;
     Ok(())
 }
 

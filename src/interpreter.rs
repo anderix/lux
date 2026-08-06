@@ -8,7 +8,7 @@
 //! silently guessing. A real checker that catches these before the program
 //! runs is a later milestone.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::rc::Rc;
 
@@ -121,6 +121,11 @@ struct Interp {
     /// against `MAX_CALL_DEPTH` on each call so runaway recursion becomes a lux
     /// error rather than a stack overflow.
     depth: usize,
+    /// The names bound by top-level `let`/`var`. A function body can't see them —
+    /// lux has no closures — so a lookup that fails inside a function for one of
+    /// these is the file-level-constant slip, told apart here to earn a note that
+    /// names the boundary instead of the generic "declare it first" (#73).
+    top_level_lets: HashSet<String>,
 }
 
 /// How deep user-function calls may nest before the interpreter reports runaway
@@ -221,6 +226,15 @@ fn run_with(
     // the default stack — aborting the process with no diagnostic — before its own
     // depth limit could report a clean error. A scoped thread lets the closure keep
     // borrowing `program`.
+    // The top-level `let`/`var` names, gathered once so a lookup that fails inside a
+    // function can tell a file-level constant apart from a plain typo (#73).
+    let top_level_lets: HashSet<String> = program
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::Let { name, .. } | Stmt::Var { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
     std::thread::scope(|s| {
         std::thread::Builder::new()
             .stack_size(INTERP_STACK)
@@ -233,6 +247,7 @@ fn run_with(
                     program_args: program_args.to_vec(),
                     trace,
                     depth: 0,
+                    top_level_lets,
                 };
                 // Option and Result are built-in enums, registered before anything
                 // else so they exist for type-checking and a user can't redeclare
@@ -420,6 +435,30 @@ impl Interp {
 
     fn lookup(&self, name: &str) -> Option<&Binding> {
         self.scopes.iter().rev().find_map(|s| s.get(name))
+    }
+
+    /// The error for reading a name that isn't in scope. Inside a function, a name
+    /// that exists only at the top of the file is the case that trips a learner: a
+    /// function body sees its parameters and the program's functions and types, but
+    /// none of the file-level `let`/`var` names around it — lux has no closures. Name
+    /// that exact situation where it happens, so the trail to `lux learn scope` lands
+    /// on a card that agrees, rather than the generic "declare it first" that sends
+    /// them to re-derive a boundary they just crossed (#73).
+    fn undefined_read(&self, name: &str, span: Span) -> LuxError {
+        if self.depth > 0 && self.top_level_lets.contains(name) {
+            LuxError::new(format!("`{}` is not defined", name), span)
+                .with_note(format!(
+                    "`{name}` exists at the top of the file, but a function body only sees its parameters and other functions — pass it in as one"
+                ))
+                .with_learn(
+                    "scope",
+                    "a function body sees its parameters and the program's functions, not the values around it",
+                )
+        } else {
+            LuxError::new(format!("`{}` is not defined", name), span)
+                .with_note("declare it with let or var before using it")
+                .with_learn("scope", "a name lives only inside the { } where it's made")
+        }
     }
 
     fn lookup_mut(&mut self, name: &str) -> Option<&mut Binding> {
@@ -812,9 +851,7 @@ impl Interp {
             Expr::Ident(name, span) => match self.lookup(name) {
                 Some(b) => Ok(b.value.clone()),
                 None if name == "none" => Ok(option_none()),
-                None => Err(LuxError::new(format!("`{}` is not defined", name), *span)
-                    .with_note("declare it with let or var before using it")
-                    .with_learn("scope", "a name lives only inside the { } where it's made")),
+                None => Err(self.undefined_read(name, *span)),
             },
             Expr::Array(elems, _) => {
                 let mut items = Vec::with_capacity(elems.len());

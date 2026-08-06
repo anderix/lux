@@ -563,9 +563,12 @@ fn a_wrong_argument_type_to_a_builtin_is_caught() {
         "if false { print(float([1])) }\nprint(\"ok\")\n",
         &["cannot convert an array to a float"],
     );
+    // A bare call, not `print(readFile(5))`: `readFile` hands back a `Result`, so
+    // printing it trips the Result-can't-be-printed rule first (as it does under the
+    // interpreter) — the bare form isolates the argument-type check being tested here.
     reads_like(
         "breadfile",
-        "if false { print(readFile(5)) }\nprint(\"ok\")\n",
+        "if false { readFile(5) }\nprint(\"ok\")\n",
         &["readFile expects a string, but got int"],
     );
 }

@@ -367,6 +367,42 @@ fn convert_refuses_a_stored_result_like_run_does() {
     );
 }
 
+/// The store/print-a-Result rule is the interpreter's, but the interpreter enforces
+/// it only on a line it runs — so a stored or printed `Result` in a branch that never
+/// executes slipped past `lux run` while convert/build refused it, the run-vs-emit
+/// split #70 closed for built-in argument types. It now runs on every path, so a dead
+/// branch is caught up front too, and `lux run` agrees with the emitters.
+#[test]
+fn a_dead_branch_result_misuse_is_caught_on_run() {
+    let stored = err_of(
+        "deadstore",
+        "func main() {\n    if false {\n        let r = readFile(\"x.txt\")\n        print(\"x\")\n    }\n    print(\"done\")\n}\n",
+    );
+    assert!(
+        stored.contains("a Result can't be stored"),
+        "run should catch a stored Result in a dead branch, got:\n{stored}"
+    );
+    let printed = err_of(
+        "deadprint",
+        "func main() {\n    if false {\n        print(readFile(\"x.txt\"))\n    }\n    print(\"done\")\n}\n",
+    );
+    assert!(
+        printed.contains("a Result can't be printed"),
+        "run should catch a printed Result in a dead branch, got:\n{printed}"
+    );
+    // The same program the emitters already refuse — the point is that run now joins
+    // them rather than running a program they won't build.
+    let conv = convert_err(
+        "cdeadstore",
+        "go",
+        "func main() {\n    if false {\n        let r = readFile(\"x.txt\")\n        print(\"x\")\n    }\n    print(\"done\")\n}\n",
+    );
+    assert!(
+        conv.contains("a Result can't be stored"),
+        "convert should refuse it too, got:\n{conv}"
+    );
+}
+
 /// A `Result` parameter is the same rule at a binding, and it has no Go type to
 /// lower to, so it's refused on every path — including `lux run`, which used to
 /// accept it (#42).
@@ -612,4 +648,42 @@ fn reusing_a_name_in_sibling_scopes_is_fine() {
         String::from_utf8_lossy(&out.stderr)
     );
     assert_eq!(String::from_utf8_lossy(&out.stdout), "2\n");
+}
+
+/// A function body can't see a file-level `let` — lux has no closures — and the slip
+/// a learner makes is putting tuning constants at the top of the file and reaching for
+/// them inside the function they tune. The old error sent them to `lux learn scope`,
+/// whose card then confirmed the wrong model; the note now names the boundary where
+/// they hit it, so the trail lands somewhere that agrees (#73). It fires only for the
+/// real case — a name that exists at the top of the file, read from inside a function —
+/// so a plain typo and a top-level use-before-declaration keep the generic wording.
+#[test]
+fn a_file_level_name_read_inside_a_function_names_the_boundary() {
+    let err = err_of(
+        "filelevel",
+        "let maxSteps = 60\nfunc climb(n: int) -> int {\n    var s = 0\n    while s < maxSteps {\n        s += 1\n    }\n    return s\n}\nprint(climb(1))\n",
+    );
+    assert!(
+        err.contains("exists at the top of the file") && err.contains("pass it in as one"),
+        "should name the function boundary, got:\n{err}"
+    );
+
+    // A real typo inside a function isn't a file-level name, so it stays generic —
+    // the boundary note would be a lie.
+    let typo = err_of(
+        "innertypo",
+        "func f(n: int) -> int {\n    return n + notAThing\n}\nprint(f(1))\n",
+    );
+    assert!(
+        typo.contains("declare it with let or var") && !typo.contains("top of the file"),
+        "a plain typo should keep the generic note, got:\n{typo}"
+    );
+
+    // At the top level there's no function boundary to name, so a use-before-declaration
+    // of a top-level name stays generic too, even though the name is file-level.
+    let ubd = err_of("ubd", "print(later)\nlet later = 5\n");
+    assert!(
+        ubd.contains("declare it with let or var") && !ubd.contains("top of the file"),
+        "a top-level use-before-declaration should stay generic, got:\n{ubd}"
+    );
 }
