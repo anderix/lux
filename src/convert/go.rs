@@ -1,11 +1,13 @@
 //! The Go backend: emit real Go source.
 //!
-//! Go is the target furthest from lux's shape, which is exactly the lesson: down
-//! the ladder you keep the same ideas but rebuild a few conveniences by hand.
-//! lux has none of Go's gaps, so this backend is where the translation does the
-//! most work. Enums with associated values have no Go equivalent, so each
-//! becomes an interface plus one struct per case, taken apart with a type
-//! switch. lux's `match` is an expression but Go's `switch` is a statement, so a
+//! Go is the target furthest from lux's shape, and that distance is the lesson:
+//! the same ideas still travel, but where Rust and Swift hand them to you, Go
+//! asks you to build them yourself. It is a different lineage, not a lesser one —
+//! Go reaches for nil, mutable values, and multiple returns where lux reaches for
+//! `Option`, immutability, and sum types — so this backend does the most work,
+//! standing lux's model back up on Go's own terms. Enums with associated values
+//! have no Go equivalent, so each becomes an interface plus one struct per case,
+//! taken apart with a type switch. lux's `match` is an expression but Go's `switch` is a statement, so a
 //! returning match pushes its `return` into every arm. `Option<T>` becomes a
 //! pointer with `nil` for none — except when `T` is an enum, already a nil-able
 //! interface, which stands on its own — and `Result<T, E>` becomes Go's

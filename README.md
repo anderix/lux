@@ -1,15 +1,15 @@
 # lux
 
 lux is a small language built to be a great first language and then to be
-outgrown. Every feature is the simplest version of something shared by
-Rust, Swift, and Go, so what you learn here carries straight over when you move
-on to one of those. The few hard ideas lux leaves out — ownership, classes,
+outgrown. Every feature is the simplest version of an idea you meet again in Rust,
+Swift, and Go, so the idea carries over when you move on to one of those — you
+relearn the syntax, not the concept. The few hard ideas lux leaves out — ownership, classes,
 goroutines — are the ideas those bigger languages are built around, and they
 land better once you have written something that needs them.
 
-The whole language is one file you can read in a sitting — read
-[learn-lux.md](learn-lux.md): it is the reference, the tutorial, and the test
-corpus all at once, and the suite runs every example in it. The same material is built into the binary, so once lux is
+The whole language is one file — read [learn-lux.md](learn-lux.md): it is the
+reference, the tutorial, and the test corpus all at once, and the suite runs
+every example in it. The same material is built into the binary, so once lux is
 installed you can read it in your terminal with `lux learn`.
 
 ## Installing
@@ -101,14 +101,16 @@ cargo build --release
 
 ## Testing
 
-The premise is "same source, same behaviour, three targets", so the suite proves
-it rather than assuming it. `./check.sh` builds lux and runs everything against
-that fresh binary: the Rust test suite, then the conformance and flex corpora,
-which transpile a body of programs and diff each compiled translation against the
-interpreter. `./check.sh fast` runs just the build and the Rust tests for a tight
-loop. A leg whose compiler (`go`, `rustc`, `swiftc`) isn't installed is skipped,
-so the suite runs on whatever toolchains you have; CI runs the full sweep on all
-three.
+The goal is "same source, same behaviour, three targets": `lux run` is the
+reference, the transpilers target it, and anywhere a translation behaves
+differently is a bug to fix. The suite is how those divergences get caught.
+`./check.sh` builds lux and runs everything against that fresh binary: the Rust
+test suite, then the conformance and flex corpora, which transpile a body of
+programs and diff each compiled translation against the interpreter — a divergence
+shows up here, or in a real program, and becomes the next patch. `./check.sh fast`
+runs just the build and the Rust tests for a tight loop. A leg whose compiler
+(`go`, `rustc`, `swiftc`) isn't installed is skipped, so the suite runs on
+whatever toolchains you have; CI runs the full sweep on all three.
 
 ## Status
 
@@ -125,7 +127,7 @@ manufactured. And lux has to be put in front of a beginner who has no reason to
 be kind about it, because the claim on the first line of this file is about
 teaching, and that is not something its author can grade from the inside.
 
-The teaching surface itself is complete. `lux run` covers the core —
+The teaching surface itself is fully built. `lux run` covers the core —
 `print`, `let`/`var`, the four basic types with conversions, arithmetic,
 strings and taking one apart, `if`/`else`, `while`, `for ... in`, ranges,
 arrays, functions with recursion, and scope — then your own types (structs,
@@ -149,14 +151,21 @@ play by running and change by editing — with a tutorial-free fast track
 skip straight to changing it. `lux trace` narrates a running program line by
 line, for the bug that gives a wrong answer rather than an error. `lux editors
 highlighting` sets up syntax highlighting for whichever of GNOME Text Editor,
-Vim, Neovim, nano, or — on Windows — Notepad++ you already have — highlighting
+Vim, Neovim, nano, or (on Windows) Notepad++ you already have — highlighting
 only, nothing that completes or corrects. And `lux update` fetches the latest
 release in place.
+
+lux teaches from a point of view. It commits to no null, sum types with
+exhaustive `match`, and immutability by default — not as the only way to write
+programs, but as the habits the strongest current languages are converging on,
+and ones easier to learn first than to bolt on later. That stand is the reason
+lux exists: a language with no view on how programs should be written would
+have nothing to teach.
 
 If you are weighing lux up rather than learning it — a parent or teacher deciding
 whether a language this small can carry a first year — [flex/](flex/) is written
 for you: a corpus of the programs a first course reaches for, each run on all four
-implementations, with an honest account of how far the language goes and exactly
+implementations, with a plain account of how far the language goes and exactly
 where it stops. [flex/CONVERT.md](flex/CONVERT.md) sets lux source beside the Rust,
 Swift, and Go it becomes — the graduation claim shown rather than asserted.
 
