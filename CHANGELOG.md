@@ -4,6 +4,34 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.1] - 2026-08-06
+
+A hardening release, no new language surface. It finishes the static type check that
+0.19.0 introduced — extending it from the ten commonest rules to the whole of the
+interpreter's concrete-type checking — and closes a gap in what the teaching material
+is tested against.
+
+### Changed
+
+- **The static type check now covers every concrete-type rule the interpreter has.**
+  0.19.0 caught the ten commonest on every path; the rest still fired only on a line
+  that ran. Now a comparison between two types, a `!` on a number or `-` on a
+  non-number, an out-of-type index or a range whose ends aren't ints, a struct or enum
+  value built with wrong or missing fields, a match on something unmatchable or a value
+  match with no `_`, and a `-> type` function that can run off its end are all refused
+  ahead of running or emitting — in the interpreter's own words, on any path. It still
+  declines every case it can't pin to a concrete type, so no program the interpreter
+  would accept is turned away (#60).
+
+### Fixed
+
+- **The teaching material's deeper pages are tested too.** `lux learn`'s agreement
+  sweep — every example run on the interpreter and each backend, held to one output —
+  covered each topic's leading card but not the code blocks on its earned *more* page.
+  The learn parser now keeps each fence's language, so a lux block can be told from the
+  Rust, Go, and Swift ones the `main` page shows on purpose, and every lux block on a
+  more page is swept the same way. The blocks this reached already agreed (#68).
+
 ## [0.19.0] - 2026-08-05
 
 lux is now statically type-checked. The interpreter always checked types as it ran, so
