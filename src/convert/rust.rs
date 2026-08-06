@@ -36,6 +36,13 @@ struct Gen {
     /// Names ever mutated in the program, so a `var` that's only ever read binds
     /// immutably and doesn't draw Rust's "does not need to be mutable" warning.
     mutated: std::collections::HashSet<String>,
+    /// The `var name: T` declarations (no starting value) that Rust can prove are
+    /// assigned before they're read, keyed by span, so they defer their value
+    /// (`let name: T;`) instead of taking an injected zero that would warn (#69).
+    deferred_init: std::collections::HashSet<(usize, usize)>,
+    /// The subset of `deferred_init` that a later path reassigns, so its deferred
+    /// binding earns `let mut`; the rest stay a plain immutable `let`.
+    deferred_mut: std::collections::HashSet<(usize, usize)>,
     /// `print` of a compound value routes through a generated `LuxShow` trait so
     /// the output reads the way lux renders it — `P(x: 1, y: 2)`,
     /// `Shape.circle(radius: 5)` — rather than Rust's `{:?}` (`P { x: 1, y: 2 }`,
@@ -253,6 +260,7 @@ fn lux_io_reason(e: &std::io::Error) -> String {
 
 /// Translate a whole program to Rust source text.
 pub fn to_rust(program: &[Stmt]) -> String {
+    let (deferred_init, deferred_mut) = plan_deferred_vars(program);
     let mut g = Gen {
         t: Types::new(program),
         out: String::new(),
@@ -262,6 +270,8 @@ pub fn to_rust(program: &[Stmt]) -> String {
         uses_run: false,
         boxed: Vec::new(),
         mutated: mutated_roots(program),
+        deferred_init,
+        deferred_mut,
         uses_lux_show: false,
         ref_params: std::collections::HashSet::new(),
         uses_lux_div: false,
@@ -537,7 +547,9 @@ fn ty_text(t: &Ty) -> String {
     }
 }
 
-/// The natural empty value for a `var` that was declared without one.
+/// The natural empty value for a `var` declared without one — the initializer a
+/// deferred binding falls back to when Rust can't prove the variable is set before
+/// it's read (see `plan_deferred_vars`).
 fn zero(t: &Ty) -> String {
     match t {
         Ty::Int => "0".into(),
@@ -547,6 +559,196 @@ fn zero(t: &Ty) -> String {
         Ty::Array(_) => "Vec::new()".into(),
         Ty::Option(_) => "None".into(),
         _ => "Default::default()".into(),
+    }
+}
+
+/// A set of declarations, each identified by its source span `(start, end)`.
+type SpanSet = std::collections::HashSet<(usize, usize)>;
+
+/// How each `var name: T` — written with no starting value — should be emitted in
+/// Rust, keyed by the declaration's span (so same-named vars in sibling scopes stay
+/// distinct). Two sets:
+///
+/// - `deferred`: the variable is provably assigned before it is ever read, on every
+///   path Rust's own analysis follows — straight-line, or both branches of an `if`.
+///   Then the binding defers its value (`let name: T;`) and takes it on first
+///   assignment, immutably. An injected `= zero` here would be a value Rust sees is
+///   never read, and warn — the whole point of #69.
+/// - `mutable`: the subset of `deferred` that some later path assigns a second time
+///   — a sequential reassignment, or one inside a loop — and so must be `let mut`.
+///
+/// A declaration in neither set keeps the old `let mut name: T = zero` form: Rust
+/// could not prove definite assignment (the only assignment is inside a loop, say),
+/// so the initializer is genuinely reachable — it compiles, and reads cleanly,
+/// because that zero really can be the value the program uses.
+fn plan_deferred_vars(program: &[Stmt]) -> (SpanSet, SpanSet) {
+    fn walk(stmts: &[Stmt], deferred: &mut SpanSet, mutable: &mut SpanSet) {
+        for (i, s) in stmts.iter().enumerate() {
+            if let Stmt::Var {
+                value: None,
+                ty: Some(_),
+                name,
+                span,
+            } = s
+            {
+                // Assignments to and reads of the variable live in the statements
+                // that follow it in this scope and their nested blocks.
+                let rest = &stmts[i + 1..];
+                let (reads_before_assign, _) = scan_before_assign(rest, name, false);
+                if !reads_before_assign {
+                    deferred.insert((span.start, span.end));
+                    if assign_path_max(rest, name) >= 2 {
+                        mutable.insert((span.start, span.end));
+                    }
+                }
+            }
+            match s {
+                Stmt::Func { body, .. } | Stmt::While { body, .. } | Stmt::For { body, .. } => {
+                    walk(body, deferred, mutable)
+                }
+                Stmt::If {
+                    then_body,
+                    else_body,
+                    ..
+                } => {
+                    walk(then_body, deferred, mutable);
+                    if let Some(e) = else_body {
+                        walk(e, deferred, mutable);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut deferred = std::collections::HashSet::new();
+    let mut mutable = std::collections::HashSet::new();
+    walk(program, &mut deferred, &mut mutable);
+    (deferred, mutable)
+}
+
+/// Does some path read `name` before it is assigned? Modelled on Rust's own
+/// definite-assignment analysis, and deliberately conservative: it counts a name
+/// as assigned only where Rust surely would — a plain `name = …`, or both branches
+/// of an `if` — so a loop body (which may not run) never marks it assigned. Returns
+/// `(read_before_assign, assigned_on_every_path)`, given whether it arrived
+/// assigned. When the answer is uncertain it errs toward "read before assign", so
+/// the caller keeps the always-safe zero initializer rather than risk a deferred
+/// binding Rust would reject.
+fn scan_before_assign(stmts: &[Stmt], name: &str, mut assigned: bool) -> (bool, bool) {
+    for s in stmts {
+        match s {
+            Stmt::Let { value, .. }
+            | Stmt::Var {
+                value: Some(value), ..
+            } if !assigned && expr_mentions(value, name) => return (true, assigned),
+            Stmt::Assign {
+                target, op, value, ..
+            } => {
+                if !assigned && (expr_mentions(value, name) || target_index_reads(target, name)) {
+                    return (true, assigned);
+                }
+                if target.place_root() == Some(name) {
+                    // A plain `name = …` sets it; a compound target — `name.f = …`,
+                    // `name[i] = …` — or a `+=`/`-=` reads it first.
+                    if matches!(target, Expr::Ident(..)) && *op == AssignOp::Set {
+                        assigned = true;
+                    } else if !assigned {
+                        return (true, assigned);
+                    }
+                }
+            }
+            Stmt::If {
+                cond,
+                then_body,
+                else_body,
+                ..
+            } => {
+                if !assigned && expr_mentions(cond, name) {
+                    return (true, assigned);
+                }
+                let (v1, a1) = scan_before_assign(then_body, name, assigned);
+                if v1 {
+                    return (true, assigned);
+                }
+                let (v2, a2) = match else_body {
+                    Some(e) => scan_before_assign(e, name, assigned),
+                    None => (false, assigned),
+                };
+                if v2 {
+                    return (true, assigned);
+                }
+                assigned = a1 && a2;
+            }
+            Stmt::While { cond, body, .. } => {
+                if !assigned && expr_mentions(cond, name) {
+                    return (true, assigned);
+                }
+                // The body may run zero times, so it can't make `name` assigned.
+                if scan_before_assign(body, name, assigned).0 {
+                    return (true, assigned);
+                }
+            }
+            Stmt::For { iter, body, .. } => {
+                if !assigned && expr_mentions(iter, name) {
+                    return (true, assigned);
+                }
+                if scan_before_assign(body, name, assigned).0 {
+                    return (true, assigned);
+                }
+            }
+            Stmt::Return { value: Some(v), .. } | Stmt::Expr(v)
+                if !assigned && expr_mentions(v, name) =>
+            {
+                return (true, assigned);
+            }
+            // A sibling function has its own scope and can't see this local.
+            _ => {}
+        }
+    }
+    (false, assigned)
+}
+
+/// Does an assignment target read `name` in one of its index positions —
+/// `arr[name] = …` — as opposed to naming it as the place being written?
+fn target_index_reads(target: &Expr, name: &str) -> bool {
+    match target {
+        Expr::Index { base, index, .. } => {
+            expr_mentions(index, name) || target_index_reads(base, name)
+        }
+        Expr::Field { base, .. } => target_index_reads(base, name),
+        _ => false,
+    }
+}
+
+/// The most times `name` could be assigned on a single path through `stmts`,
+/// capped at 2 — all the caller needs is whether it can exceed one. Branches of an
+/// `if` are alternatives, so a path takes the heavier one; a loop that assigns at
+/// all can repeat that assignment, so it counts as two.
+fn assign_path_max(stmts: &[Stmt], name: &str) -> usize {
+    let mut total = 0;
+    for s in stmts {
+        total = (total + stmt_assign_max(s, name)).min(2);
+        if total >= 2 {
+            return 2;
+        }
+    }
+    total
+}
+
+fn stmt_assign_max(s: &Stmt, name: &str) -> usize {
+    match s {
+        Stmt::Assign { target, .. } => (target.place_root() == Some(name)) as usize,
+        Stmt::If {
+            then_body,
+            else_body,
+            ..
+        } => {
+            let t = assign_path_max(then_body, name);
+            let e = else_body.as_ref().map_or(0, |b| assign_path_max(b, name));
+            t.max(e)
+        }
+        Stmt::While { body, .. } | Stmt::For { body, .. } if assign_path_max(body, name) >= 1 => 2,
+        _ => 0,
     }
 }
 
@@ -716,13 +918,32 @@ impl Gen {
                 name,
                 ty: Some(ann),
                 value: None,
-                ..
+                span,
             } => {
                 let vty = ty_from_ann(ann);
-                let z = zero(&vty);
                 let snake = rust_ident(&to_snake(name));
+                let key = (span.start, span.end);
                 self.t.declare(name.clone(), vty.clone());
-                self.line(format!("let mut {}: {} = {};", snake, ty_text(&vty), z));
+                if self.deferred_init.contains(&key) {
+                    // lux fills the variable in before it is read, and Rust can see
+                    // that here — so defer its value rather than inject a zero it
+                    // would flag as never read. `mut` only if a path reassigns it.
+                    let kw = if self.deferred_mut.contains(&key) {
+                        "let mut"
+                    } else {
+                        "let"
+                    };
+                    self.line(format!("{} {}: {};", kw, snake, ty_text(&vty)));
+                } else {
+                    // Rust couldn't prove definite assignment (an assignment only
+                    // inside a loop, say), so keep the reachable zero initializer.
+                    self.line(format!(
+                        "let mut {}: {} = {};",
+                        snake,
+                        ty_text(&vty),
+                        zero(&vty)
+                    ));
+                }
             }
             Stmt::Var { value: None, .. } => {} // a var with neither type nor value can't occur
             Stmt::Assign {

@@ -1790,6 +1790,53 @@ print(b)
     assert_prints_everywhere(src, "baresome", "some(5)\nsome(north)\n");
 }
 
+/// A `var` declared without a value — the honest form of a name filled in later —
+/// compiles warning-clean everywhere. Where Rust can see the variable is set before
+/// it is read (both branches of an `if`, or straight-line then a loop), the binding
+/// defers its value instead of taking an injected `String::new()` / `0` that Rust
+/// would flag as never read, in code the learner never wrote (#69). `mut` is earned:
+/// `s`, set once per path, is a plain `let`; `total`, added to in the loop, is `let
+/// mut`. Swift and Go were already clean; this holds all three.
+#[test]
+fn a_deferred_var_compiles_clean_when_rust_sees_it_assigned() {
+    let src = r#"
+func label(n: int) -> string {
+    var s: string
+    if n > 0 {
+        s = "pos"
+    } else {
+        s = "nonpos"
+    }
+    return s
+}
+var total: int
+total = 0
+for x in [1, 2, 3] {
+    total = total + x
+}
+print(label(5))
+print(label(-1))
+print(total)
+"#;
+    assert_prints_everywhere(src, "deferredvar", "pos\nnonpos\n6\n");
+}
+
+/// The other side of #69: when the only assignment is inside a loop, Rust can't
+/// prove the variable is set before it's read — the loop may not run — so the
+/// binding keeps its zero initializer, which is genuinely reachable and so compiles
+/// clean rather than deferring to a value Rust would reject as possibly-unset.
+#[test]
+fn a_loop_only_deferred_var_keeps_its_reachable_initializer() {
+    let src = r#"
+var last: string
+for x in ["a", "b", "c"] {
+    last = x
+}
+print(last)
+"#;
+    assert_prints_everywhere(src, "loopvar", "c\n");
+}
+
 /// Matching one enum case and defaulting the rest — `match it { potion(let a) => …
 /// _ => … }` — reads the same on every backend. Go used to drop the `_` arm from
 /// its type switch and `panic("unreachable")` on every case the match didn't name;
