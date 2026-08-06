@@ -560,7 +560,7 @@ impl Gen {
             // binding, and an unmutated struct property draws no warning.
             self.line(format!(
                 "    var {}: {}",
-                f.name,
+                swift_ident(&f.name),
                 ty_text(&ty_from_ann(&f.ty))
             ));
         }
@@ -590,7 +590,7 @@ impl Gen {
                 let parts: Vec<String> = v
                     .fields
                     .iter()
-                    .map(|f| format!("{}: {}", f.name, ty_text(&ty_from_ann(&f.ty))))
+                    .map(|f| format!("{}: {}", swift_ident(&f.name), ty_text(&ty_from_ann(&f.ty))))
                     .collect();
                 self.line(format!(
                     "    case {}({})",
@@ -854,7 +854,10 @@ impl Gen {
             (Ty::Range, Expr::Range { start, end, .. }) => {
                 let s = self.emit_expr(start);
                 let e = self.emit_expr(end);
-                format!("stride(from: {}, to: {}, by: 1)", s, e)
+                // Fully qualified so a user binding named `stride` (an ordinary
+                // word — a Connect Four line's step, say) can't shadow the stdlib
+                // function this loop is built on (#79).
+                format!("Swift.stride(from: {}, to: {}, by: 1)", s, e)
             }
             _ => self.emit_expr(iter),
         };
@@ -1090,13 +1093,27 @@ impl Gen {
             }
             Expr::Call { name, args, .. } => self.emit_call(name, args),
             Expr::StructLit { name, fields, .. } => {
-                let parts: Vec<String> = fields
+                // Swift's memberwise initializer takes its arguments in
+                // declaration order and rejects any other, so reorder to match —
+                // named arguments are order-independent, so a constructor written
+                // short-fields-first still means the same thing and now compiles
+                // (#78).
+                let order: Vec<String> = self
+                    .t
+                    .env
+                    .structs
+                    .get(name)
+                    .map(|ds| ds.iter().map(|f| f.name.clone()).collect())
+                    .unwrap_or_default();
+                let mut parts: Vec<(usize, String)> = fields
                     .iter()
                     .map(|(k, v)| {
-                        let val = self.emit_expr(v);
-                        format!("{}: {}", k, val)
+                        let idx = order.iter().position(|n| n == k).unwrap_or(usize::MAX);
+                        (idx, format!("{}: {}", swift_ident(k), self.emit_expr(v)))
                     })
                     .collect();
+                parts.sort_by_key(|(i, _)| *i);
+                let parts: Vec<String> = parts.into_iter().map(|(_, s)| s).collect();
                 format!("{}({})", name, parts.join(", "))
             }
             Expr::EnumLit {
@@ -1113,7 +1130,7 @@ impl Gen {
                     return format!("{}.{}", n, swift_case(field));
                 }
                 let b = self.emit_expr(base);
-                format!("{}.{}", b, field)
+                format!("{}.{}", b, swift_ident(field))
             }
             // A match used as a value (not in return or statement position) is
             // wrapped in an immediately-called closure. lux's examples never hit
@@ -1368,11 +1385,11 @@ impl Gen {
                         .find(|(k, _)| k == fname)
                         .map(|(_, e)| (fname.clone(), self.emit_expr(e)))
                 })
-                .map(|(label, val)| format!("{}: {}", label, val))
+                .map(|(label, val)| format!("{}: {}", swift_ident(&label), val))
                 .collect(),
             None => fields
                 .iter()
-                .map(|(k, e)| format!("{}: {}", k, self.emit_expr(e)))
+                .map(|(k, e)| format!("{}: {}", swift_ident(k), self.emit_expr(e)))
                 .collect(),
         };
         if parts.is_empty() {
@@ -1480,7 +1497,7 @@ fn lux_show_struct(protocol_name: &str, name: &str, fields: &[FieldDef]) -> Stri
     } else {
         let parts: Vec<String> = fields
             .iter()
-            .map(|f| format!("\"{}: \" + self.{}.luxShow()", f.name, f.name))
+            .map(|f| format!("\"{}: \" + self.{}.luxShow()", f.name, swift_ident(&f.name)))
             .collect();
         format!("\"{}(\" + {} + \")\"", name, parts.join(" + \", \" + "))
     };
@@ -1503,11 +1520,15 @@ fn lux_show_enum(protocol_name: &str, name: &str, variants: &[VariantDef]) -> St
                 v.name
             ));
         } else {
-            let binds: Vec<String> = v.fields.iter().map(|f| format!("let {}", f.name)).collect();
+            let binds: Vec<String> = v
+                .fields
+                .iter()
+                .map(|f| format!("let {}", swift_ident(&f.name)))
+                .collect();
             let parts: Vec<String> = v
                 .fields
                 .iter()
-                .map(|f| format!("\"{}: \" + {}.luxShow()", f.name, f.name))
+                .map(|f| format!("\"{}: \" + {}.luxShow()", f.name, swift_ident(&f.name)))
                 .collect();
             arms.push_str(&format!(
                 "        case .{}({}): return \"{}.{}(\" + {} + \")\"\n",

@@ -479,7 +479,7 @@ fn lux_show_struct(trait_name: &str, name: &str, fields: &[FieldDef]) -> String 
                 format!(
                     "format!(\"{}: {{}}\", self.{}.lux_show())",
                     f.name,
-                    to_snake(&f.name)
+                    rust_ident(&to_snake(&f.name))
                 )
             })
             .collect();
@@ -772,7 +772,7 @@ impl Gen {
         for f in fields {
             self.line(format!(
                 "    {}: {},",
-                to_snake(&f.name),
+                rust_ident(&to_snake(&f.name)),
                 ty_text(&ty_from_ann(&f.ty))
             ));
         }
@@ -1352,7 +1352,7 @@ impl Gen {
                         // A field takes ownership, so a named non-Copy value is
                         // cloned — the source stays readable afterward.
                         let val = self.emit_moved(v);
-                        format!("{}: {}", to_snake(k), val)
+                        format!("{}: {}", rust_ident(&to_snake(k)), val)
                     })
                     .collect();
                 format!("{} {{ {} }}", name, parts.join(", "))
@@ -1379,9 +1379,13 @@ impl Gen {
                 if !self.assigning
                     && matches!(&**base, Expr::Index { base: inner, .. } if matches!(self.t.type_of(inner), Ty::Array(_)))
                 {
-                    format!("(*{}).{}", b.trim_start_matches('*'), to_snake(field))
+                    format!(
+                        "(*{}).{}",
+                        b.trim_start_matches('*'),
+                        rust_ident(&to_snake(field))
+                    )
                 } else {
-                    format!("{}.{}", b, to_snake(field))
+                    format!("{}.{}", b, rust_ident(&to_snake(field)))
                 }
             }
             Expr::Match {

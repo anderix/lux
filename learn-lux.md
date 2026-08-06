@@ -1018,11 +1018,13 @@ rather than papered over: each is a real seam between lux and a target language,
 the kind worth meeting head-on instead of hiding.
 
 - **Reserved-word collisions are handled.** A lux name that is a keyword in the
-  target (`go`, `where`, `map`, …) gets a trailing `_` in that backend only, and
-  only at value positions — function names, parameters, locals
-  (`src/convert/mod.rs`, the `*_ident` helpers). Type names and struct fields are
-  deliberately *not* mangled: a struct named `map` or a field named `type` is an
-  unsupported name, not a bug. Enum cases are handled where they'd actually break:
+  target (`go`, `where`, `map`, …) gets a trailing `_` in that backend only
+  (`src/convert/mod.rs`, the `*_ident` helpers): function names, parameters,
+  locals, struct fields, and enum payload labels all pass through it, so a field
+  named `type` or `move` compiles everywhere while lux still prints the name you
+  wrote. Type names are the one identifier left as written — a struct named `map`
+  is an unsupported name, not a bug — and PascalCasing keeps a type clear of the
+  lowercase keywords in any case. Enum cases are handled where they'd actually break:
   Swift emits the bare lowercase case name, so a case named `nil` is backtick-
   quoted there (`swift_case`); Go and Rust qualify a case (`TreeNil`, `Tree::Nil`)
   and can't collide with a lowercase keyword, so they leave it as written.

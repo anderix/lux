@@ -4,6 +4,38 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.6] - 2026-08-06
+
+Three parity fixes, no new language surface. Each is a place where `lux convert` exited
+cleanly and handed back code the target compiler then rejected — the author writing
+ordinary lux, the break surfacing only in generated code they never read. All three were
+found writing real programs.
+
+### Fixed
+
+- **A struct or enum field named for a target's keyword compiles everywhere.** Field names
+  skipped the reserved-word escaping that function, parameter, and local names already
+  went through, so a struct field named `move` or `box` (Rust's keywords) or an enum
+  payload labelled `where` (Swift's and Go's) converted fine and then would not compile.
+  Field names and enum payload labels now route through the same escaping on every
+  backend — `move` becomes `move_` in the generated source while lux still prints the name
+  you wrote — so an ordinary noun is an ordinary field name again, and nobody is asked to
+  memorise three languages' keyword lists to name a field. Type names stay as written, the
+  one identifier lux does not escape (#77).
+
+- **A struct built with its fields named out of declaration order compiles as Swift.** lux
+  lets you name a struct's fields in any order; Swift's memberwise initializer takes them
+  in declaration order and rejects any other, so a constructor written short-fields-first
+  produced Swift that would not build. The Swift backend now sorts the arguments into
+  declaration order — named arguments are order-independent, so the program means the same
+  thing and now compiles (#78).
+
+- **A parameter named `stride` no longer breaks Swift's `for` loops.** A `for` loop over a
+  range lowers to Swift's `stride(from:to:by:)`, so a function taking a parameter named
+  `stride` shadowed the function each of its loops was built on, and Swift alone failed to
+  compile. The emitted call is now fully qualified as `Swift.stride`, which no binding the
+  author makes can get in front of (#79).
+
 ## [0.19.5] - 2026-08-06
 
 A parity fix, no new language surface. It closes the last place the four legs disagreed

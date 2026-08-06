@@ -471,12 +471,16 @@ fn format_float(f: f64) -> String {
 /// (they aren't legal lux identifiers either), so each list below holds only the
 /// target words lux does *not* itself reserve.
 ///
-/// This guards *value* names: functions, parameters, and locals. Type names and
-/// struct fields are left as written — a type called `map` is a documented rough
-/// edge (see learn-lux.md's scope notes), not a supported name. Enum cases are
-/// left as written too, except in Swift, which alone emits the bare lowercase
-/// case name and so backtick-quotes a keyword collision (see `swift_case`); Go and
-/// Rust PascalCase and qualify their cases, which sidesteps the problem.
+/// This guards the identifiers an author writes that the emitter reproduces:
+/// functions, parameters, locals, struct fields, and enum payload labels (#77). A
+/// field named `move` or `type` is escaped like any other name, while the label
+/// lux prints stays the one the author wrote. Type names are left as written — a
+/// type called `map` is a documented rough edge (see learn-lux.md's scope notes),
+/// not a supported name, and PascalCasing keeps a type clear of the lowercase
+/// keywords anyway. Enum case names are left as written too, except in Swift, which
+/// alone emits the bare lowercase case name and so backtick-quotes a keyword
+/// collision (see `swift_case`); Go and Rust PascalCase and qualify their cases,
+/// which sidesteps the problem.
 fn reserve(name: &str, words: &[&str]) -> String {
     if words.contains(&name) {
         format!("{name}_")

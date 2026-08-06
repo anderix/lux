@@ -651,7 +651,7 @@ impl Gen {
         for f in fields {
             self.line(format!(
                 "\t{:w$} {}",
-                f.name,
+                go_ident(&f.name),
                 self.ty_text(&ty_from_ann(&f.ty)),
                 w = w
             ));
@@ -935,8 +935,8 @@ impl Gen {
         let mut body = String::new();
         for f in &fields {
             let fty = ty_from_ann(&f.ty);
-            let val = self.deep_copy_expr(&fty, &format!("x.{}", f.name));
-            body.push_str(&format!("\t\t{}: {},\n", f.name, val));
+            let val = self.deep_copy_expr(&fty, &format!("x.{}", go_ident(&f.name)));
+            body.push_str(&format!("\t\t{}: {},\n", go_ident(&f.name), val));
         }
         format!(
             "func copy{n}(x {n}) {n} {{\n\treturn {n}{{\n{body}\t}}\n}}\n\n",
@@ -1312,7 +1312,7 @@ impl Gen {
                 // Only pull out a binding the arm actually reads — an unused local
                 // is a compile error in Go, not a warning.
                 if b != "_" && expr_mentions(&arm.body, b) {
-                    self.line(format!("{} := {}.{}", b, subj, fname));
+                    self.line(format!("{} := {}.{}", b, subj, go_ident(fname)));
                 }
             }
             self.emit_arm_body(&arm.body, ret);
@@ -1623,7 +1623,7 @@ impl Gen {
                             Some(t) => self.emit_copied(v, &t),
                             None => self.emit_expr(v),
                         };
-                        format!("{}: {}", k, val)
+                        format!("{}: {}", go_ident(k), val)
                     })
                     .collect();
                 format!("{}{{{}}}", name, parts.join(", "))
@@ -1645,7 +1645,7 @@ impl Gen {
                     return format!("({}{}{{}})", n, to_pascal(field));
                 }
                 let b = self.emit_expr(base);
-                format!("{}.{}", b, field)
+                format!("{}.{}", b, go_ident(field))
             }
             // A match used as a value, which lux's examples never do; a closure
             // keeps it translatable.
@@ -2008,7 +2008,7 @@ impl Gen {
         } else {
             let parts: Vec<String> = fields
                 .iter()
-                .map(|(k, e)| format!("{}: {}", k, self.emit_expr(e)))
+                .map(|(k, e)| format!("{}: {}", go_ident(k), self.emit_expr(e)))
                 .collect();
             format!("{}{{{}}}", case, parts.join(", "))
         }
@@ -2022,7 +2022,7 @@ impl Gen {
 fn render_labelled(head: &str, fields: &[FieldDef]) -> String {
     let parts: Vec<String> = fields
         .iter()
-        .map(|f| format!("\"{}: \" + luxShow(x.{})", f.name, f.name))
+        .map(|f| format!("\"{}: \" + luxShow(x.{})", f.name, go_ident(&f.name)))
         .collect();
     format!("\"{}(\" + {} + \")\"", head, parts.join(" + \", \" + "))
 }

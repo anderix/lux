@@ -1298,7 +1298,7 @@ print(count(-1))
     // Swift stride yields an Int, so a body that reads the variable still works.
     let swift = convert::to_swift(&parser::parse(lexer::lex(src).expect("lex")).expect("parse"));
     assert!(
-        swift.contains("stride(from: 0, to: upto, by: 1)"),
+        swift.contains("Swift.stride(from: 0, to: upto, by: 1)"),
         "a Swift range loop should emit stride, got:\n{swift}"
     );
     assert_prints_everywhere(src, "revrange", "3\n0\n0\n");
@@ -1326,7 +1326,7 @@ print(seen)
         "Rust should drop the unread loop variable, got:\n{rust}"
     );
     assert!(
-        swift.contains("for _ in stride(from: 0, to: 3, by: 1)"),
+        swift.contains("for _ in Swift.stride(from: 0, to: 3, by: 1)"),
         "Swift should drop the unread loop variable, got:\n{swift}"
     );
     assert_prints_everywhere(src, "unusedloop", "3\n");
@@ -2538,4 +2538,75 @@ fn string_functions_match_scalars_not_graphemes() {
                print(replace(\"cafe\u{301}\", \"e\", \"E\"))\n\
                print(length(split(\"\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F466}\", \"\u{200D}\")))\n";
     assert_all_four(src, "scalarmatch", "false\nfalse\ntrue\ncafE\u{301}\n3\n");
+}
+
+/// A field named for a target's keyword — `move` and `box` are Rust's, `where` is
+/// Swift's and Go's — used to convert cleanly and then fail to compile, because
+/// field names skipped the reserved-word escaping value names already went through
+/// (#77). Now they route through it too, on struct fields and enum payload labels
+/// alike, and on every leg: the label lux prints stays the name the author wrote,
+/// only the emitted identifier is escaped. The `Choice` is also built out of
+/// declaration order, so this pins the field escaping and #78 together.
+#[test]
+fn a_field_named_for_a_target_keyword_still_compiles() {
+    let src = "\
+struct Choice {\n\
+move: string\n\
+box: int\n\
+}\n\
+enum Step {\n\
+slide(where: int)\n\
+stay\n\
+}\n\
+func describe(s: Step) -> string {\n\
+return match s {\n\
+slide(let w) => \"slide \" + string(w)\n\
+stay => \"stay\"\n\
+}\n\
+}\n\
+let c = Choice(box: 3, move: \"fold\")\n\
+print(c.move, c.box)\n\
+print(c)\n\
+print(describe(Step.slide(where: 5)))\n\
+print(describe(Step.stay))\n\
+print(Step.slide(where: 5))\n";
+    assert_all_four(
+        src,
+        "kwfield",
+        "fold 3\nChoice(move: fold, box: 3)\nslide 5\nstay\nStep.slide(where: 5)\n",
+    );
+}
+
+/// Swift's memberwise initializer takes its arguments in declaration order and
+/// rejects any other, so a struct built with its fields named in a different order
+/// converted fine and then would not compile as Swift (#78). The backend now sorts
+/// the arguments into declaration order; named arguments are order-independent, so
+/// the program means the same thing.
+#[test]
+fn a_struct_built_out_of_field_order_still_compiles() {
+    let src = "\
+struct Pair {\n\
+first: string\n\
+second: string\n\
+}\n\
+print(Pair(second: \"b\", first: \"a\").first)\n";
+    assert_all_four(src, "fieldorder", "a\n");
+}
+
+/// A `for` loop over a range lowers to Swift's `stride(from:to:by:)`, so a parameter
+/// named `stride` shadowed the function every loop is built on, and Swift alone
+/// failed to compile (#79). The emitted call is now fully qualified as
+/// `Swift.stride`, which nothing the author binds can get in front of.
+#[test]
+fn a_parameter_named_stride_does_not_break_swift_loops() {
+    let src = "\
+func spread(values: [int], stride: int) -> int {\n\
+var total = 0\n\
+for step in 0..3 {\n\
+total += values[step] * stride\n\
+}\n\
+return total\n\
+}\n\
+print(string(spread([1, 2, 3], 10)))\n";
+    assert_all_four(src, "strideparam", "60\n");
 }
