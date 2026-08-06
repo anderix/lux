@@ -141,13 +141,52 @@ fn build_and_run(lang: &str, src: &str, id: &str) -> String {
     String::from_utf8_lossy(&out.stdout).into_owned()
 }
 
-/// Every topic's example prints the same on all four legs. The card examples are the
-/// most-read lux programs there are, yet each was only ever built and thrown away, so
-/// an example that *ran* differently on a target passed unseen — which is how the `io`
-/// card's readFile reason came to differ three ways (#62). This runs each through the
-/// interpreter and every backend whose compiler is present, holding them to one
-/// output, and compiles Swift too — the backend the teaching material was never
-/// checked against. Stdin is empty, since the `input` card reads a line (#53).
+/// Run one lux program on the interpreter, then on each present backend, and hold
+/// them all to the interpreter's output. The shared body of the agreement sweep,
+/// called once per card example and once per lux block on a more page.
+fn agree_on_every_backend(id: &str, src: &str, backends: &[&str], tmp: &std::path::Path) {
+    // The interpreter is the reference every backend must match.
+    let path = tmp.join(format!("lux_agree_{}_{}.lux", std::process::id(), id));
+    std::fs::write(&path, src).expect("write lux");
+    let run = Command::new(env!("CARGO_BIN_EXE_lux"))
+        .arg("run")
+        .arg(&path)
+        .stdin(Stdio::null())
+        .output()
+        .expect("run lux");
+    let _ = std::fs::remove_file(&path);
+    assert!(
+        run.status.success(),
+        "`{id}` does not run:\n{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let want = String::from_utf8_lossy(&run.stdout).into_owned();
+
+    for lang in backends {
+        let out = match *lang {
+            "rust" => convert::to_rust(&program(src)),
+            "go" => convert::to_go(&program(src)),
+            "swift" => convert::to_swift(&program(src)),
+            _ => unreachable!(),
+        };
+        let got = build_and_run(lang, &out, &format!("{id}_{lang}"));
+        assert_eq!(
+            got, want,
+            "`{id}` prints differently on {lang} than the interpreter"
+        );
+    }
+}
+
+/// Every lux program in the teaching material prints the same on all four legs —
+/// the card example each topic leads with, and every lux code block on its earned
+/// more page. Each was only ever built and thrown away, so a program that *ran*
+/// differently on a target passed unseen — which is how the `io` card's readFile
+/// reason came to differ three ways (#62). The card sweep caught that; the more
+/// pages went a level deeper, unchecked, until this reached them too (#68). The
+/// `main` topic's more page deliberately shows the same hello-world in Rust, Go,
+/// and Swift, so only blocks tagged `lux` (or untagged) are run as lux. Swift is
+/// compiled here too — the backend the teaching material was never checked against.
+/// Stdin is empty, since the `input` card and two more blocks read a line (#53).
 #[test]
 fn every_topic_agrees_on_every_backend() {
     let backends: Vec<&str> = [
@@ -161,37 +200,27 @@ fn every_topic_agrees_on_every_backend() {
     .collect();
     let tmp = std::env::temp_dir();
     for t in learn::topics() {
-        // The interpreter is the reference every backend must match.
-        let path = tmp.join(format!("lux_agree_{}_{}.lux", std::process::id(), t.id));
-        std::fs::write(&path, &t.example).expect("write example");
-        let run = Command::new(env!("CARGO_BIN_EXE_lux"))
-            .arg("run")
-            .arg(&path)
-            .stdin(Stdio::null())
-            .output()
-            .expect("run lux");
-        let _ = std::fs::remove_file(&path);
-        assert!(
-            run.status.success(),
-            "`{}` does not run:\n{}",
-            t.id,
-            String::from_utf8_lossy(&run.stderr)
-        );
-        let want = String::from_utf8_lossy(&run.stdout).into_owned();
+        agree_on_every_backend(&t.id, &t.example, &backends, &tmp);
 
-        for lang in &backends {
-            let src = match *lang {
-                "rust" => convert::to_rust(&program(&t.example)),
-                "go" => convert::to_go(&program(&t.example)),
-                "swift" => convert::to_swift(&program(&t.example)),
-                _ => unreachable!(),
-            };
-            let got = build_and_run(lang, &src, &format!("{}_{}", t.id, lang));
-            assert_eq!(
-                got, want,
-                "`{}` prints differently on {} than the interpreter",
-                t.id, lang
-            );
+        // The deeper level: every lux block on the more page, held to the same bar.
+        if let Some(more) = &t.more {
+            let mut n = 0;
+            for block in &more.body {
+                if let learn::Block::Code { lang, body } = block {
+                    // A block tagged for a target language — the `main` page's
+                    // hello-world trio — is not a lux program, so leave it alone.
+                    let is_lux = lang.as_deref().is_none_or(|l| l == "lux");
+                    if is_lux {
+                        agree_on_every_backend(
+                            &format!("{}_more{}", t.id, n),
+                            body,
+                            &backends,
+                            &tmp,
+                        );
+                        n += 1;
+                    }
+                }
+            }
         }
     }
 }
@@ -311,7 +340,7 @@ fn every_more_page_has_prose() {
         if let Some(more) = &t.more {
             let has_prose = more.body.iter().any(|b| match b {
                 learn::Block::Prose(p) => !p.trim().is_empty(),
-                learn::Block::Code(_) => false,
+                learn::Block::Code { .. } => false,
             });
             assert!(has_prose, "`{}` has a more page with no prose", t.id);
         }

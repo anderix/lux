@@ -63,10 +63,12 @@ pub struct More {
 /// A run of a more page's body: a prose paragraph to wrap and reflow, or a fenced
 /// code block to print verbatim. Prose is the common case; a code block earns its
 /// keep where the deeper level shows the same idea in another language — the `main`
-/// topic's hello-world across Rust, Go, and Swift.
+/// topic's hello-world across Rust, Go, and Swift. The fence's language tag is kept
+/// so a lux block can be told from one of those target-language blocks — the tests
+/// run the lux ones on every backend, and must leave the others alone.
 pub enum Block {
     Prose(String),
-    Code(String),
+    Code { lang: Option<String>, body: String },
 }
 
 /// One cross-reference: a topic id and the reason a learner would follow it.
@@ -180,6 +182,7 @@ fn parse_more(body: &str) -> More {
     let mut para: Vec<String> = Vec::new();
     let mut code: Vec<String> = Vec::new();
     let mut in_code = false;
+    let mut lang: Option<String> = None;
     let mut quote = String::new();
     let mut in_quote = false;
     // Flush the paragraph gathered so far into a prose block.
@@ -193,10 +196,17 @@ fn parse_more(body: &str) -> More {
         let t = line.trim();
         if t.starts_with("```") {
             if in_code {
-                blocks.push(Block::Code(std::mem::take(&mut code).join("\n")));
+                blocks.push(Block::Code {
+                    lang: lang.take(),
+                    body: std::mem::take(&mut code).join("\n"),
+                });
                 in_code = false;
             } else {
                 flush(&mut para, &mut blocks);
+                // The text after the fence names the language — `lux`, `rust` — or
+                // is empty for an untagged block.
+                let tag = t.trim_start_matches('`').trim();
+                lang = (!tag.is_empty()).then(|| tag.to_string());
                 in_code = true;
             }
             continue;
@@ -284,8 +294,8 @@ fn render_more(t: &Topic, m: &More) -> String {
                 out.push('\n');
             }
             // Verbatim, indented like a card's example — never reflowed.
-            Block::Code(c) => {
-                for line in c.lines() {
+            Block::Code { body, .. } => {
+                for line in body.lines() {
                     if line.is_empty() {
                         out.push('\n');
                     } else {
