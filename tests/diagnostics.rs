@@ -687,3 +687,34 @@ fn a_file_level_name_read_inside_a_function_names_the_boundary() {
         "a top-level use-before-declaration should stay generic, got:\n{ubd}"
     );
 }
+
+/// The four-leg version of the same slip (#76): the interpreter refuses a function
+/// reading a file-level `let`, but `lux convert`/`lux build` used to emit it — rustc and
+/// go then rejected a name error in their own words, and Swift, whose top-level `let` is
+/// a real global, compiled and ran a program the reference refuses. The check now runs
+/// before every command, so all four legs refuse it with the one message, and nobody
+/// meets a target compiler for a name lux already caught.
+#[test]
+fn a_function_reaching_a_file_level_value_is_refused_on_every_leg() {
+    let src = "let greeting = \"hello\"\nfunc speak() -> string {\n    return greeting\n}\nprint(speak())\n";
+    let run = err_of("outread", src);
+    assert!(
+        run.contains("`greeting` is not defined") && run.contains("pass it in as one"),
+        "run should refuse the outward read, got:\n{run}"
+    );
+    // Every emitter refuses it before emitting — Swift included, which used to accept it.
+    for backend in ["rust", "go", "swift"] {
+        let conv = convert_err(&format!("outread_{backend}"), backend, src);
+        assert!(
+            conv.contains("`greeting` is not defined") && conv.contains("pass it in as one"),
+            "convert {backend} should refuse the outward read like run, got:\n{conv}"
+        );
+    }
+
+    // The near-miss the rule must leave alone: a parameter of the same name shadows the
+    // file-level one and resolves normally, so the program runs.
+    runs_ok(
+        "shadowparam",
+        "let greeting = \"outer\"\nfunc speak(greeting: string) -> string {\n    return greeting\n}\nprint(speak(\"hi\"))\n",
+    );
+}

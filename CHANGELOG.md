@@ -4,6 +4,29 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.5] - 2026-08-06
+
+A parity fix, no new language surface. It closes the last place the four legs disagreed
+about the same source — a function reaching for a file-level value — by refusing it
+everywhere the interpreter already did.
+
+### Fixed
+
+- **A function that reads a file-level `let`/`var` is refused on every path.** A function
+  body sees its parameters and the program's functions and types, but never the value
+  names around it — lux has no closures — and the interpreter refuses a read that reaches
+  outward. `lux convert` and `lux build` didn't: they emitted a function naming something
+  its scope doesn't hold, so `rustc` and `go` failed with a name error in their own words,
+  and Swift — whose top-level `let` is a real global the function can see — compiled and
+  ran a six-line program the reference implementation rejects. The check now runs before
+  every command, so all four legs refuse it with the one message (the boundary note added
+  in 0.19.4), and nobody meets a target compiler for a name lux already caught. It fires
+  only for the real case — a read that finds nothing in the function's own scope and names
+  a top-level binding — so a parameter or local of the same name resolves as it always did.
+  The language question underneath, whether a function should be able to see a file-level
+  value, is settled as no: lux stays closure-free, and a value a function needs is passed
+  in (#76).
+
 ## [0.19.4] - 2026-08-06
 
 Three fixes from a session that wrote real programs in lux — an ASCII Mandelbrot, a

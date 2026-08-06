@@ -44,7 +44,15 @@ pub fn check(program: &[Stmt]) -> Result<(), LuxError> {
     // An empty array literal bound without a type annotation: the same declaration
     // rule an empty `none` already meets — name what it holds — settled here so all
     // four legs agree it's illegal until annotated (#66).
-    reject_untyped_empty_array(program)
+    reject_untyped_empty_array(program)?;
+    // A function body reading a file-level `let`/`var` — lux has no closures. The
+    // interpreter refuses it, but `lux convert`/`lux build` emitted a function referring
+    // to a name its scope doesn't hold: rustc and go reject it, and Swift ran it, since
+    // its top-level `let` is a real global (#76). Refused here on every path, in the
+    // words `lux run` gave, so nobody meets a target compiler for a name lux already
+    // caught. Reads only, and only a top-level binding — a parameter or local of the
+    // same name resolves as it should.
+    reject_outward_value_reads(program)
 }
 
 // ----- reserved names and shadowing ----------------------------------------
@@ -324,6 +332,211 @@ fn walk_expr_names(
         }
         Expr::Field { base, .. } => walk_expr_names(base, globals, scopes)?,
         Expr::Int(..) | Expr::Float(..) | Expr::Str(..) | Expr::Bool(..) | Expr::Ident(..) => {}
+    }
+    Ok(())
+}
+
+// ----- functions can't reach a file-level value (#76) -----------------------
+
+/// The error a read that resolves outward to a file-level `let`/`var` earns: name the
+/// boundary the learner just crossed, rather than the generic "declare it first" that
+/// sends them to re-derive it. It exists at the top of the file, and a function sees
+/// only what it was handed — so the fix is to pass it in. Built once here so every leg
+/// gives the same words. This is the read half of the asymmetry the scope card teaches
+/// (#73): functions stay visible from inside a function, values do not.
+fn outward_read_error(name: &str, span: Span) -> LuxError {
+    LuxError::new(format!("`{name}` is not defined"), span)
+        .with_note(format!(
+            "`{name}` exists at the top of the file, but a function body only sees its parameters and other functions — pass it in as one"
+        ))
+        .with_learn(
+            "scope",
+            "a function body sees its parameters and the program's functions, not the values around it",
+        )
+}
+
+/// Refuse a function body that reads a file-level `let`/`var`. lux has no closures, so a
+/// function sees only its parameters and the program's functions and types — never the
+/// value names around it — and the interpreter enforces that at runtime. Lifted here it
+/// runs before every command, so `lux convert`/`lux build` refuse the program too instead
+/// of emitting a function that names something its scope doesn't hold, which rustc and go
+/// reject and Swift (whose top-level `let` is a real global) quietly accepts (#76).
+///
+/// A function is walked from a fresh scope of its own — parameters, then locals as they
+/// are declared, with a nested scope per block — mirroring how the interpreter runs it,
+/// so a read fires only when it finds nothing there and the name is a top-level binding.
+/// A parameter or local of the same name shadows the top-level one and resolves normally.
+fn reject_outward_value_reads(program: &[Stmt]) -> Result<(), LuxError> {
+    let top_level: HashSet<&str> = program
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::Let { name, .. } | Stmt::Var { name, .. } => Some(name.as_str()),
+            _ => None,
+        })
+        .collect();
+    if top_level.is_empty() {
+        return Ok(());
+    }
+    for stmt in program {
+        if let Stmt::Func { params, body, .. } = stmt {
+            walk_reads(body, &top_level, &mut fresh_scope(params))?;
+        }
+    }
+    Ok(())
+}
+
+/// A function's opening scope: just its parameters. A nested function gets its own.
+fn fresh_scope(params: &[Param]) -> Vec<HashSet<String>> {
+    vec![params.iter().map(|p| p.name.clone()).collect()]
+}
+
+fn walk_reads(
+    stmts: &[Stmt],
+    top_level: &HashSet<&str>,
+    scopes: &mut Vec<HashSet<String>>,
+) -> Result<(), LuxError> {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Let { name, value, .. } => {
+                walk_read_expr(value, top_level, scopes)?;
+                scopes.last_mut().unwrap().insert(name.clone());
+            }
+            Stmt::Var { name, value, .. } => {
+                if let Some(v) = value {
+                    walk_read_expr(v, top_level, scopes)?;
+                }
+                scopes.last_mut().unwrap().insert(name.clone());
+            }
+            // A nested function starts fresh too, seeing only its own parameters — the
+            // outer function's locals are no more visible to it than the file's are.
+            Stmt::Func { params, body, .. } => {
+                walk_reads(body, top_level, &mut fresh_scope(params))?
+            }
+            Stmt::Assign { target, value, .. } => {
+                walk_target_reads(target, top_level, scopes)?;
+                walk_read_expr(value, top_level, scopes)?;
+            }
+            Stmt::Return { value, .. } => {
+                if let Some(v) = value {
+                    walk_read_expr(v, top_level, scopes)?;
+                }
+            }
+            Stmt::Expr(e) => walk_read_expr(e, top_level, scopes)?,
+            Stmt::If {
+                cond,
+                then_body,
+                else_body,
+                ..
+            } => {
+                walk_read_expr(cond, top_level, scopes)?;
+                scopes.push(HashSet::new());
+                walk_reads(then_body, top_level, scopes)?;
+                scopes.pop();
+                if let Some(e) = else_body {
+                    scopes.push(HashSet::new());
+                    walk_reads(e, top_level, scopes)?;
+                    scopes.pop();
+                }
+            }
+            Stmt::While { cond, body, .. } => {
+                walk_read_expr(cond, top_level, scopes)?;
+                scopes.push(HashSet::new());
+                walk_reads(body, top_level, scopes)?;
+                scopes.pop();
+            }
+            Stmt::For {
+                var, iter, body, ..
+            } => {
+                walk_read_expr(iter, top_level, scopes)?;
+                scopes.push(HashSet::new());
+                scopes.last_mut().unwrap().insert(var.clone());
+                walk_reads(body, top_level, scopes)?;
+                scopes.pop();
+            }
+            Stmt::Struct { .. } | Stmt::Enum { .. } => {}
+        }
+    }
+    Ok(())
+}
+
+/// An assignment target: its root name is a write, left to its own rule (the interpreter
+/// gives it a different note, and this is the read half only). Any index within it —
+/// `xs[i] = …` — is still a read and is checked.
+fn walk_target_reads(
+    target: &Expr,
+    top_level: &HashSet<&str>,
+    scopes: &mut Vec<HashSet<String>>,
+) -> Result<(), LuxError> {
+    match target {
+        Expr::Ident(..) => {}
+        Expr::Index { base, index, .. } => {
+            walk_target_reads(base, top_level, scopes)?;
+            walk_read_expr(index, top_level, scopes)?;
+        }
+        Expr::Field { base, .. } => walk_target_reads(base, top_level, scopes)?,
+        other => walk_read_expr(other, top_level, scopes)?,
+    }
+    Ok(())
+}
+
+fn walk_read_expr(
+    e: &Expr,
+    top_level: &HashSet<&str>,
+    scopes: &mut Vec<HashSet<String>>,
+) -> Result<(), LuxError> {
+    match e {
+        // The one place a name is read as a value. If nothing in the function's own
+        // scope holds it and it names a top-level binding, the function reached outward.
+        Expr::Ident(name, span) => {
+            if !scopes.iter().any(|s| s.contains(name)) && top_level.contains(name.as_str()) {
+                return Err(outward_read_error(name, *span));
+            }
+        }
+        Expr::Match {
+            scrutinee, arms, ..
+        } => {
+            walk_read_expr(scrutinee, top_level, scopes)?;
+            for arm in arms {
+                scopes.push(HashSet::new());
+                if let Pattern::Variant { bindings, .. } = &arm.pattern {
+                    for b in bindings {
+                        scopes.last_mut().unwrap().insert(b.clone());
+                    }
+                }
+                walk_read_expr(&arm.body, top_level, scopes)?;
+                scopes.pop();
+            }
+        }
+        Expr::Array(items, _) => {
+            for x in items {
+                walk_read_expr(x, top_level, scopes)?;
+            }
+        }
+        Expr::Unary { rhs, .. } => walk_read_expr(rhs, top_level, scopes)?,
+        Expr::Binary { lhs, rhs, .. } => {
+            walk_read_expr(lhs, top_level, scopes)?;
+            walk_read_expr(rhs, top_level, scopes)?;
+        }
+        Expr::Index { base, index, .. } => {
+            walk_read_expr(base, top_level, scopes)?;
+            walk_read_expr(index, top_level, scopes)?;
+        }
+        Expr::Range { start, end, .. } => {
+            walk_read_expr(start, top_level, scopes)?;
+            walk_read_expr(end, top_level, scopes)?;
+        }
+        Expr::Call { args, .. } => {
+            for a in args {
+                walk_read_expr(a, top_level, scopes)?;
+            }
+        }
+        Expr::StructLit { fields, .. } | Expr::EnumLit { fields, .. } => {
+            for (_, v) in fields {
+                walk_read_expr(v, top_level, scopes)?;
+            }
+        }
+        Expr::Field { base, .. } => walk_read_expr(base, top_level, scopes)?,
+        Expr::Int(..) | Expr::Float(..) | Expr::Str(..) | Expr::Bool(..) => {}
     }
     Ok(())
 }
