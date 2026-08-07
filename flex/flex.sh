@@ -176,7 +176,7 @@ warnings_in () { # <program> <target>
 
 PROGRAMS=(fizzbuzz fib gcd sieve collatz roman
           bubble selection mergesort quicksort
-          binsearch list bst expr machine safe
+          binsearch list bst expr machine safe regex
           pascal matrix lcs tictactoe queens maze
           stats points logic worklist stocktake
           catn head wcl uniqc hist fields

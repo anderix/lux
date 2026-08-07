@@ -87,6 +87,7 @@ are trying to decide whether it's a toy.
 | `expr` | an expression tree whose division can fail, and a `Result` travelling up two levels |
 | `machine` | a vending machine where every state must answer every event |
 | `safe` | chaining two things that might be missing, without a null anywhere |
+| `regex` | Pike's matcher — a pattern parsed to a tree, compiled to instructions, and run as threads, where copied arrays defeat the textbook closure and then pay for themselves on group capture |
 | `stocktake` | `==` comparing compound values by what they hold, all the way down, and `<` refusing to |
 
 **Grids.** An array of arrays, which is the shape most of a first course's
@@ -234,7 +235,11 @@ are no globals to reach up for, which is why `roman` keeps its tables inside the
 function that walks them. There is no `break`, so a loop keeps its own answer to
 "am I done?", which is a fair description of what `break` does anywhere. `+=` on an
 array adds one element rather than joining two, so `bst` carries a four-line
-`joinRows` to stitch a walk back together. A float literal has no exponent form —
+`joinRows` to stitch a walk back together. An array handed to a function is a copy,
+which `queens` uses to delete the undo step from backtracking and `regex` meets from
+the other side: the recursive walk that marks a shared visited-set cannot work,
+because the marks are made in the copy, so it keeps an explicit stack in an array
+that only ever grows with a height index standing in for removal. A float literal has no exponent form —
 `1.0e10` doesn't parse — which `stats` never needs but is worth knowing before you
 reach for it.
 

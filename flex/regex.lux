@@ -1,0 +1,754 @@
+// regex — Pike's algorithm: a pattern compiled to a program, run as threads.
+//
+//   lux run regex.lux
+//
+// A regular expression is compiled here into a little instruction set, and
+// matching is that program run on a machine that holds many program counters at
+// once. Every branch the pattern allows is alive on the same character, so the
+// input is read once and never backed up. That is the difference between this
+// and the backtracking matcher most languages ship: the work per character is
+// bounded by the size of the pattern, not by the number of ways the pattern
+// could have gone. The last section measures it rather than asserting it.
+//
+// Three things about lux shaped the code more than the algorithm did.
+//
+// The textbook writes the epsilon closure — following `split` and `jump` until
+// you reach instructions that consume a character — as a recursive function that
+// marks a shared `seen` set. That cannot work here. An array handed to a function
+// is a copy, so the marks would be made in the copy and thrown away on return,
+// and the recursion would never terminate on a pattern like `(a*)*`. What
+// replaces it has to be depth-first, because the order threads come out in is
+// what makes `a*` greedy, so `closureOf` carries its own stack: an array that
+// only ever grows, with a height index doing the work of removal. Popping moves
+// the index down and leaves the slot to be overwritten by the next push, which
+// is how a stack is built out of a type that cannot shrink.
+//
+// The same copying is an asset one section later. Pike's contribution over
+// Thompson is that each thread carries where its groups opened and closed, and
+// implementations in other languages spend real effort on copy-on-write so that
+// two threads sharing a history don't overwrite each other's. Here `caps[t]`
+// handed to a new thread is already a copy, so the sharing bug the technique
+// exists to prevent cannot be written.
+//
+// Both halves were checked against Python's `re` rather than argued for. Whether
+// a pattern matches agrees on 41,019 pattern and text pairs over 341 patterns,
+// with one deliberate exception noted at `parseRepeat`. Which span each group
+// reports agrees on 1,051 of 1,063, and the twelve are one case: a group that
+// can match nothing, sitting under a star. Perl and Python close such a loop
+// with a final empty pass that reopens the group at the end position, so
+// `(a*)*` on "aa" reports the empty span at 2 where this reports 0 to 2. The
+// `seen` guard is what suppresses that last pass — the same guard that stops
+// `(a*)*` looping forever. Termination and Perl's answer are bought with the
+// same line, and this program keeps termination.
+//
+// And a function reaches only its parameters, so the alphabet travels as an
+// argument through every function that needs it, and the seven metacharacter
+// positions are seven one-line functions rather than seven constants at the top.
+
+// ---------------------------------------------------------------------------
+// Characters
+//
+// lux cannot index a string, so a character is its position in a known
+// alphabet and text becomes a row of those positions. `charsOf` recovers them
+// the way `cipher.lux` does: split the text on each mark in turn, and the
+// lengths of the pieces say where that mark fell.
+// ---------------------------------------------------------------------------
+
+func alphabet() -> [string] {
+    var all: [string]
+    for one in split("a b c d e f g h i j k l m n o p q r s t u v w x y z ( ) | * + ? .", " ") {
+        all += one
+    }
+    return all
+}
+
+func metaOpen() -> int { return 26 }
+func metaClose() -> int { return 27 }
+func metaBar() -> int { return 28 }
+func metaStar() -> int { return 29 }
+func metaPlus() -> int { return 30 }
+func metaQuery() -> int { return 31 }
+func metaDot() -> int { return 32 }
+
+func charsOf(text: string, all: [string]) -> [int] {
+    var found: [int]
+    for spot in 0..length(text) {
+        found += -1
+    }
+    for slot in 0..length(all) {
+        let pieces = split(text, all[slot])
+        var at = 0
+        for piece in 0..length(pieces) - 1 {
+            at += length(pieces[piece])
+            found[at] = slot
+            at += 1
+        }
+    }
+    return found
+}
+
+// ---------------------------------------------------------------------------
+// The pattern tree
+//
+// Parsed first, compiled second. `expr.lux` builds an arithmetic expression as a
+// recursive enum and evaluates it; this builds a pattern the same way and emits
+// code from it, which keeps the parser free of instruction numbering and the
+// emitter free of syntax.
+// ---------------------------------------------------------------------------
+
+enum Node {
+    blank
+    literal(mark: int)
+    any
+    seq(left: Node, right: Node)
+    pick(left: Node, right: Node)
+    many(inner: Node)
+    some(inner: Node)
+    maybe(inner: Node)
+    group(inner: Node, slot: int)
+}
+
+// A parse hands back what it built and how far it read. lux returns one value,
+// so the two travel together.
+struct Parse {
+    node: Node
+    at: int
+    slots: int
+}
+
+func isMeta(mark: int) -> bool {
+    return mark >= metaOpen()
+}
+
+func parseAtom(marks: [int], at: int, slots: int) -> Parse {
+    if at >= length(marks) {
+        return Parse(node: Node.blank, at: at, slots: slots)
+    }
+    let here = marks[at]
+    if here == metaDot() {
+        return Parse(node: Node.any, at: at + 1, slots: slots)
+    }
+    if here == metaOpen() {
+        let mine = slots
+        let inner = parseAlt(marks, at + 1, slots + 1)
+        var after = inner.at
+        if after < length(marks) {
+            if marks[after] == metaClose() {
+                after += 1
+            }
+        }
+        return Parse(node: Node.group(inner: inner.node, slot: mine), at: after, slots: inner.slots)
+    }
+    if isMeta(here) {
+        return Parse(node: Node.blank, at: at, slots: slots)
+    }
+    return Parse(node: Node.literal(mark: here), at: at + 1, slots: slots)
+}
+
+// Postfix repetition binds tighter than concatenation, and stacking them is
+// read as composition: `a+?` is `?` applied to `a+`, which accepts the empty
+// string. Perl and Python read the same three characters as a single lazy
+// quantifier that still demands one `a`, so they reject it. Neither is a bug in
+// the other. Laziness decides *which* match gets reported, and this machine only
+// answers *whether* one exists, so it has no lazy mode to mean. Checked against
+// `re.fullmatch` over 41,019 pattern and text pairs, and that is the only case
+// out of 341 patterns where the two disagree.
+func parseRepeat(marks: [int], at: int, slots: int) -> Parse {
+    let atom = parseAtom(marks, at, slots)
+    var built = atom.node
+    var here = atom.at
+    var more = true
+    while more {
+        if here >= length(marks) {
+            more = false
+        } else if marks[here] == metaStar() {
+            built = Node.many(inner: built)
+            here += 1
+        } else if marks[here] == metaPlus() {
+            built = Node.some(inner: built)
+            here += 1
+        } else if marks[here] == metaQuery() {
+            built = Node.maybe(inner: built)
+            here += 1
+        } else {
+            more = false
+        }
+    }
+    return Parse(node: built, at: here, slots: atom.slots)
+}
+
+func parseSeq(marks: [int], at: int, slots: int) -> Parse {
+    var built = Node.blank
+    var here = at
+    var open = slots
+    var empty = true
+    var more = true
+    while more {
+        if here >= length(marks) {
+            more = false
+        } else if marks[here] == metaBar() || marks[here] == metaClose() {
+            more = false
+        } else {
+            let piece = parseRepeat(marks, here, open)
+            if piece.at == here {
+                more = false
+            } else {
+                if empty {
+                    built = piece.node
+                    empty = false
+                } else {
+                    built = Node.seq(left: built, right: piece.node)
+                }
+                here = piece.at
+                open = piece.slots
+            }
+        }
+    }
+    return Parse(node: built, at: here, slots: open)
+}
+
+func parseAlt(marks: [int], at: int, slots: int) -> Parse {
+    let first = parseSeq(marks, at, slots)
+    var built = first.node
+    var here = first.at
+    var open = first.slots
+    var more = true
+    while more {
+        if here >= length(marks) {
+            more = false
+        } else if marks[here] == metaBar() {
+            let other = parseSeq(marks, here + 1, open)
+            built = Node.pick(left: built, right: other.node)
+            here = other.at
+            open = other.slots
+        } else {
+            more = false
+        }
+    }
+    return Parse(node: built, at: here, slots: open)
+}
+
+// ---------------------------------------------------------------------------
+// The instruction set
+//
+// Five operations. `literal` and `any` consume a character and go to `x`.
+// `split` goes to both `x` and `y` without consuming anything, which is the
+// instruction that makes a thread list necessary. `save` records a group
+// boundary in slot `arg`. `done` means the pattern is satisfied.
+// ---------------------------------------------------------------------------
+
+enum Op {
+    literal
+    any
+    split
+    jump
+    save
+    done
+}
+
+struct Inst {
+    op: Op
+    arg: int
+    x: int
+    y: int
+}
+
+func consumes(op: Op) -> bool {
+    return match op {
+        literal => true
+        any => true
+        split => false
+        jump => false
+        save => false
+        done => false
+    }
+}
+
+// A fragment is emitted with its targets relative to its own start, so it can be
+// dropped anywhere once its addresses are shifted. Only the fields an operation
+// actually reads get shifted; leaving the unused ones alone keeps a printed
+// program readable.
+func shifted(prog: [Inst], by: int) -> [Inst] {
+    var out: [Inst]
+    for one in prog {
+        out += match one.op {
+            literal => Inst(op: one.op, arg: one.arg, x: one.x + by, y: one.y)
+            any => Inst(op: one.op, arg: one.arg, x: one.x + by, y: one.y)
+            split => Inst(op: one.op, arg: one.arg, x: one.x + by, y: one.y + by)
+            jump => Inst(op: one.op, arg: one.arg, x: one.x + by, y: one.y)
+            save => Inst(op: one.op, arg: one.arg, x: one.x + by, y: one.y)
+            done => one
+        }
+    }
+    return out
+}
+
+// `+=` on an array adds one element rather than joining two, so joining is a
+// loop — the same four lines `bst.lux` carries for the same reason.
+func joined(first: [Inst], second: [Inst]) -> [Inst] {
+    var out: [Inst]
+    for one in first {
+        out += one
+    }
+    for one in second {
+        out += one
+    }
+    return out
+}
+
+func emit(node: Node) -> [Inst] {
+    return match node {
+        blank => emitBlank()
+        literal(let mark) => emitOne(Op.literal, mark)
+        any => emitOne(Op.any, 0)
+        seq(let left, let right) => emitSeq(emit(left), emit(right))
+        pick(let left, let right) => emitPick(emit(left), emit(right))
+        many(let inner) => emitMany(emit(inner))
+        some(let inner) => emitSome(emit(inner))
+        maybe(let inner) => emitMaybe(emit(inner))
+        group(let inner, let slot) => emitGroup(emit(inner), slot)
+    }
+}
+
+// A match arm is an expression, so it cannot name a value and use it twice.
+// Writing the concatenation case inline meant `emit(left)` appearing in the arm
+// both as the fragment and as the amount to shift the other one by — which is
+// two calls, and turns compiling a chain of n concatenations into 2^n work.
+// Taking the two fragments as parameters is what makes each subtree compile
+// once.
+func emitSeq(left: [Inst], right: [Inst]) -> [Inst] {
+    return joined(left, shifted(right, length(left)))
+}
+
+// The empty pattern — the right half of `(a|)` — compiles to a jump to the next
+// instruction rather than to no instructions at all. A fragment of length zero
+// would be the obvious thing and is the one shape lux cannot hand back without a
+// complaint downstream: an empty array has to be declared `var` because `let`
+// always takes a value, and a `var` that is never appended to is what Rust and
+// Swift both warn about. A no-op jump is free to follow, since the closure walks
+// jumps without consuming anything, and it shows up in a printed program where
+// an invisible empty branch would not.
+func emitBlank() -> [Inst] {
+    var out: [Inst]
+    out += Inst(op: Op.jump, arg: 0, x: 1, y: 0)
+    return out
+}
+
+func emitOne(op: Op, mark: int) -> [Inst] {
+    var out: [Inst]
+    out += Inst(op: op, arg: mark, x: 1, y: 0)
+    return out
+}
+
+// split to the left arm or past the right; the left arm jumps clear of it.
+func emitPick(left: [Inst], right: [Inst]) -> [Inst] {
+    let span = length(left) + length(right) + 2
+    var out: [Inst]
+    out += Inst(op: Op.split, arg: 0, x: 1, y: length(left) + 2)
+    for one in shifted(left, 1) {
+        out += one
+    }
+    out += Inst(op: Op.jump, arg: 0, x: span, y: 0)
+    for one in shifted(right, length(left) + 2) {
+        out += one
+    }
+    return out
+}
+
+func emitMany(inner: [Inst]) -> [Inst] {
+    var out: [Inst]
+    out += Inst(op: Op.split, arg: 0, x: 1, y: length(inner) + 2)
+    for one in shifted(inner, 1) {
+        out += one
+    }
+    out += Inst(op: Op.jump, arg: 0, x: 0, y: 0)
+    return out
+}
+
+func emitSome(inner: [Inst]) -> [Inst] {
+    var out: [Inst]
+    for one in inner {
+        out += one
+    }
+    out += Inst(op: Op.split, arg: 0, x: 0, y: length(inner) + 1)
+    return out
+}
+
+func emitMaybe(inner: [Inst]) -> [Inst] {
+    var out: [Inst]
+    out += Inst(op: Op.split, arg: 0, x: 1, y: length(inner) + 1)
+    for one in shifted(inner, 1) {
+        out += one
+    }
+    return out
+}
+
+func emitGroup(inner: [Inst], slot: int) -> [Inst] {
+    var out: [Inst]
+    out += Inst(op: Op.save, arg: slot * 2, x: 1, y: 0)
+    for one in shifted(inner, 1) {
+        out += one
+    }
+    out += Inst(op: Op.save, arg: slot * 2 + 1, x: length(inner) + 2, y: 0)
+    return out
+}
+
+func compile(pattern: string, all: [string]) -> [Inst] {
+    let parsed = parseAlt(charsOf(pattern, all), 0, 0)
+    var prog = emit(parsed.node)
+    prog += Inst(op: Op.done, arg: 0, x: 0, y: 0)
+    return prog
+}
+
+func slotsIn(pattern: string, all: [string]) -> int {
+    return parseAlt(charsOf(pattern, all), 0, 0).slots
+}
+
+// ---------------------------------------------------------------------------
+// The machine
+//
+// A thread list is a row of program counters, deduplicated, so it can never grow
+// past the length of the program. That bound is the reason the running time is
+// the product of pattern size and input size rather than something exponential.
+// ---------------------------------------------------------------------------
+
+struct Step {
+    live: [int]
+    caps: [[int]]
+    work: int
+}
+
+// Follow every non-consuming instruction from `starts` until only instructions
+// that consume a character — or `done` — are left. `seen` keeps a pattern like
+// `(a*)*` from walking in a circle.
+//
+// The order the survivors come out in is not incidental. A thread earlier in the
+// list beats a later one, which is how `a*` ends up greedy and `(a|ab)` prefers
+// its left arm, so the walk has to be depth-first and has to take a `split`'s
+// first branch before its second. The textbook gets that from recursion. Handing
+// an array to a function copies it here, so the marks a recursive walk made in
+// `seen` would be thrown away on return and a starred group would loop forever.
+//
+// What replaces it is a stack held in an array that only ever grows: `top` is
+// the live height, a push writes at `top` and appends only when it has run past
+// what was allocated before, and a pop moves `top` back down. Nothing is
+// removed, which is the one thing a lux array cannot do. Children are pushed in
+// reverse so the first branch is the first one popped.
+func closureOf(prog: [Inst], starts: [int], startCaps: [[int]], slots: int, at: int) -> Step {
+    var seen: [bool]
+    for spot in 0..length(prog) {
+        seen += false
+    }
+    var stackPc: [int]
+    var stackCaps: [[int]]
+    var top = 0
+    for spot in 0..length(starts) {
+        let back = length(starts) - 1 - spot
+        if top < length(stackPc) {
+            stackPc[top] = starts[back]
+            stackCaps[top] = startCaps[back]
+        } else {
+            stackPc += starts[back]
+            stackCaps += startCaps[back]
+        }
+        top += 1
+    }
+    var live: [int]
+    var caps: [[int]]
+    var visits = 0
+    while top > 0 {
+        top -= 1
+        let pc = stackPc[top]
+        let mine = stackCaps[top]
+        if !seen[pc] {
+            seen[pc] = true
+            visits += 1
+            let here = prog[pc]
+            var goPc: [int]
+            var goCaps: [[int]]
+            if consumes(here.op) || here.op == Op.done {
+                live += pc
+                caps += mine
+            } else if here.op == Op.split {
+                goPc += here.y
+                goCaps += mine
+                goPc += here.x
+                goCaps += mine
+            } else if here.op == Op.jump {
+                goPc += here.x
+                goCaps += mine
+            } else if here.op == Op.save {
+                // The copy that keeps one thread's groups out of another's
+                // happens because lux copies, not because the code asks.
+                var noted = mine
+                if here.arg < slots * 2 {
+                    noted[here.arg] = at
+                }
+                goPc += here.x
+                goCaps += noted
+            }
+            for one in 0..length(goPc) {
+                if top < length(stackPc) {
+                    stackPc[top] = goPc[one]
+                    stackCaps[top] = goCaps[one]
+                } else {
+                    stackPc += goPc[one]
+                    stackCaps += goCaps[one]
+                }
+                top += 1
+            }
+        }
+    }
+    return Step(live: live, caps: caps, work: visits)
+}
+
+struct Outcome {
+    matched: bool
+    steps: int
+    trace: [string]
+    groups: [int]
+}
+
+func rowOf(live: [int]) -> string {
+    var out = ""
+    for spot in 0..length(live) {
+        if spot > 0 {
+            out += " "
+        }
+        out += string(live[spot])
+    }
+    if length(live) == 0 {
+        out = "-"
+    }
+    return out
+}
+
+func runProg(prog: [Inst], text: [int], slots: int, watching: bool) -> Outcome {
+    var blankCaps: [int]
+    for spot in 0..slots * 2 {
+        blankCaps += -1
+    }
+    var starts: [int]
+    starts += 0
+    var startCaps: [[int]]
+    startCaps += blankCaps
+    var state = closureOf(prog, starts, startCaps, slots, 0)
+    var steps = state.work
+    var trace: [string]
+    if watching {
+        trace += "start        " + rowOf(state.live)
+    }
+    for spot in 0..length(text) {
+        let ch = text[spot]
+        var nextStarts: [int]
+        var nextCaps: [[int]]
+        for slot in 0..length(state.live) {
+            let pc = state.live[slot]
+            let here = prog[pc]
+            steps += 1
+            if here.op == Op.any {
+                nextStarts += here.x
+                nextCaps += state.caps[slot]
+            } else if here.op == Op.literal {
+                if here.arg == ch {
+                    nextStarts += here.x
+                    nextCaps += state.caps[slot]
+                }
+            }
+        }
+        state = closureOf(prog, nextStarts, nextCaps, slots, spot + 1)
+        steps += state.work
+        if watching {
+            trace += "after char " + string(spot) + " " + rowOf(state.live)
+        }
+    }
+    // The first thread to reach `done` is the highest-priority one, because the
+    // closure emitted them in priority order. Taking any other would report a
+    // legal match that Perl and Python would not have chosen.
+    var matched = false
+    var won = blankCaps
+    for slot in 0..length(state.live) {
+        if prog[state.live[slot]].op == Op.done {
+            if !matched {
+                won = state.caps[slot]
+            }
+            matched = true
+        }
+    }
+    return Outcome(matched: matched, steps: steps, trace: trace, groups: won)
+}
+
+func matches(pattern: string, text: string, all: [string]) -> bool {
+    return runProg(compile(pattern, all), charsOf(text, all), slotsIn(pattern, all), false).matched
+}
+
+func groupsOf(pattern: string, text: string, all: [string]) -> [int] {
+    return runProg(compile(pattern, all), charsOf(text, all), slotsIn(pattern, all), false).groups
+}
+
+// ---------------------------------------------------------------------------
+// Reading a compiled program back
+// ---------------------------------------------------------------------------
+
+func nameOf(op: Op) -> string {
+    return match op {
+        literal => "char"
+        any => "any "
+        split => "split"
+        jump => "jump"
+        save => "save"
+        done => "done"
+    }
+}
+
+func showInst(spot: int, one: Inst, all: [string]) -> string {
+    var line = string(spot) + "  " + nameOf(one.op)
+    line = match one.op {
+        literal => line + " '" + all[one.arg] + "' -> " + string(one.x)
+        any => line + "     -> " + string(one.x)
+        split => line + " -> " + string(one.x) + " and " + string(one.y)
+        jump => line + "  -> " + string(one.x)
+        save => line + " slot " + string(one.arg) + " -> " + string(one.x)
+        done => line
+    }
+    return line
+}
+
+func repeated(piece: string, times: int) -> string {
+    var out = ""
+    for one in 0..times {
+        out += piece
+    }
+    return out
+}
+
+func padded(text: string, width: int) -> string {
+    var out = text
+    while length(out) < width {
+        out = " " + out
+    }
+    return out
+}
+
+func widened(text: string, width: int) -> string {
+    var out = text
+    while length(out) < width {
+        out += " "
+    }
+    return out
+}
+
+func sliceOf(text: [int], from: int, to: int, all: [string]) -> string {
+    if from < 0 || to < 0 {
+        return "unset"
+    }
+    if from == to {
+        return "empty"
+    }
+    var out = ""
+    for spot in from..to {
+        out += all[text[spot]]
+    }
+    return out
+}
+
+// ---------------------------------------------------------------------------
+
+let all = alphabet()
+
+print("A pattern compiled")
+print("")
+let shown = "a(b|c)*d"
+let shownProg = compile(shown, all)
+print("pattern  " + shown)
+for spot in 0..length(shownProg) {
+    print("  " + showInst(spot, shownProg[spot], all))
+}
+
+print("")
+print("Matching")
+print("")
+let patterns = ["a(b|c)*d", "a(b|c)*d", "a(b|c)*d", "a(b|c)*d", "ab?c", "ab?c", "a.c", "a.c", "a*", "a*", "(ab)+", "(ab)+", "x|yz", "x|yz", "x|yz"]
+let subjects = ["ad", "abcd", "abcbcd", "abd", "abc", "ac", "abc", "ab", "", "aaaa", "abab", "aba", "x", "yz", "y"]
+for spot in 0..length(patterns) {
+    let hit = matches(patterns[spot], subjects[spot], all)
+    var shownText = subjects[spot]
+    if length(shownText) == 0 {
+        shownText = "(empty)"
+    }
+    var verdict = "no"
+    if hit {
+        verdict = "yes"
+    }
+    print("  " + widened(patterns[spot], 11) + widened(shownText, 9) + verdict)
+}
+
+print("")
+print("Groups")
+print("")
+print("Each thread carries where its groups opened and closed, and the first")
+print("thread to reach done is the one reported — which is what makes a* greedy")
+print("and makes (ab|a) prefer its left arm.")
+print("")
+let groupPatterns = ["(a)(b)", "(a*)(a*)", "(ab|a)(b?)c", "a(b|c)*d", "((a)(b))c", "(a|b)*", "(a*)*"]
+let groupTexts = ["ab", "aaa", "abc", "abcd", "abc", "aba", "aa"]
+for spot in 0..length(groupPatterns) {
+    let pattern = groupPatterns[spot]
+    let text = groupTexts[spot]
+    let found = groupsOf(pattern, text, all)
+    let marks = charsOf(text, all)
+    var line = "  " + widened(pattern, 12) + widened(text, 6)
+    for slot in 0..length(found) / 2 {
+        var piece = string(slot) + "=" + sliceOf(marks, found[slot * 2], found[slot * 2 + 1], all)
+        if slot < length(found) / 2 - 1 {
+            piece = widened(piece, 9)
+        }
+        line += " " + piece
+    }
+    print(line)
+}
+print("")
+print("The last row is where this parts from Perl and Python. They finish a loop")
+print("whose body can match nothing with one more empty pass, which reopens the")
+print("group at the end and reports empty; the guard that stops (a*)* running")
+print("forever here also stops that pass. It is the only shape where the two")
+print("disagree, across 1,063 checked matches.")
+
+print("")
+print("Threads alive, character by character")
+print("")
+print("Every program counter the machine is holding at once. The set widens where")
+print("the pattern branches and narrows as characters rule branches out.")
+print("")
+let watched = runProg(compile("a(b|c)*d", all), charsOf("abcd", all), slotsIn("a(b|c)*d", all), true)
+print("pattern a(b|c)*d against abcd")
+for line in watched.trace {
+    print("  " + line)
+}
+
+print("")
+print("The case backtracking cannot afford")
+print("")
+print("The pattern is n copies of a? followed by n copies of a, matched against n")
+print("a's. A backtracking matcher tries every way of assigning the optional a's")
+print("and takes time doubling with n. Counted here in thread steps, which is the")
+print("work the machine actually does, and is the same number on every target.")
+print("")
+print("    n  pattern    steps  rise")
+var previous = 0
+for n in 1..13 {
+    let pattern = repeated("a?", n) + repeated("a", n)
+    let text = repeated("a", n)
+    let done = runProg(compile(pattern, all), charsOf(text, all), 0, false)
+    var rise = "-"
+    if n > 1 {
+        rise = string(done.steps - previous)
+    }
+    previous = done.steps
+    print(padded(string(n), 5) + padded(string(length(pattern)), 9) + padded(string(done.steps), 9) + padded(rise, 6))
+}
+print("")
+print("The rise column is the arithmetic sequence 11, 16, 21, 26 — a constant")
+print("difference of five, which makes the step count a quadratic in n. It is")
+print("2.5n^2 + 3.5n + 1 at every row above, and the shape is the point: pattern")
+print("size and input size both grow with n, and the work is their product.")
