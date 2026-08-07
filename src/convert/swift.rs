@@ -1278,7 +1278,7 @@ impl Gen {
                     let e = self.print_show_expr(&args[0], &ty);
                     format!("({}).luxShow()", e)
                 } else {
-                    format!("String({})", self.emit_expr(&args[0]))
+                    format!("Swift.String({})", self.emit_expr(&args[0]))
                 }
             }
             "int" => {
@@ -1290,24 +1290,24 @@ impl Gen {
                     self.uses_lux_int = true;
                     format!("luxInt({})", e)
                 } else {
-                    format!("Int({})", e)
+                    format!("Swift.Int({})", e)
                 }
             }
             "float" => {
                 let e = self.emit_expr(&args[0]);
-                format!("Double({})", e)
+                format!("Swift.Double({})", e)
             }
             // Int(String) / Double(String) are failable, yielding the Optional
             // that is lux's Option here.
             "parseInt" => {
                 self.uses_lux_parse = true;
                 let e = self.emit_expr(&args[0]);
-                format!("Int(luxTrim({}))", e)
+                format!("Swift.Int(luxTrim({}))", e)
             }
             "parseFloat" => {
                 self.uses_lux_parse = true;
                 let e = self.emit_expr(&args[0]);
-                format!("Double(luxTrim({}))", e)
+                format!("Swift.Double(luxTrim({}))", e)
             }
             "length" => {
                 let arg = &args[0];

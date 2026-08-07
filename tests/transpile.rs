@@ -2636,3 +2636,28 @@ print(length(emptyRow()))\n\
 print(length(built()))\n";
     assert_all_four(src, "emptyrow", "0\n3\n");
 }
+
+/// The `stride` fix (#79) qualified one emitted stdlib call, but the same shadow
+/// reached the initializers a conversion lowers to: a local named `String`, `Int`,
+/// or `Double` alongside a `string()`, `int()`/`parseInt()`, or `float()`/`parseFloat()`
+/// converted fine and then would not compile as Swift, because the local shadowed the
+/// stdlib type the emitted `String(…)` / `Int(…)` / `Double(…)` call relies on (#83).
+/// The backend now emits `Swift.String` / `Swift.Int` / `Swift.Double`, which nothing
+/// the author binds can get in front of. Each name is paired with the conversion that
+/// emits its initializer, so a regression in any one path fails Swift.
+#[test]
+fn a_local_named_for_a_stdlib_type_does_not_break_conversions() {
+    let src = "\
+func f(n: int, x: int, s: string) -> string {\n\
+let String = 3\n\
+let Double = 1.5\n\
+let Int = 100\n\
+let parsed = match parseInt(s) {\n\
+some(let v) => v\n\
+none => 0\n\
+}\n\
+return string(n) + string(String) + \" \" + string(float(x) + Double) + \" \" + string(Int + parsed)\n\
+}\n\
+print(f(7, 4, \"9\"))\n";
+    assert_all_four(src, "stdlibname", "73 5.5 109\n");
+}

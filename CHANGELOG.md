@@ -4,6 +4,27 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.9] - 2026-08-07
+
+A parity fix, no new language surface. It extends the `stride` fix (0.19.6) to the rest
+of the stdlib names the Swift backend emits, found by auditing the class across all three
+backends.
+
+### Fixed
+
+- **A local named `String`, `Int`, or `Double` no longer breaks the Swift backend.** The
+  backend lowers `string(x)`, `int(x)`, `float(x)`, `parseInt(x)`, and `parseFloat(x)` to
+  bare `String(...)`, `Int(...)`, and `Double(...)` initializer calls, and Swift resolves
+  each to the innermost binding in scope — so a lux local of that name shadowed the stdlib
+  type and the emitted call became an attempt to call an integer. These are ordinary names,
+  and the conversions are everywhere, so the collision was easy to reach; the program ran
+  interpreted and built as Go and Rust but failed to compile as Swift. The initializers are
+  now emitted fully qualified as `Swift.String`, `Swift.Int`, and `Swift.Double`, the same
+  fix `stride` got in 0.19.6, which nothing the author binds can get in front of (#83). An
+  audit of the class across the other two backends found them already defended: Go renames a
+  local that collides with a built-in (`len`, `append`), and every bare name Rust emits is a
+  method call or a path-qualified constructor a local cannot shadow.
+
 ## [0.19.8] - 2026-08-07
 
 A parity fix, no new language surface. It closes the last warning-clean gap in the language:
