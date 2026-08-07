@@ -718,3 +718,30 @@ fn a_function_reaching_a_file_level_value_is_refused_on_every_leg() {
         "let greeting = \"outer\"\nfunc speak(greeting: string) -> string {\n    return greeting\n}\nprint(speak(\"hi\"))\n",
     );
 }
+
+/// A struct or enum named for a target's built-in type — `Int`, `String`, `Vec`, and
+/// the rest — used to convert cleanly and then fail to compile, because the user type
+/// shadowed a name the generated code depends on (#80). It's refused now on every
+/// path, in lux's own words, so nobody meets a target compiler for it. A name that
+/// merely resembles a built-in, like `Score`, is left alone.
+#[test]
+fn a_type_named_for_a_target_primitive_is_refused_on_every_leg() {
+    let src = "struct Int {\n    v: int\n}\nprint(string(Int(v: 1).v))\n";
+    let run = err_of("resvtype", src);
+    assert!(
+        run.contains("`Int` can't be a type name") && run.contains("give yours a name of its own"),
+        "run should refuse the reserved type name, got:\n{run}"
+    );
+    for backend in ["rust", "go", "swift"] {
+        let conv = convert_err(&format!("resvtype_{backend}"), backend, src);
+        assert!(
+            conv.contains("`Int` can't be a type name"),
+            "convert {backend} should refuse the reserved type name like run, got:\n{conv}"
+        );
+    }
+    // A name that only resembles a built-in is an ordinary, allowed type name.
+    runs_ok(
+        "okname",
+        "struct Score {\n    v: int\n}\nprint(string(Score(v: 7).v))\n",
+    );
+}

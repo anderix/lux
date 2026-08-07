@@ -52,7 +52,49 @@ pub fn check(program: &[Stmt]) -> Result<(), LuxError> {
     // words `lux run` gave, so nobody meets a target compiler for a name lux already
     // caught. Reads only, and only a top-level binding — a parameter or local of the
     // same name resolves as it should.
-    reject_outward_value_reads(program)
+    reject_outward_value_reads(program)?;
+    // A struct or enum named for a built-in type of a target language shadows that
+    // type in the generated code, so `lux convert` produced source the target
+    // compiler then rejected — `Int`/`Double`/`String`/`Any` in Swift, `String`/`Vec`
+    // in Rust (Go's primitives are lowercase, so it is unaffected). Refused here on
+    // every path, in lux's own words, rather than left to surface as an error in
+    // generated code the author never reads (#80).
+    reject_reserved_type_names(program)
+}
+
+/// The PascalCase primitives, plus the container and catch-all names a backend emits
+/// by name, that a user type would shadow. lux's own types (`int`, `float`, `string`,
+/// `bool`) are lowercase and already reserved as keywords; this is the set that only
+/// bites once translated.
+const RESERVED_TYPE_NAMES: &[&str] = &[
+    "Int",
+    "Float",
+    "Double",
+    "String",
+    "Bool",
+    "Char",
+    "Character",
+    "Any",
+    "Vec",
+    "Void",
+];
+
+fn reject_reserved_type_names(program: &[Stmt]) -> Result<(), LuxError> {
+    for stmt in program {
+        if let Stmt::Struct { name, span, .. } | Stmt::Enum { name, span, .. } = stmt
+            && RESERVED_TYPE_NAMES.contains(&name.as_str())
+        {
+            return Err(LuxError::new(format!("`{name}` can't be a type name"), *span)
+                .with_note(format!(
+                    "`{name}` is a built-in type in the languages lux translates to, so a type of \
+                     your own by that name wouldn't compile once converted. lux's own types are \
+                     lowercase — int, float, string, bool — so give yours a name of its own, \
+                     like `Score` or `Counter`",
+                ))
+                .with_learn("structs", "your own types get a name of their own"));
+        }
+    }
+    Ok(())
 }
 
 // ----- reserved names and shadowing ----------------------------------------

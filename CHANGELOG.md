@@ -4,6 +4,26 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.7] - 2026-08-06
+
+A parity fix, no new language surface. It closes the type-name case of the collision class
+0.19.6 addressed for field names: a struct or enum named for a built-in type of a target
+language, found in a systematic audit of that class.
+
+### Fixed
+
+- **A struct or enum named for a target's built-in type is refused, rather than translated
+  into code that won't compile.** lux's own types are lowercase — `int`, `float`, `string`,
+  `bool` — so a struct named `Int`, `Double`, `String`, `Any`, or `Vec` was a legal lux name
+  that the interpreter ran and Rust and Go often built, but whose Swift (and, for `String`
+  and `Vec`, Rust) shadowed the built-in type the generated code relies on and failed to
+  compile: a four-leg divergence surfacing only in code the author never reads. lux now
+  turns these names away on every path with an error in its own words, pointing at its
+  lowercase types and asking for a name of the type's own. Unlike a field named `move`
+  (0.19.6), which has a real reason to exist and is escaped in the backend, a type named for
+  a primitive has no such reason and reads as confusing whatever the target, so lux refuses
+  it rather than translating it (#80).
+
 ## [0.19.6] - 2026-08-06
 
 Three parity fixes, no new language surface. Each is a place where `lux convert` exited
