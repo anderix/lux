@@ -2610,3 +2610,29 @@ return total\n\
 print(string(spread([1, 2, 3], 10)))\n";
     assert_all_four(src, "strideparam", "60\n");
 }
+
+/// An empty array can only be declared `var` — `let` always needs a value and there
+/// is no empty-array literal to give it — so a builder's base case that returns []
+/// bound `var out: [int]` and never touched it, which Rust and Swift both warned was
+/// never mutated (#81). The empty-declaration path now binds `let` when nothing ever
+/// reassigns the local, matching what the value path already does. The second builder
+/// proves the other direction still holds: a local that is appended to in a loop stays
+/// mutable, so its reassignment still compiles.
+#[test]
+fn an_empty_array_return_compiles_warning_clean() {
+    let src = "\
+func emptyRow() -> [int] {\n\
+var out: [int]\n\
+return out\n\
+}\n\
+func built() -> [int] {\n\
+var out: [int]\n\
+for i in 0..3 {\n\
+out += i\n\
+}\n\
+return out\n\
+}\n\
+print(length(emptyRow()))\n\
+print(length(built()))\n";
+    assert_all_four(src, "emptyrow", "0\n3\n");
+}

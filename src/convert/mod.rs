@@ -630,11 +630,15 @@ fn swift_case(name: &str) -> String {
 }
 
 /// Names ever used as the root of an assignment target — a plain rebind, or a
-/// write through a field or index — anywhere in the program. A `var` whose name
-/// never appears here is never mutated, so Rust and Swift can bind it immutably
-/// (`let`) and stay warning-clean; Go doesn't care either way. Shadowing is
-/// ignored, which is safe: a name shared between a mutated and an unmutated
-/// binding at worst keeps the mutable keyword and its warning, never the reverse.
+/// write through a field or index — within one function's scope. A `var` whose
+/// name never appears here is never mutated, so Rust and Swift can bind it
+/// immutably (`let`) and stay warning-clean; Go doesn't care either way. Called
+/// per function body (and once over the top-level statements for a generated
+/// `main`), so nested function definitions are not descended into: a local named
+/// `out` that one function mutates must not force another function's own `out` to
+/// carry an unused `mut`. Shadowing within a scope is ignored, which is safe: a
+/// name shared between a mutated and an unmutated binding at worst keeps the
+/// mutable keyword and its warning, never the reverse.
 fn mutated_roots(program: &[Stmt]) -> std::collections::HashSet<String> {
     fn walk(stmts: &[Stmt], out: &mut std::collections::HashSet<String>) {
         for s in stmts {
@@ -644,9 +648,7 @@ fn mutated_roots(program: &[Stmt]) -> std::collections::HashSet<String> {
                         out.insert(root.to_string());
                     }
                 }
-                Stmt::Func { body, .. } | Stmt::While { body, .. } | Stmt::For { body, .. } => {
-                    walk(body, out)
-                }
+                Stmt::While { body, .. } | Stmt::For { body, .. } => walk(body, out),
                 Stmt::If {
                     then_body,
                     else_body,

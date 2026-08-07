@@ -887,6 +887,10 @@ impl Gen {
         // Restore on exit, so a nested function or the top-level `main` doesn't
         // inherit this function's borrowed names.
         let saved_refs = std::mem::replace(&mut self.ref_params, this_refs);
+        // Which locals this function mutates is a question about this function's
+        // scope alone: another function's mutated `out` must not force this one's
+        // `out` to carry an unused `mut`. Swap in this body's set, restore on exit.
+        let saved_mutated = std::mem::replace(&mut self.mutated, mutated_roots(body));
         let ps: Vec<String> = params
             .iter()
             .map(|p| {
@@ -922,6 +926,7 @@ impl Gen {
         }
         self.t.pop_scope();
         self.ref_params = saved_refs;
+        self.mutated = saved_mutated;
         self.indent -= 1;
         self.line("}".into());
         self.blank();
@@ -963,8 +968,17 @@ impl Gen {
                 } else {
                     // Rust couldn't prove definite assignment (an assignment only
                     // inside a loop, say), so keep the reachable zero initializer.
+                    // `mut` only if a path reassigns it; a var declared empty and
+                    // only read — a builder's base case returning [] — binds `let`,
+                    // so Rust doesn't warn the `mut` was never used.
+                    let kw = if self.mutated.contains(name) {
+                        "let mut"
+                    } else {
+                        "let"
+                    };
                     self.line(format!(
-                        "let mut {}: {} = {};",
+                        "{} {}: {} = {};",
+                        kw,
                         snake,
                         ty_text(&vty),
                         zero(&vty)

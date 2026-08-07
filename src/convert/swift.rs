@@ -629,9 +629,14 @@ impl Gen {
         for p in params {
             self.t.declare(p.name.clone(), ty_from_ann(&p.ty));
         }
+        // Which locals this function mutates is a question about this function's
+        // scope alone: another function's mutated `out` must not force this one's
+        // `out` to `var`. Swap in this body's set, restore on exit.
+        let saved_mutated = std::mem::replace(&mut self.mutated, mutated_roots(body));
         for stmt in body {
             self.emit_stmt(stmt);
         }
+        self.mutated = saved_mutated;
         self.t.pop_scope();
         self.indent -= 1;
         self.line("}".into());
@@ -660,7 +665,15 @@ impl Gen {
                 let vty = ty_from_ann(ann);
                 let z = zero(&vty);
                 self.t.declare(name.clone(), vty.clone());
-                self.line(format!("var {}: {} = {}", name, ty_text(&vty), z));
+                // `var` only when a path actually mutates it; a binding declared
+                // empty and only read — a builder's base case returning [] — binds
+                // `let`, so Swift doesn't warn it was never mutated.
+                let kw = if self.mutated.contains(name) {
+                    "var"
+                } else {
+                    "let"
+                };
+                self.line(format!("{} {}: {} = {}", kw, name, ty_text(&vty), z));
             }
             Stmt::Var { value: None, .. } => {}
             Stmt::Assign {

@@ -4,6 +4,25 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.8] - 2026-08-07
+
+A parity fix, no new language surface. It closes the last warning-clean gap in the language:
+a function whose base case returns an empty array.
+
+### Fixed
+
+- **A function returning an empty array now converts warning-clean on every target.** An
+  empty array has no literal to hand a `let`, so it can only be declared `var`, and a
+  builder's base case that returns one — `var out: [Thing]; return out` — never mutated it.
+  Rust and Swift each warned that the `mut`/`var` was never used, pointing at a line the
+  author did not write, and this was the one warning-clean shape the language could not reach
+  from inside the source. The value path already downgraded an unmutated `var` to `let`; the
+  empty-declaration path now does the same, so a local that is never reassigned binds `let`
+  on Rust and Swift while one that is appended to in a loop keeps its mutable keyword and
+  still compiles. The set of mutated locals is now scoped per function rather than shared
+  across the whole program, so a name one function mutates no longer forces another
+  function's own binding of that name to carry an unused `mut` (#81).
+
 ## [0.19.7] - 2026-08-06
 
 A parity fix, no new language surface. It closes the type-name case of the collision class
