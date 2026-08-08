@@ -3,9 +3,12 @@
 lux is a small language built to be a great first language and then to be
 outgrown. Every feature is the simplest version of an idea you meet again in Rust,
 Swift, and Go, so the idea carries over when you move on to one of those — you
-relearn the syntax, not the concept. The few hard ideas lux leaves out — ownership, classes,
-goroutines — are the ideas those bigger languages are built around, and they
-land better once you have written something that needs them.
+relearn the syntax, not the concept. What you take away is a working model of how
+a computer holds a value, makes a decision, and admits that an answer might not
+be there — and that is worth having whether or not you write another line of
+code. The few hard ideas lux leaves out — ownership, classes, goroutines — are
+the ideas those bigger languages are built around, and they land better once you
+have written something that needs them.
 
 The whole language is one file — read [learn-lux.md](learn-lux.md): it is the
 reference, the tutorial, and the test corpus all at once, and the suite runs

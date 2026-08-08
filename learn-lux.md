@@ -913,7 +913,8 @@ pretends.
 The other half is quieter: you can build the tool you wish you had, instead of
 only using the ones handed to you. That is worth more than any single language,
 and it is why lux is built to be left behind. When it starts to feel small, that
-means it worked — go pick a bigger one, and bring the moves with you.
+means it worked. Go pick a bigger one and bring the moves with you — or don't,
+and keep them anyway. They were never lux's.
 
 <!-- learn:end -->
 

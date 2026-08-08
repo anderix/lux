@@ -4,6 +4,24 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.10] - 2026-08-08
+
+Wording only, no code change. Two sentences that described outgrowing lux as moving to
+another language now say what a learner keeps either way.
+
+### Changed
+
+- **The README's opening paragraph says what you take away, not only where it carries.**
+  It cashed outgrowing out as transfer to Rust, Swift, or Go and stopped there. It now
+  adds that what you take away is a working model of how a computer holds a value, makes
+  a decision, and admits that an answer might not be there — worth having whether or not
+  you write another line of code.
+- **"Beyond lux" no longer ends on picking a bigger language.** The tutorial's closing
+  section spends four paragraphs on what the moves are underneath the syntax and then
+  landed on going somewhere else with them. It now closes on keeping them either way,
+  which is where the rest of the section was already pointing. The same text is baked
+  into `lux learn`.
+
 ## [0.19.9] - 2026-08-07
 
 A parity fix, no new language surface. It extends the `stride` fix (0.19.6) to the rest
