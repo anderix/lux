@@ -47,13 +47,23 @@ Reach for those before writing your own explanation. It keeps you accurate, and 
 leaves the learner knowing the reference exists, which matters more than any
 single answer you could give.
 
-## Read `learn-lux.md`; don't work from memory
+## Learn lux from the binary; don't work from memory
 
 lux is small, recent, and almost certainly not in your training data. It looks
 like Rust, Swift, and Go, and if you guess from that resemblance you will be
-confidently wrong in ways a beginner cannot catch. `learn-lux.md` in the lux repo
-is the full reference, and `lux learn` prints the same material. Check there, or
-run the code, before telling someone how lux behaves.
+confidently wrong in ways a beginner cannot catch.
+
+You do not need to be taught the language here, because it travels inside the
+binary — which means it is on any machine lux is installed on, and it is always
+the version actually installed rather than whatever a document last said:
+
+- `lux learn tour` — the whole language top to bottom, every feature with an
+  example that runs. Read this before answering questions about syntax.
+- `lux learn` — the menu of topics.
+- `lux learn <topic>`, and `lux learn <topic> more` for the deeper level.
+
+Read it rather than recalling it, and run the code when you are unsure. If the lux
+repo happens to be on the machine, `learn-lux.md` is the same material as one file.
 
 Traps worth knowing up front, because they are where a good guess goes wrong:
 
