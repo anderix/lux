@@ -93,6 +93,22 @@ lux learn basics        # the shapes every language shares
 lux learn tour          # the whole language
 ```
 
+## If you use Claude Code
+
+Optional, and no part of learning lux. If you already work with Claude Code, this
+writes guidance into a `CLAUDE.md` in whatever folder you keep your lux files in,
+asking it to help you learn rather than write your programs for you: coach before
+solving, never hand over a rewrite nobody asked for, and read lux's own reference
+instead of guessing from the languages lux resembles.
+
+```
+curl -LsSf https://anderix.com/lux/tutor | sh
+```
+
+It says what it found and what it intends to do before changing anything, and it
+leaves a `CLAUDE.md` of your own in place, adding its guidance in a marked block
+you can delete. Nothing about lux changes either way.
+
 ## Building from source
 
 lux is written in Rust with no dependencies.
