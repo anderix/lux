@@ -4,6 +4,25 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.15] - 2026-08-09
+
+Finishes 0.19.14 by naming the one install route it left unrecognised.
+
+### Added
+
+- **`lux update` recognises a `cargo install`.** `cargo install luxc` writes no receipt,
+  so 0.19.14 classed it with the binaries whose origin is genuinely unknowable and printed
+  the generic message — for a route lux documents in its own README. Cargo's directory is
+  knowable, so a binary sitting under it with no receipt covering it is now handed
+  `cargo install luxc --force`. The receipt still wins where the two overlap: cargo-dist's
+  default layout installs into that same directory, so a receipt naming it means the
+  installer put the binary there and the installer is what should replace it.
+
+  Worth noting what this is not. Before 0.19.14 a cargo-installed lux updated correctly
+  rather than shadowing itself — the installer writes to the same directory cargo does, so
+  it overwrote in place. What 0.19.14 cost that route was the update, not correctness, and
+  this gives it back in the form that matches how it was installed.
+
 ## [0.19.14] - 2026-08-09
 
 Install plumbing. 0.19.11 taught `lux update` to recognise two package managers; this

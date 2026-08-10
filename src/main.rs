@@ -472,6 +472,8 @@ enum Channel {
     /// The cargo-dist installer behind the vanity URLs, established by a receipt
     /// that covers the running binary rather than assumed from a path.
     Installer,
+    /// `cargo install luxc`, which writes no receipt but has a known home.
+    Cargo,
     /// The installer manages a lux, but not this one. Carries the prefix it does
     /// manage, so the message can name both.
     Shadowed(PathBuf),
@@ -522,6 +524,25 @@ fn receipt_prefix() -> Option<PathBuf> {
     json_string_field(&text, "install_prefix").map(PathBuf::from)
 }
 
+/// Where `cargo install` puts a binary on this machine.
+///
+/// `cargo install luxc` leaves no receipt, so without this a route lux documents
+/// in its own README lands in the same "no idea how this got here" bucket as a
+/// binary someone dropped on their PATH. The directory is knowable, so it is the
+/// one unmanaged case worth naming.
+fn cargo_bin_dir() -> Option<PathBuf> {
+    if let Some(home) = std::env::var_os("CARGO_HOME")
+        && !home.is_empty()
+    {
+        return Some(PathBuf::from(home).join("bin"));
+    }
+    #[cfg(windows)]
+    let home = std::env::var_os("USERPROFILE")?;
+    #[cfg(not(windows))]
+    let home = std::env::var_os("HOME")?;
+    Some(PathBuf::from(home).join(".cargo").join("bin"))
+}
+
 /// Classify an already-resolved executable path against an already-read receipt.
 ///
 /// Split out from `current_channel` so it can be tested against paths and
@@ -538,7 +559,7 @@ fn receipt_prefix() -> Option<PathBuf> {
 /// stale receipt from an earlier installer run alongside a lux that now comes
 /// from Homebrew, and the path is the better evidence in that case because it
 /// describes the binary actually running.
-fn channel_of(exe: &Path, receipt: Option<&Path>) -> Channel {
+fn channel_of(exe: &Path, receipt: Option<&Path>, cargo_bin: Option<&Path>) -> Channel {
     let path = normalise_path(exe);
 
     // Apple silicon, Intel macOS, and Linuxbrew respectively. `/usr/local` is
@@ -560,8 +581,23 @@ fn channel_of(exe: &Path, receipt: Option<&Path>) -> Channel {
     // Compared against the recorded prefix rather than a reconstructed `bin`
     // directory: cargo-dist has several install layouts, and the binary sits
     // under the prefix in all of them.
+    if let Some(prefix) = receipt
+        && is_under(exe, prefix)
+    {
+        return Channel::Installer;
+    }
+
+    // Checked after the receipt and before the shadow case. The installer's
+    // default layout is cargo-home, so a receipt covering this binary means the
+    // installer put it here and has already matched above; reaching this point
+    // with a binary in cargo's directory means cargo put it there.
+    if let Some(dir) = cargo_bin
+        && is_under(exe, dir)
+    {
+        return Channel::Cargo;
+    }
+
     match receipt {
-        Some(prefix) if is_under(exe, prefix) => Channel::Installer,
         Some(prefix) => Channel::Shadowed(prefix.to_path_buf()),
         None => Channel::Unmanaged,
     }
@@ -635,7 +671,11 @@ fn update_cmd(rest: &[String]) {
         .ok()
         .map(|e| e.canonicalize().unwrap_or(e));
     let channel = match &exe {
-        Some(path) => channel_of(path, receipt_prefix().as_deref()),
+        Some(path) => channel_of(
+            path,
+            receipt_prefix().as_deref(),
+            cargo_bin_dir().as_deref(),
+        ),
         None => Channel::Installer,
     };
 
@@ -648,6 +688,11 @@ fn update_cmd(rest: &[String]) {
         Channel::WinGet => {
             println!("This lux came from WinGet, so WinGet is what should replace it:");
             println!("  winget upgrade Anderix.luxc");
+            return;
+        }
+        Channel::Cargo => {
+            println!("This lux came from cargo, so cargo is what should replace it:");
+            println!("  cargo install luxc --force");
             return;
         }
         Channel::Shadowed(managed) => {
@@ -788,6 +833,13 @@ fn print_usage() {
 mod tests {
     use super::*;
 
+    /// Cargo's bin directory as these tests' machine would report it. Passed in
+    /// rather than read from the environment so the classification stays testable
+    /// against paths this machine does not have.
+    fn cargo_bin() -> Option<&'static Path> {
+        Some(Path::new("/home/sam/.cargo/bin"))
+    }
+
     /// The three prefixes Homebrew actually uses, and the symlink detail that
     /// makes this worth testing: what reaches `channel_of` is the Cellar path the
     /// link resolves to, not the `bin/lux` a learner sees on their PATH.
@@ -804,7 +856,7 @@ mod tests {
             "/home/linuxbrew/.linuxbrew/Cellar/luxc/0.19.12/bin/lux",
         ] {
             assert_eq!(
-                channel_of(Path::new(path), None),
+                channel_of(Path::new(path), None, cargo_bin()),
                 Channel::Homebrew,
                 "{}",
                 path
@@ -821,6 +873,7 @@ mod tests {
             channel_of(
                 Path::new("/opt/homebrew/Cellar/luxc/0.19.12/bin/lux"),
                 Some(Path::new("/home/sam/.cargo")),
+                cargo_bin(),
             ),
             Channel::Homebrew
         );
@@ -836,7 +889,7 @@ mod tests {
             r"\\?\C:\Users\sam\AppData\Local\Microsoft\WinGet\Packages\Anderix.luxc_abc123\lux.exe",
         ] {
             assert_eq!(
-                channel_of(Path::new(path), None),
+                channel_of(Path::new(path), None, cargo_bin()),
                 Channel::WinGet,
                 "{}",
                 path
@@ -846,7 +899,9 @@ mod tests {
 
     /// A receipt covering the running binary is the only thing that authorises
     /// re-running the installer. The prefix is the parent of `bin`, not `bin`
-    /// itself, because that is what cargo-dist records for its default layout.
+    /// itself, because that is what cargo-dist records for its default layout —
+    /// which is also cargo's own directory, so this doubles as the check that a
+    /// receipt outranks the cargo guess on the path they share.
     #[test]
     fn a_receipt_covering_this_binary_authorises_the_installer() {
         for (exe, prefix) in [
@@ -857,12 +912,33 @@ mod tests {
             ("/home/sam/.local/bin/lux", "/home/sam/.local/bin"),
         ] {
             assert_eq!(
-                channel_of(Path::new(exe), Some(Path::new(prefix))),
+                channel_of(Path::new(exe), Some(Path::new(prefix)), cargo_bin()),
                 Channel::Installer,
                 "{}",
                 exe
             );
         }
+    }
+
+    /// No receipt covering it, but sitting in cargo's directory. `cargo install`
+    /// writes no receipt, so without this the one install route lux documents for
+    /// Rust users would be as unrecognisable as a binary dropped on a PATH.
+    #[test]
+    fn a_cargo_installed_lux_is_sent_back_to_cargo() {
+        assert_eq!(
+            channel_of(Path::new("/home/sam/.cargo/bin/lux"), None, cargo_bin()),
+            Channel::Cargo
+        );
+        // A receipt exists but the installer put its copy somewhere else, so the
+        // binary running here is still cargo's.
+        assert_eq!(
+            channel_of(
+                Path::new("/home/sam/.cargo/bin/lux"),
+                Some(Path::new("/home/sam/.local")),
+                cargo_bin(),
+            ),
+            Channel::Cargo
+        );
     }
 
     /// The installer manages a lux, but not the one running. Updating would
@@ -874,6 +950,7 @@ mod tests {
             channel_of(
                 Path::new("/home/sam/bin/lux"),
                 Some(Path::new("/home/sam/.cargo")),
+                cargo_bin(),
             ),
             Channel::Shadowed(PathBuf::from("/home/sam/.cargo"))
         );
@@ -892,7 +969,7 @@ mod tests {
             "/home/sam/projects/lux",
         ] {
             assert_eq!(
-                channel_of(Path::new(path), None),
+                channel_of(Path::new(path), None, cargo_bin()),
                 Channel::Unmanaged,
                 "{}",
                 path
