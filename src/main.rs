@@ -548,12 +548,12 @@ fn update_cmd(rest: &[String]) {
     match current_channel() {
         Channel::Homebrew => {
             println!("This lux came from Homebrew, so Homebrew is what should replace it:");
-            println!("  brew upgrade anderix/tap/lux");
+            println!("  brew upgrade anderix/tap/luxc");
             return;
         }
         Channel::WinGet => {
             println!("This lux came from WinGet, so WinGet is what should replace it:");
-            println!("  winget upgrade Anderix.lux");
+            println!("  winget upgrade Anderix.luxc");
             return;
         }
         Channel::Installer => {}
@@ -672,12 +672,17 @@ mod tests {
     /// The three prefixes Homebrew actually uses, and the symlink detail that
     /// makes this worth testing: what reaches `channel_of` is the Cellar path the
     /// link resolves to, not the `bin/lux` a learner sees on their PATH.
+    ///
+    /// Note the shape of that path — `Cellar/<formula>/<version>/bin/<binary>`.
+    /// The formula is `luxc`, matching the crate name on crates.io, because
+    /// `lux` in homebrew-core is an unrelated video downloader. The binary it
+    /// installs is `lux`, which is the only name a learner ever types.
     #[test]
     fn a_homebrew_lux_is_recognised_on_every_prefix() {
         for path in [
-            "/opt/homebrew/Cellar/lux/0.19.10/bin/lux",
-            "/usr/local/Cellar/lux/0.19.10/bin/lux",
-            "/home/linuxbrew/.linuxbrew/Cellar/lux/0.19.10/bin/lux",
+            "/opt/homebrew/Cellar/luxc/0.19.12/bin/lux",
+            "/usr/local/Cellar/luxc/0.19.12/bin/lux",
+            "/home/linuxbrew/.linuxbrew/Cellar/luxc/0.19.12/bin/lux",
         ] {
             assert_eq!(channel_of(Path::new(path)), Channel::Homebrew, "{}", path);
         }
@@ -688,9 +693,9 @@ mod tests {
     #[test]
     fn a_winget_lux_is_recognised_whatever_the_casing() {
         for path in [
-            r"C:\Users\sam\AppData\Local\Microsoft\WinGet\Packages\Anderix.lux_abc123\lux.exe",
+            r"C:\Users\sam\AppData\Local\Microsoft\WinGet\Packages\Anderix.luxc_abc123\lux.exe",
             r"c:\users\sam\appdata\local\microsoft\winget\links\lux.exe",
-            r"\\?\C:\Users\sam\AppData\Local\Microsoft\WinGet\Packages\Anderix.lux_abc123\lux.exe",
+            r"\\?\C:\Users\sam\AppData\Local\Microsoft\WinGet\Packages\Anderix.luxc_abc123\lux.exe",
         ] {
             assert_eq!(channel_of(Path::new(path)), Channel::WinGet, "{}", path);
         }

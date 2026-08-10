@@ -4,6 +4,22 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.12] - 2026-08-09
+
+Corrects the two package names 0.19.11 printed, settled by checking both registries
+rather than assuming. Nothing is published on either channel yet, so no install is
+affected — but the names had to be right before the first one exists.
+
+### Changed
+
+- **The package is `luxc` on Homebrew and WinGet, matching crates.io.** `lux` was already
+  taken on both: homebrew-core's `lux` is an unrelated video downloader, and on WinGet the
+  moniker belongs to a Govee light-strip CLI while a network proxy tool holds the plain
+  name. `luxc` is free on both, so `lux update` now prints `brew upgrade anderix/tap/luxc`
+  and `winget upgrade Anderix.luxc`. This is the same trade crates.io forced and the same
+  answer, which keeps one rule across all three registries. The binary is still `lux`, and
+  that is the only name anyone types after installing.
+
 ## [0.19.11] - 2026-08-09
 
 Install plumbing, not language surface. It lands before the first Homebrew tap or WinGet
