@@ -464,12 +464,77 @@ fn build_cmd(rest: &[String]) {
     }
 }
 
+/// Where the running lux came from, as far as its own path can tell.
+#[derive(Debug, PartialEq)]
+enum Channel {
+    Homebrew,
+    WinGet,
+    /// The cargo-dist installer behind the vanity URLs, and the assumption when
+    /// nothing else matches — which is what lux did on every channel before this.
+    Installer,
+}
+
+/// Classify an already-resolved executable path.
+///
+/// Split out from `current_channel` so it can be tested against paths this
+/// machine does not have. Both package managers are matched on every platform
+/// rather than behind `cfg`, so the Windows branch is covered by the suite on a
+/// Linux runner too.
+///
+/// Match on the *resolved* path. Homebrew links `bin/lux` into its prefix while
+/// the real file lives under `Cellar`, and `current_exe` follows symlinks on
+/// Linux and macOS, so a Cellar path is what arrives here — the link is never
+/// what gets classified.
+fn channel_of(exe: &Path) -> Channel {
+    // Case-insensitive because Windows paths are, and lossy because a path that
+    // is not valid UTF-8 cannot match any of these prefixes anyway.
+    let path = exe.to_string_lossy().to_lowercase();
+
+    // Apple silicon, Intel macOS, and Linuxbrew respectively. `/usr/local` is
+    // qualified with `Cellar` — unlike the other two, that prefix is shared with
+    // everything else installed by hand, and claiming all of it would send a
+    // hand-built lux to a Homebrew that never had it.
+    if path.starts_with("/opt/homebrew/")
+        || path.starts_with("/usr/local/cellar/")
+        || path.starts_with("/home/linuxbrew/.linuxbrew/")
+    {
+        return Channel::Homebrew;
+    }
+
+    // Covers both the package directory and the shim in `Links`. A custom
+    // `HOMEBREW_PREFIX` or a relocated WinGet root falls through to `Installer`,
+    // which is the behaviour lux already had — a miss costs what today costs,
+    // and matching too eagerly would misdirect someone the current code serves.
+    if path.contains("\\microsoft\\winget\\") {
+        return Channel::WinGet;
+    }
+
+    Channel::Installer
+}
+
+/// Classify the running binary, falling back to `Installer` when its own path
+/// cannot be read — an unreadable path is a reason to behave as lux always has,
+/// not a reason to fail.
+fn current_channel() -> Channel {
+    match std::env::current_exe() {
+        Ok(exe) => channel_of(&exe.canonicalize().unwrap_or(exe)),
+        Err(_) => Channel::Installer,
+    }
+}
+
 /// `lux update`: fetch and install the latest release by re-running the same
 /// stable installer the docs print. cargo-dist installs into a user-owned
 /// directory (~/.cargo/bin), so this needs no sudo — and must not use it, or it
 /// would prompt for a password it does not need and could leave root-owned files
 /// where the user's should be. On Unix a running binary can be replaced in place,
 /// so lux can update itself while it runs.
+///
+/// When lux arrived from a package manager, that installer is the wrong tool:
+/// it would write a second copy into `~/.cargo/bin` that Homebrew or WinGet knows
+/// nothing about, leaving PATH order to decide which one answers `lux`. Nothing
+/// would look wrong — the update reports success and `lux --version` reports the
+/// old version. So each of those channels gets handed the command that updates
+/// the copy it actually has, rather than the command being taken away.
 fn update_cmd(rest: &[String]) {
     if wants_help(rest) {
         sub_usage("update");
@@ -478,6 +543,20 @@ fn update_cmd(rest: &[String]) {
     if !rest.is_empty() {
         eprintln!("usage: lux update");
         exit(1);
+    }
+
+    match current_channel() {
+        Channel::Homebrew => {
+            println!("This lux came from Homebrew, so Homebrew is what should replace it:");
+            println!("  brew upgrade anderix/tap/lux");
+            return;
+        }
+        Channel::WinGet => {
+            println!("This lux came from WinGet, so WinGet is what should replace it:");
+            println!("  winget upgrade Anderix.lux");
+            return;
+        }
+        Channel::Installer => {}
     }
 
     // On Windows a running lux.exe can't overwrite its own file, and lux carries no
@@ -584,4 +663,59 @@ fn print_usage() {
     println!();
     println!("  -V, --version                 print version");
     println!("  -h, --help                    print this help");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The three prefixes Homebrew actually uses, and the symlink detail that
+    /// makes this worth testing: what reaches `channel_of` is the Cellar path the
+    /// link resolves to, not the `bin/lux` a learner sees on their PATH.
+    #[test]
+    fn a_homebrew_lux_is_recognised_on_every_prefix() {
+        for path in [
+            "/opt/homebrew/Cellar/lux/0.19.10/bin/lux",
+            "/usr/local/Cellar/lux/0.19.10/bin/lux",
+            "/home/linuxbrew/.linuxbrew/Cellar/lux/0.19.10/bin/lux",
+        ] {
+            assert_eq!(channel_of(Path::new(path)), Channel::Homebrew, "{}", path);
+        }
+    }
+
+    /// WinGet's package directory and its shim directory, in the casing Windows
+    /// reports and in the verbatim form `canonicalize` hands back.
+    #[test]
+    fn a_winget_lux_is_recognised_whatever_the_casing() {
+        for path in [
+            r"C:\Users\sam\AppData\Local\Microsoft\WinGet\Packages\Anderix.lux_abc123\lux.exe",
+            r"c:\users\sam\appdata\local\microsoft\winget\links\lux.exe",
+            r"\\?\C:\Users\sam\AppData\Local\Microsoft\WinGet\Packages\Anderix.lux_abc123\lux.exe",
+        ] {
+            assert_eq!(channel_of(Path::new(path)), Channel::WinGet, "{}", path);
+        }
+    }
+
+    /// The path the cargo-dist installer writes to, which must keep the old
+    /// behaviour — this is the channel `lux update` was built for.
+    #[test]
+    fn a_cargo_dist_lux_is_left_to_the_installer() {
+        for path in [
+            "/home/sam/.cargo/bin/lux",
+            "/Users/sam/.cargo/bin/lux",
+            r"C:\Users\sam\.cargo\bin\lux.exe",
+        ] {
+            assert_eq!(channel_of(Path::new(path)), Channel::Installer, "{}", path);
+        }
+    }
+
+    /// `/usr/local` is shared ground. A lux built and copied there by hand is not
+    /// a Homebrew install, and telling its owner to run `brew upgrade` would send
+    /// them to a package manager that has never heard of it.
+    #[test]
+    fn a_hand_installed_lux_under_usr_local_is_not_homebrew() {
+        for path in ["/usr/local/bin/lux", "/usr/bin/lux", "/opt/lux/bin/lux"] {
+            assert_eq!(channel_of(Path::new(path)), Channel::Installer, "{}", path);
+        }
+    }
 }

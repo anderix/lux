@@ -4,6 +4,27 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.11] - 2026-08-09
+
+Install plumbing, not language surface. It lands before the first Homebrew tap or WinGet
+manifest exists, because the defect it prevents comes into existence the moment one does.
+
+### Changed
+
+- **`lux update` now works out how lux was installed before it does anything.** It only
+  ever knew one channel: it re-ran the cargo-dist installer, which writes into
+  `~/.cargo/bin`. On a machine where lux arrived from a package manager that would leave a
+  second copy the package manager knows nothing about, with PATH order deciding which one
+  answers `lux` — and nothing would look wrong, because the command reports success while
+  `lux --version` reports the old version. A binary running from a Homebrew prefix is now
+  handed `brew upgrade anderix/tap/lux`, one running from WinGet is handed
+  `winget upgrade Anderix.lux`, and anything else behaves exactly as before (#87). The
+  command stays on those channels rather than being removed: nobody should have to
+  remember how lux arrived on their machine to ask it for a newer one. Matching is done on
+  the resolved path, since Homebrew links `bin/lux` into its prefix while the real file
+  lives under `Cellar`, and `/usr/local` counts only under `Cellar` so a hand-built lux
+  installed there is not sent to a package manager that has never heard of it.
+
 ## [0.19.10] - 2026-08-08
 
 Wording only, no code change. Two sentences that described outgrowing lux as moving to
