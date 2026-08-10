@@ -17,18 +17,8 @@ installed you can read it in your terminal with `lux learn`.
 
 ## Installing
 
-On macOS or Linux, if you have Homebrew:
-
-```
-brew install anderix/tap/luxc
-```
-
-The formula is named `luxc`, matching the crate on crates.io, because `lux` was
-already taken in both places. The command it installs is `lux`, and that is the
-only name you type afterwards. Remove it with
-`brew uninstall anderix/tap/luxc`.
-
-Otherwise, install a prebuilt `lux` with one command — no Rust toolchain needed:
+On macOS or Linux, install a prebuilt `lux` with one command — no Rust toolchain
+needed:
 
 ```
 curl -LsSf https://anderix.com/lux/install | sh
@@ -42,13 +32,24 @@ irm https://anderix.com/lux/install.ps1 | iex
 
 Those URLs are stable front doors to the latest release: running one again updates
 in place, and once lux is installed `lux update` does the same from the binary
-itself. On a Homebrew install it prints the `brew upgrade` line instead, so the
-package manager stays the one thing that decides what is on your machine. To
-remove an installer build again:
+itself. To remove it again:
 
 ```
 curl -LsSf https://anderix.com/lux/uninstall | sh
 ```
+
+If you already use Homebrew, lux is in a tap:
+
+```
+brew install anderix/tap/luxc
+```
+
+The formula is named `luxc`, matching the crate on crates.io, because `lux` was
+already taken in both places. The command it installs is `lux`, and that is the
+only name you type afterwards. On a Homebrew install `lux update` prints the
+`brew upgrade` line rather than updating in place, so the package manager stays
+the one thing that decides what is on your machine. Remove it with
+`brew uninstall anderix/tap/luxc`.
 
 If you already have Rust, you can install from crates.io instead:
 
