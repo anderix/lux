@@ -4,6 +4,18 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.16] - 2026-08-09
+
+### Changed
+
+- **`lux update --help` says what the command actually does.** It described itself as
+  "update lux to the latest release", which is true in one case and false in the rest —
+  and false on Windows in every case, where a running `lux.exe` cannot overwrite itself
+  and the command only ever prints the line to run in a fresh terminal. The help now says
+  that where lux came from decides what happens, that a package manager or cargo gets
+  handed its own upgrade command, and that anything unrecognised is reported rather than
+  guessed at. The one-line summary in `lux --help` changed to match.
+
 ## [0.19.15] - 2026-08-09
 
 Finishes 0.19.14 by naming the one install route it left unrecognised.

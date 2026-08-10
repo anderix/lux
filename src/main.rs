@@ -337,9 +337,19 @@ fn sub_usage(cmd: &str) {
             println!("  lux editors highlighting  write highlighting for each one found");
         }
         "update" => {
-            println!("lux update — update lux to the latest release");
+            println!("lux update — get the latest lux, however this one was installed");
             println!();
             println!("usage: lux update");
+            println!();
+            println!("What happens depends on where lux came from. An install made by the shell");
+            println!("installer is replaced in place. One from Homebrew, WinGet, or cargo hands");
+            println!("back that tool's own upgrade command, so whatever installed lux stays the");
+            println!("thing that replaces it. Anything else — built from source, or fetched with");
+            println!("a tool like eget — is reported rather than guessed at, so an update never");
+            println!("leaves a second lux somewhere else on your PATH.");
+            println!();
+            println!("On Windows nothing is replaced in place: a running lux.exe can't overwrite");
+            println!("itself, so the command to run in a fresh terminal is printed instead.");
         }
         _ => print_usage(),
     }
@@ -823,7 +833,7 @@ fn print_usage() {
     println!("  lux learn [topic] [more]      read the language, built in");
     println!("  lux magic [spell]             working shapes for what you want to do now");
     println!("  lux editors [highlighting]    syntax highlighting for your editors");
-    println!("  lux update                    update lux to the latest release");
+    println!("  lux update                    get the latest lux, however it was installed");
     println!();
     println!("  -V, --version                 print version");
     println!("  -h, --help                    print this help");
