@@ -4,6 +4,35 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.14] - 2026-08-09
+
+Install plumbing. 0.19.11 taught `lux update` to recognise two package managers; this
+stops it guessing about everything else.
+
+### Fixed
+
+- **`lux update` no longer installs a second lux over an install it did not make.** It
+  recognised Homebrew and WinGet by path and assumed the cargo-dist installer for
+  everything else, so a lux placed any other way — by `eget`, built from source, copied
+  into `~/bin`, installed by a distro — got the installer run over the top of it. That
+  writes into `~/.cargo/bin` and leaves the original untouched at the old version, with
+  PATH order deciding which one answers `lux` and nothing on screen saying so. The
+  assumption is now gone: the installer runs only when the install receipt cargo-dist
+  writes names a prefix containing the running binary. A receipt pointing somewhere else
+  reports both paths, and no receipt at all reports where lux is and hands back the
+  install command rather than quietly duplicating it. Every channel that has not been
+  anticipated is covered by this, rather than each one needing its own path to match —
+  `eget` in particular cannot be recognised by path at all, since it drops the binary in
+  whatever directory it is pointed at.
+
+### Changed
+
+- **Paths are compared as normalised text rather than through `Path`.** Separators are
+  unified, case is folded, and Windows' verbatim `\\?\` prefix is stripped, because
+  `canonicalize` produces one while a receipt records a plain path. It also means the
+  Windows matching is exercised by the suite on Linux, where a backslash is an ordinary
+  character and a Windows path would otherwise read as a single component.
+
 ## [0.19.13] - 2026-08-09
 
 Distribution, not language surface. The first release to publish a Homebrew formula.

@@ -6,7 +6,7 @@
 //! language's own built-in reference.
 
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio, exit};
 
 use lux::{check, convert, diagnostic, editors, interpreter, learn, lexer, magic, parser};
@@ -464,31 +464,82 @@ fn build_cmd(rest: &[String]) {
     }
 }
 
-/// Where the running lux came from, as far as its own path can tell.
+/// Where the running lux came from.
 #[derive(Debug, PartialEq)]
 enum Channel {
     Homebrew,
     WinGet,
-    /// The cargo-dist installer behind the vanity URLs, and the assumption when
-    /// nothing else matches — which is what lux did on every channel before this.
+    /// The cargo-dist installer behind the vanity URLs, established by a receipt
+    /// that covers the running binary rather than assumed from a path.
     Installer,
+    /// The installer manages a lux, but not this one. Carries the prefix it does
+    /// manage, so the message can name both.
+    Shadowed(PathBuf),
+    /// Nothing claims this binary: eget, a hand-built copy, a distro package, a
+    /// file someone dropped on their PATH.
+    Unmanaged,
 }
 
-/// Classify an already-resolved executable path.
+/// Pull a string field out of the install receipt without a JSON parser.
 ///
-/// Split out from `current_channel` so it can be tested against paths this
-/// machine does not have. Both package managers are matched on every platform
-/// rather than behind `cfg`, so the Windows branch is covered by the suite on a
-/// Linux runner too.
+/// One field is wanted from a file cargo-dist wrote, so a dependency would be a
+/// steep price. Handles the escapes that can appear in a path — `\\` on Windows,
+/// and the `\"` and `\/` a JSON writer is allowed to emit — and stops at the
+/// closing quote.
+fn json_string_field(text: &str, key: &str) -> Option<String> {
+    let needle = format!("\"{}\":\"", key);
+    let start = text.find(&needle)? + needle.len();
+    let mut out = String::new();
+    let mut chars = text[start..].chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '"' => return Some(out),
+            '\\' => out.push(chars.next()?),
+            _ => out.push(c),
+        }
+    }
+    None
+}
+
+/// Where the cargo-dist installer says it put lux, if it left a receipt.
+///
+/// The installer writes `luxc-receipt.json` under `$XDG_CONFIG_HOME/luxc`
+/// (falling back to `~/.config/luxc`) on Unix and `%LOCALAPPDATA%\luxc` on
+/// Windows, recording the prefix it installed into. That file is *positive*
+/// evidence of provenance, which a path never was — it says lux came from the
+/// installer, and where the installer put it.
+fn receipt_prefix() -> Option<PathBuf> {
+    #[cfg(windows)]
+    let dir = PathBuf::from(std::env::var_os("LOCALAPPDATA")?).join("luxc");
+    #[cfg(not(windows))]
+    let dir = match std::env::var_os("XDG_CONFIG_HOME") {
+        Some(x) if !x.is_empty() => PathBuf::from(x).join("luxc"),
+        _ => PathBuf::from(std::env::var_os("HOME")?)
+            .join(".config")
+            .join("luxc"),
+    };
+    let text = std::fs::read_to_string(dir.join("luxc-receipt.json")).ok()?;
+    json_string_field(&text, "install_prefix").map(PathBuf::from)
+}
+
+/// Classify an already-resolved executable path against an already-read receipt.
+///
+/// Split out from `current_channel` so it can be tested against paths and
+/// receipts this machine does not have. Both package managers are matched on
+/// every platform rather than behind `cfg`, so the Windows branch is covered by
+/// the suite on a Linux runner too.
 ///
 /// Match on the *resolved* path. Homebrew links `bin/lux` into its prefix while
 /// the real file lives under `Cellar`, and `current_exe` follows symlinks on
 /// Linux and macOS, so a Cellar path is what arrives here — the link is never
 /// what gets classified.
-fn channel_of(exe: &Path) -> Channel {
-    // Case-insensitive because Windows paths are, and lossy because a path that
-    // is not valid UTF-8 cannot match any of these prefixes anyway.
-    let path = exe.to_string_lossy().to_lowercase();
+///
+/// The package managers are checked first and win outright. A machine can hold a
+/// stale receipt from an earlier installer run alongside a lux that now comes
+/// from Homebrew, and the path is the better evidence in that case because it
+/// describes the binary actually running.
+fn channel_of(exe: &Path, receipt: Option<&Path>) -> Channel {
+    let path = normalise_path(exe);
 
     // Apple silicon, Intel macOS, and Linuxbrew respectively. `/usr/local` is
     // qualified with `Cellar` — unlike the other two, that prefix is shared with
@@ -501,25 +552,57 @@ fn channel_of(exe: &Path) -> Channel {
         return Channel::Homebrew;
     }
 
-    // Covers both the package directory and the shim in `Links`. A custom
-    // `HOMEBREW_PREFIX` or a relocated WinGet root falls through to `Installer`,
-    // which is the behaviour lux already had — a miss costs what today costs,
-    // and matching too eagerly would misdirect someone the current code serves.
-    if path.contains("\\microsoft\\winget\\") {
+    // Covers both the package directory and the shim in `Links`.
+    if path.contains("/microsoft/winget/") {
         return Channel::WinGet;
     }
 
-    Channel::Installer
+    // Compared against the recorded prefix rather than a reconstructed `bin`
+    // directory: cargo-dist has several install layouts, and the binary sits
+    // under the prefix in all of them.
+    match receipt {
+        Some(prefix) if is_under(exe, prefix) => Channel::Installer,
+        Some(prefix) => Channel::Shadowed(prefix.to_path_buf()),
+        None => Channel::Unmanaged,
+    }
 }
 
-/// Classify the running binary, falling back to `Installer` when its own path
-/// cannot be read — an unreadable path is a reason to behave as lux always has,
-/// not a reason to fail.
-fn current_channel() -> Channel {
-    match std::env::current_exe() {
-        Ok(exe) => channel_of(&exe.canonicalize().unwrap_or(exe)),
-        Err(_) => Channel::Installer,
-    }
+/// Flatten a path to text for comparison: separators unified, case folded, and
+/// Windows' verbatim `\\?\` prefix dropped.
+///
+/// Compared as text rather than with `Path::starts_with` so the Windows forms are
+/// exercised by the suite on a Linux runner, where a backslash is an ordinary
+/// character and a whole Windows path would otherwise read as one component.
+/// `canonicalize` returns verbatim paths on Windows while a receipt records a
+/// plain one, so the prefix has to come off or the two never meet. Folding case
+/// is for Windows, where paths are case-insensitive; on Unix it can only merge
+/// two paths differing solely in case, which in practice name the same install.
+fn normalise_path(p: &Path) -> String {
+    let text = p.to_string_lossy().replace('\\', "/").to_lowercase();
+    text.strip_prefix("//?/")
+        .map(str::to_string)
+        .unwrap_or(text)
+}
+
+/// Whether the running binary sits under the prefix the receipt recorded.
+fn is_under(exe: &Path, prefix: &Path) -> bool {
+    let exe = normalise_path(exe);
+    let prefix = normalise_path(prefix);
+    let prefix = prefix.trim_end_matches('/');
+    // The trailing separator is what keeps `/home/sam/.cargo` from claiming a
+    // binary that lives in `/home/sam/.cargofoo`.
+    exe == prefix || exe.starts_with(&format!("{}/", prefix))
+}
+
+/// The one-line command that installs the latest release on this platform.
+#[cfg(unix)]
+fn installer_command() -> String {
+    format!("curl -LsSf {} | sh", INSTALL_URL)
+}
+
+#[cfg(windows)]
+fn installer_command() -> String {
+    format!("irm {} | iex", INSTALL_PS_URL)
 }
 
 /// `lux update`: fetch and install the latest release by re-running the same
@@ -529,12 +612,13 @@ fn current_channel() -> Channel {
 /// where the user's should be. On Unix a running binary can be replaced in place,
 /// so lux can update itself while it runs.
 ///
-/// When lux arrived from a package manager, that installer is the wrong tool:
-/// it would write a second copy into `~/.cargo/bin` that Homebrew or WinGet knows
-/// nothing about, leaving PATH order to decide which one answers `lux`. Nothing
-/// would look wrong — the update reports success and `lux --version` reports the
-/// old version. So each of those channels gets handed the command that updates
-/// the copy it actually has, rather than the command being taken away.
+/// When lux arrived any other way, that installer is the wrong tool: it would
+/// write a second copy into `~/.cargo/bin` that nothing else knows about, leaving
+/// PATH order to decide which one answers `lux`. Nothing would look wrong — the
+/// update reports success and `lux --version` reports the old version. So the
+/// installer runs only on proof that lux came from it, and every other case is
+/// handed the step that updates the copy it actually has. Refusing to guess is
+/// the point: an unrecognised channel used to inherit the bug silently.
 fn update_cmd(rest: &[String]) {
     if wants_help(rest) {
         sub_usage("update");
@@ -545,7 +629,17 @@ fn update_cmd(rest: &[String]) {
         exit(1);
     }
 
-    match current_channel() {
+    // An unreadable path means nothing can be established, and behaving as lux
+    // always has beats refusing on a technicality.
+    let exe = std::env::current_exe()
+        .ok()
+        .map(|e| e.canonicalize().unwrap_or(e));
+    let channel = match &exe {
+        Some(path) => channel_of(path, receipt_prefix().as_deref()),
+        None => Channel::Installer,
+    };
+
+    match channel {
         Channel::Homebrew => {
             println!("This lux came from Homebrew, so Homebrew is what should replace it:");
             println!("  brew upgrade anderix/tap/luxc");
@@ -554,6 +648,31 @@ fn update_cmd(rest: &[String]) {
         Channel::WinGet => {
             println!("This lux came from WinGet, so WinGet is what should replace it:");
             println!("  winget upgrade Anderix.luxc");
+            return;
+        }
+        Channel::Shadowed(managed) => {
+            println!(
+                "The lux you are running is at {}.",
+                exe.as_deref().unwrap_or(Path::new("?")).display()
+            );
+            println!(
+                "The installer manages a different one, under {}.",
+                managed.display()
+            );
+            println!("Updating would refresh that copy and leave this one behind, and whichever");
+            println!("comes first on your PATH is the one that answers `lux`. To update it:");
+            println!("  {}", installer_command());
+            return;
+        }
+        Channel::Unmanaged => {
+            println!(
+                "lux is at {}, and nothing here says how it got there.",
+                exe.as_deref().unwrap_or(Path::new("?")).display()
+            );
+            println!("If a package manager or a tool like eget put it there, update it the same");
+            println!("way. Installing over the top would leave a second lux somewhere else, and");
+            println!("PATH order would decide which one answers. To install the latest release:");
+            println!("  {}", installer_command());
             return;
         }
         Channel::Installer => {}
@@ -684,8 +803,27 @@ mod tests {
             "/usr/local/Cellar/luxc/0.19.12/bin/lux",
             "/home/linuxbrew/.linuxbrew/Cellar/luxc/0.19.12/bin/lux",
         ] {
-            assert_eq!(channel_of(Path::new(path)), Channel::Homebrew, "{}", path);
+            assert_eq!(
+                channel_of(Path::new(path), None),
+                Channel::Homebrew,
+                "{}",
+                path
+            );
         }
+    }
+
+    /// A machine can carry a receipt from an earlier installer run while the lux
+    /// on its PATH now comes from Homebrew. The path describes the binary that is
+    /// actually running, so it wins.
+    #[test]
+    fn a_stale_receipt_does_not_override_a_homebrew_path() {
+        assert_eq!(
+            channel_of(
+                Path::new("/opt/homebrew/Cellar/luxc/0.19.12/bin/lux"),
+                Some(Path::new("/home/sam/.cargo")),
+            ),
+            Channel::Homebrew
+        );
     }
 
     /// WinGet's package directory and its shim directory, in the casing Windows
@@ -697,30 +835,91 @@ mod tests {
             r"c:\users\sam\appdata\local\microsoft\winget\links\lux.exe",
             r"\\?\C:\Users\sam\AppData\Local\Microsoft\WinGet\Packages\Anderix.luxc_abc123\lux.exe",
         ] {
-            assert_eq!(channel_of(Path::new(path)), Channel::WinGet, "{}", path);
+            assert_eq!(
+                channel_of(Path::new(path), None),
+                Channel::WinGet,
+                "{}",
+                path
+            );
         }
     }
 
-    /// The path the cargo-dist installer writes to, which must keep the old
-    /// behaviour — this is the channel `lux update` was built for.
+    /// A receipt covering the running binary is the only thing that authorises
+    /// re-running the installer. The prefix is the parent of `bin`, not `bin`
+    /// itself, because that is what cargo-dist records for its default layout.
     #[test]
-    fn a_cargo_dist_lux_is_left_to_the_installer() {
-        for path in [
-            "/home/sam/.cargo/bin/lux",
-            "/Users/sam/.cargo/bin/lux",
-            r"C:\Users\sam\.cargo\bin\lux.exe",
+    fn a_receipt_covering_this_binary_authorises_the_installer() {
+        for (exe, prefix) in [
+            ("/home/sam/.cargo/bin/lux", "/home/sam/.cargo"),
+            ("/Users/sam/.cargo/bin/lux", "/Users/sam/.cargo"),
+            (r"C:\Users\sam\.cargo\bin\lux.exe", r"C:\Users\sam\.cargo"),
+            // A flat layout, where the prefix is the directory holding the binary.
+            ("/home/sam/.local/bin/lux", "/home/sam/.local/bin"),
         ] {
-            assert_eq!(channel_of(Path::new(path)), Channel::Installer, "{}", path);
+            assert_eq!(
+                channel_of(Path::new(exe), Some(Path::new(prefix))),
+                Channel::Installer,
+                "{}",
+                exe
+            );
         }
     }
 
-    /// `/usr/local` is shared ground. A lux built and copied there by hand is not
-    /// a Homebrew install, and telling its owner to run `brew upgrade` would send
-    /// them to a package manager that has never heard of it.
+    /// The installer manages a lux, but not the one running. Updating would
+    /// refresh the other copy and leave this one stale, which is the failure the
+    /// receipt exists to catch.
     #[test]
-    fn a_hand_installed_lux_under_usr_local_is_not_homebrew() {
-        for path in ["/usr/local/bin/lux", "/usr/bin/lux", "/opt/lux/bin/lux"] {
-            assert_eq!(channel_of(Path::new(path)), Channel::Installer, "{}", path);
+    fn a_receipt_pointing_elsewhere_reports_a_shadowed_install() {
+        assert_eq!(
+            channel_of(
+                Path::new("/home/sam/bin/lux"),
+                Some(Path::new("/home/sam/.cargo")),
+            ),
+            Channel::Shadowed(PathBuf::from("/home/sam/.cargo"))
+        );
+    }
+
+    /// No receipt means no evidence. eget drops a binary wherever the user points
+    /// it — the working directory by default — so there is no path to match on,
+    /// and guessing "installer" is what used to create the second copy.
+    #[test]
+    fn a_binary_with_no_receipt_is_unmanaged() {
+        for path in [
+            "/home/sam/.local/bin/lux",
+            "/usr/local/bin/lux",
+            "/usr/bin/lux",
+            "/opt/lux/bin/lux",
+            "/home/sam/projects/lux",
+        ] {
+            assert_eq!(
+                channel_of(Path::new(path), None),
+                Channel::Unmanaged,
+                "{}",
+                path
+            );
         }
+    }
+
+    /// The receipt is JSON written by another tool, so the one field lux reads
+    /// has to survive the escapes a JSON writer is allowed to use — Windows paths
+    /// carry doubled backslashes.
+    #[test]
+    fn the_receipt_field_survives_json_escaping() {
+        let unix = r#"{"install_layout":"cargo-home","install_prefix":"/home/sam/.cargo","version":"0.19.13"}"#;
+        assert_eq!(
+            json_string_field(unix, "install_prefix").as_deref(),
+            Some("/home/sam/.cargo")
+        );
+
+        let windows = r#"{"install_prefix":"C:\\Users\\sam\\.cargo","version":"0.19.13"}"#;
+        assert_eq!(
+            json_string_field(windows, "install_prefix").as_deref(),
+            Some(r"C:\Users\sam\.cargo")
+        );
+
+        assert_eq!(
+            json_string_field(r#"{"version":"1"}"#, "install_prefix"),
+            None
+        );
     }
 }
