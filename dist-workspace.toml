@@ -8,7 +8,14 @@ cargo-dist-version = "0.31.0"
 # CI backends to support
 ci = "github"
 # The installers to generate for each app
-installers = ["shell", "powershell"]
+installers = ["shell", "powershell", "homebrew"]
+# Where the generated formula is committed. The formula takes the package name,
+# `luxc`, because `lux` in homebrew-core is an unrelated video downloader that
+# wins the plain name over any tap. The binary it installs is still `lux`.
+tap = "anderix/homebrew-tap"
+# Push the formula to the tap on release. Without this the formula is built and
+# attached to the GitHub release but never reaches the tap.
+publish-jobs = ["homebrew"]
 # Target platforms to build apps for (Rust target-triple syntax)
 targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
 # Where to host releases

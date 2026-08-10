@@ -4,6 +4,25 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.13] - 2026-08-09
+
+Distribution, not language surface. The first release to publish a Homebrew formula.
+
+### Added
+
+- **lux installs from Homebrew.** `brew install anderix/tap/luxc` on macOS and Linux, from
+  [anderix/homebrew-tap](https://github.com/anderix/homebrew-tap). The formula is written
+  there by the release workflow on every tag, so it cannot drift from the release it
+  describes. It is the second way to install lux that does not ask anyone to pipe a URL
+  into a shell, after `cargo install luxc`, and the reason for adding it: the shell
+  one-liner is the exact shape of an instruction a careful person should refuse. The
+  package is `luxc` and the binary is `lux` — see 0.19.12 for why.
+
+### Changed
+
+- **The crate declares a homepage.** Homebrew formulas carry one, and lux had only a
+  repository, so the formula would have shipped without a link to the project's own page.
+
 ## [0.19.12] - 2026-08-09
 
 Corrects the two package names 0.19.11 printed, settled by checking both registries
