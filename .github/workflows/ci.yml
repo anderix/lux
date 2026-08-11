@@ -1,5 +1,16 @@
-name: CI
+name: ci
 
+# Two halves, and only one of them is lux's.
+#
+# The fast gate — formatting, lints, and the Rust test suite — is the same
+# check every Rust repo in the fleet runs, so it calls the shared policy in
+# anderix/.github instead of keeping a copy. luxc publishes to crates.io with a
+# [lib] target, so it calls the library policy: docs are rendered on docs.rs
+# and the crate is the release.
+#
+# The conformance sweep is lux's alone and stays here. It is the whole claim of
+# the language — the same program behaves the same on all three targets — and
+# no other repo has anything like it.
 on:
   push:
     branches: [main]
@@ -15,20 +26,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Fast gate: formatting, lints, and the Rust test suite. The transpiler tests
-  # that need a target compiler skip themselves when it's absent (see
-  # tool_available), so this job proves the interpreter and every compiler-free
-  # test on its own, quickly.
-  rust:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install Rust
-        run: rustup toolchain install stable --profile minimal --component rustfmt,clippy
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo fmt --check
-      - run: cargo clippy --all-targets -- -D warnings
-      - run: cargo test
+  # Formatting, clippy, the Rust tests, the rendered docs, and the packaged
+  # crate. The transpiler tests that need a target compiler skip themselves
+  # when it is absent (see tool_available), so this job proves the interpreter
+  # and every compiler-free test on its own, quickly.
+  core:
+    uses: anderix/.github/.github/workflows/rust-lib-ci.yml@main
 
   # The whole point of lux: the same program behaves the same on all three
   # targets. This job installs Go, Rust, and Swift and runs the full sweep —
