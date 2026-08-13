@@ -673,7 +673,13 @@ impl Gen {
                 } else {
                     "let"
                 };
-                self.line(format!("{} {}: {} = {}", kw, name, ty_text(&vty), z));
+                self.line(format!(
+                    "{} {}: {} = {}",
+                    kw,
+                    swift_ident(name),
+                    ty_text(&vty),
+                    z
+                ));
             }
             Stmt::Var { value: None, .. } => {}
             Stmt::Assign {

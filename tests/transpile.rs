@@ -446,6 +446,41 @@ print(count)
     );
 }
 
+/// A local whose name collides with a target keyword must be mangled the same
+/// way where it is declared as where it is used. The value-carrying declaration
+/// path did this; the value-less form `var x: [bool]` did not, so Swift emitted
+/// `var open` beside `open_.append(...)` and Go emitted `var len` beside
+/// `len_ = append(...)` (#86). That form matters more than it looks: lux has no
+/// empty-array literal, so it is the only way to start an array, and a colliding
+/// name reaches it on the ordinary path rather than an exotic one.
+///
+/// Both names below were broken before the fix and are checked on all four legs,
+/// because the failure was precisely that the interpreter and the other backends
+/// agreed while one did not. `open` is Swift-only; `len` is Go's, and covers the
+/// predeclared-name half of GO_RESERVED rather than just its keywords.
+#[test]
+fn keyword_named_empty_array_declares_and_uses_the_same_name() {
+    let open = r#"
+func count() -> int {
+    var open: [bool]
+    open += true
+    return length(open)
+}
+print(string(count()))
+"#;
+    assert_all_four(open, "kw_empty_array_open", "1\n");
+
+    let len = r#"
+func count() -> int {
+    var len: [bool]
+    len += true
+    return length(len)
+}
+print(string(count()))
+"#;
+    assert_all_four(len, "kw_empty_array_len", "1\n");
+}
+
 // --- Swift -----------------------------------------------------------------
 
 #[test]

@@ -740,7 +740,7 @@ impl Gen {
                 let vty = ty_from_ann(ann);
                 self.t.declare(name.clone(), vty.clone());
                 // Go zero-initialises a plain `var`, so no value is needed.
-                self.line(format!("var {} {}", name, self.ty_text(&vty)));
+                self.line(format!("var {} {}", go_ident(name), self.ty_text(&vty)));
             }
             Stmt::Var { value: None, .. } => {}
             Stmt::Assign {
