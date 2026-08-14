@@ -1052,8 +1052,8 @@ the kind worth meeting head-on instead of hiding.
   teach, and `@main` belongs in the Swift transition guide, not here.
 
 `examples/keep.lux`, the crawl world, is the program every learner is handed, so
-it must build everywhere: as of 0.14.3 it converts and compiles on all three
-backends and plays identically. The moves it makes into arrays and struct fields,
+it must build everywhere: it converts and compiles on all three backends and
+plays identically. The moves it makes into arrays and struct fields,
 and the `Option` of a room enum its `exit` returns, are handled rather than left
 as seams — a handed program that won't compile teaches nothing but a broken tool.
 
