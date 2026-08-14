@@ -4,6 +4,28 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.18] - 2026-08-14
+
+Housekeeping only. No language or tooling behaviour changed.
+
+### Added
+
+- **A security policy.** lux is installed with a piped shell one-liner and had no
+  reporting address anywhere. It also states what the language can actually reach:
+  `readFile` and `writeFile` go anywhere the user can, and `run` starts another program
+  — with an argument list rather than a shell string, so there is no shell to inject
+  into, no globbing, no redirection, and the child gets empty input. There is no network
+  access at all. Running a `.lux` file is running code, and the policy says so.
+- **Dependabot for the GitHub Actions the workflows use**, which nothing was watching.
+  No `cargo` block: this compiler declares zero dependencies, and an ecosystem with no
+  manifest to scan fails weekly with an opaque error.
+
+### Changed
+
+- **`learn-lux.md` states the crawl world's guarantee instead of dating it.** "as of
+  0.14.3 it converts and compiles on all three backends" read as a claim that might have
+  expired, when the intent was that it never does.
+
 ## [0.19.17] - 2026-08-14
 
 ### Fixed
