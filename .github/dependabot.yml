@@ -1,0 +1,27 @@
+# Dependabot keeps the GitHub Actions used by CI, the crate publish, and the
+# release current, so security fixes show up as PRs rather than slipping past.
+#
+# Deliberately no `cargo` block. Cargo.toml declares zero dependencies — that is
+# a standing property of this compiler rather than an accident — and an
+# ecosystem with no manifest to scan produces a red weekly run with an opaque
+# updater error, hit on paxc and again on xinglet.com. Add one if a real
+# dependency ever lands, not before.
+#
+# Also deliberately no CodeQL to bump alongside these. That skip is on
+# attack-surface grounds and not language-maturity grounds: CodeQL's Rust
+# support went GA in 2025, and a local compiler reading developer-supplied
+# source has no taint flow from adversarial input to a dangerous sink. Do not
+# let a template copy re-add it.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
