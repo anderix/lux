@@ -4,6 +4,19 @@ All notable changes to lux are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and lux follows
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.17] - 2026-08-14
+
+### Fixed
+
+- **An empty array named after a target-language keyword is declared under the name it is
+  used by.** The Swift and Go backends mangle a reserved word where the variable is read
+  but were emitting the declaration under the original name, so a program with an empty
+  array called `open` or `var` produced code that declared one name and used another —
+  an unresolved identifier in Swift, and in Go a `var type []bool` that is not valid
+  syntax at all. Both backends now mangle at the declaration too. Rust was already
+  correct. Covered by tests that run all four targets, so the three transpilers and the
+  interpreter have to agree.
+
 ## [0.19.16] - 2026-08-09
 
 ### Changed
