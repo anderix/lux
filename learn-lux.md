@@ -357,7 +357,7 @@ for word in words {
 }
 ```
 
-> see: for — the loop built for walking an array · structs — the other compound type, a few different things instead of many of the same · conversions — reading a number out of a piece `split` handed you, when the text might not be one
+> see: for — the loop built for walking an array · structs — the other compound type, a few different things instead of many of the same · conversions — reading a number out of a piece `split` handed you, when the text might not be one · functions — where a loop you have written twice becomes one you call twice
 
 <!-- topic: for -->
 ## for — looping over things
@@ -418,7 +418,73 @@ call gets its own fresh set of names are not lux quirks; they are how functions
 behave everywhere, and that fresh set of names is exactly what `lux learn scope`
 is about.
 
-> see: scope — each call gets its own, which is why a name made inside stays inside
+`factorial` shows the shape but not the moment you reach for one. That moment is
+repetition. Here a player's two cards go together with the three on the table,
+and then it happens again for the opponent:
+
+```lux
+let board = ["queen", "jack", "ten"]
+let hole = ["ace", "king"]
+let theirHole = ["two", "seven"]
+
+var mine: [string]
+for card in hole {
+    mine += card
+}
+for card in board {
+    mine += card
+}
+
+var theirs: [string]
+for card in theirHole {
+    theirs += card
+}
+for card in board {
+    theirs += card
+}
+
+print("mine:", mine)
+print("theirs:", theirs)
+```
+
+The two halves are the same six lines with different names in them. That is the
+signal to make a function: not the first time you write something, the second.
+Read the copies beside each other and ask what differed — one began from `hole`,
+the other from `theirHole`, and both ended with `board`. What differs becomes a
+parameter, what stays becomes the body, and the array being built becomes what
+you hand back.
+
+```lux
+func joined(first: [string], second: [string]) -> [string] {
+    var out: [string]
+    for item in first {
+        out += item
+    }
+    for item in second {
+        out += item
+    }
+    return out
+}
+
+let board = ["queen", "jack", "ten"]
+print("mine:", joined(["ace", "king"], board))
+print("theirs:", joined(["two", "seven"], board))
+```
+
+Both programs print the same two lines, and that is what makes this a *refactor*:
+the behaviour is untouched while the shape improves. The name is the other half of
+what you gain — `joined(hole, board)` says what those six lines were for, and a
+reader who trusts the name never has to open it.
+
+lux has no built-in that puts two arrays together, so a small `joined` like this
+one is how it is done. It joins arrays of `string`; joining arrays of `int` takes
+a second copy with `int` written where `string` is, because a lux parameter names
+one type and means it. Rust, Swift, and Go each let a single function stand for
+every element type — an idea called *generics*, where a function is written with a
+placeholder in the position a type would go — and it is among the first things you
+gain when you move on.
+
+> see: scope — each call gets its own, which is why a name made inside stays inside · arrays — the thing joined here, and the `for` loop that walks it
 
 <!-- topic: scope -->
 ## scope — where a name lives
@@ -939,7 +1005,12 @@ goroutines — and lux would have to model one language's private dialect and li
 about the others. Everything past `main` is per-language, and belongs in the
 transition guides, never in lux. (This is the language-shape axis; the stdlib
 conveniences lux withholds so learners pull them out themselves — a map type,
-string split, imports — are a separate, deliberate story.)
+joining two arrays, imports — are a separate, deliberate story. What earns one is
+a learner who cannot proceed without it, which is why `split` arrived in 0.18.0:
+a program that reads what someone typed has no way through otherwise. Joining two
+arrays was declined on the other side of that line (#75), because the loop a
+built-in would replace is the same loop that already sums, filters, and searches,
+and lifting one of those out leaves the language with a rule and an exception.)
 
 The interpreter grew toward that surface in milestones, simplest first:
 
