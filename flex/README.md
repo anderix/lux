@@ -249,7 +249,7 @@ The point of running every program on every target is that a program which only
 works interpreted proves nothing. Every program here runs correctly under `lux run`;
 where a target disagrees or won't build, that is the finding. Run `./flex.sh` for the
 live state, which is the only account of it that can't go stale, and the
-[CHANGELOG](../CHANGELOG.md) for the history — which is the argument for this
+[the releases](https://github.com/anderix/lux/releases) for the history — which is the argument for this
 directory existing.
 
 Most of what it found was a target rendering something differently from the other

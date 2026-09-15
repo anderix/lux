@@ -201,7 +201,7 @@ implementations, with a plain account of how far the language goes and exactly
 where it stops. [flex/CONVERT.md](flex/CONVERT.md) sets lux source beside the Rust,
 Swift, and Go it becomes — the graduation claim shown rather than asserted.
 
-For the fuller history, see [CHANGELOG.md](CHANGELOG.md) and the scope notes at
+For the fuller history, see the [releases](https://github.com/anderix/lux/releases) and the scope notes at
 the bottom of [learn-lux.md](learn-lux.md).
 
 ## License
