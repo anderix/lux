@@ -206,4 +206,4 @@ the bottom of [learn-lux.md](learn-lux.md).
 
 ## License
 
-MIT. Written by David M. Anderson with AI assistance.
+MIT.
