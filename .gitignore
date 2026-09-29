@@ -11,3 +11,4 @@
 # Written by flex/convert.sh — translations are generated on demand so they can't
 # drift from what the compilers are actually fed.
 /flex/translations/
+ship.toml
