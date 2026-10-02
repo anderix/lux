@@ -12,10 +12,7 @@ name: ci
 # the language — the same program behaves the same on all three targets — and
 # no other repo has anything like it.
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
