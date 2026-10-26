@@ -24,12 +24,10 @@ understand the page.
 The sharp edge of this is **naming the word on the page**. When a term does real
 work in a sentence — `parse`, `Option`, `int`, `float` — name what it means
 right there, the first time it appears on that page, even if it is defined more
-fully somewhere else. A behavioral description is not enough on its own: the
-tutorial once explained what `parseInt` *did* ("reads a number out of text, and
-hands back an `Option`") without ever saying that "parse" means to read
-structured meaning out of raw text — and a careful reader who had gone through
-the whole thing still stopped and asked "what is parseInt?" The behavior was
-clear; the word was a magic incantation. Name the word.
+fully somewhere else. A behavioral description is not enough on its own: explaining
+what `parseInt` *does* ("reads a number out of text, and hands back an `Option`")
+without saying that "parse" means to read structured meaning out of raw text
+leaves the behavior clear and the word a magic incantation. Name the word.
 
 A term may be named briefly inline and expanded elsewhere — a one-clause gloss in
 the card's main body, the full treatment in its `more` reveal, the language

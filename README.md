@@ -142,36 +142,16 @@ programs and diff each compiled translation against the interpreter — a diverg
 shows up here, or in a real program, and becomes the next patch. `./check.sh fast`
 runs just the build and the Rust tests for a tight loop. A leg whose compiler
 (`go`, `rustc`, `swiftc`) isn't installed is skipped, so the suite runs on
-whatever toolchains you have; CI runs the full sweep on all three.
+whatever toolchains you have; CI, run by hand (`workflow_dispatch`), sweeps all three.
 
-## Status
+## Scope
 
-lux is pre-1.0, deliberately, and has been under a feature freeze since August
-2026 — bug fixes, cross-target divergence fixes, documentation and tests only.
-Anything feature-shaped is queued rather than built, and a new feature restarts
-the clock, because what a freeze produces is a track record and reopening one
-costs the record rather than a few days.
-
-1.0 is not a claim about quality. It is a promise that breaking you costs a major
-version, and two things have to be true before that promise is worth making. The
-freeze has to hold, which is the one kind of evidence that cannot be
-manufactured. And lux has to be put in front of a beginner who has no reason to
-be kind about it, because the claim on the first line of this file is about
-teaching, and that is not something its author can grade from the inside.
-
-The teaching surface itself is fully built. `lux run` covers the core —
-`print`, `let`/`var`, the four basic types with conversions, arithmetic,
-strings and taking one apart, `if`/`else`, `while`, `for ... in`, ranges,
-arrays, functions with recursion, and scope — then your own types (structs,
-enums with associated values, and exhaustive `match`), and no null:
-`Option<T>` and `Result<T, E>` instead. The outside world is modeled as
-those same two shapes — `readFile`, `writeFile`, `args`, `readLine`,
-`input`, `print`/`eprint`, and `run(program, [args])` returning
-`Result<Output, string>` — so fallible I/O is something you handle rather
-than a crash. The transpiler backends are all live: `lux convert` turns any
-of this into idiomatic Rust, Swift, or Go, each leaning on what that
-language already has, and `lux build` compiles the Rust to a native binary.
-Every feature is runnable and translatable to every one of them.
+Everything `lux run` accepts, `lux convert` turns into idiomatic Rust, Swift, or
+Go, each leaning on what that language already has, and `lux build` compiles the
+Rust to a native binary; [learn-lux.md](learn-lux.md) is the tour of what that
+is. The language has no null: `Option<T>` and `Result<T, E>` carry an answer that
+might not be there, and the outside world is modeled as those same two shapes, so
+fallible I/O is something you handle rather than a crash.
 
 Around that core sits how you learn it. `lux learn` is the built-in reference — a
 two-level card-and-`more` system, cross-referenced from error messages, that also

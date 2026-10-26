@@ -270,19 +270,11 @@ in words a beginner can act on; the compiled targets replaced them with a Rust p
 a Go goroutine trace, or a Swift register dump, and `lux convert` ran no checks at
 all, so a broken program was translated in silence and the learner met rustc — pointed
 at a generated file in `/tmp`, sometimes advised to write `mut xs`, which is precisely
-what lux forbids. That is the graduation moment at its least forgiving, and the loud
-half of it is fixed: the targets now carry lux's runtime errors.
-
-The other half is open, and this paragraph claimed otherwise until it was tested.
-`lux convert` does run checks now — but only some of them, and the sentence here said
-"convert and build check a program before emitting it" for several releases without
-anyone asking which checks. Ten static errors out of twelve pass straight through
-`lux convert` with exit 0, including one where `lux build` produces a working binary
-for a program `lux run` refuses: `print("Score: " + 42)` is an error under the
-interpreter, with a `lux learn strings` help line, and a compiled program that prints
-`Score: 42`. The rule being discarded is one lux explicitly teaches. That is #60, and
-it is the reason a claim about the tool belongs in a test rather than in prose — the
-same lesson `wcl` taught by printing an obsolete wall, one directory over.
+what lux forbids. That is the graduation moment at its least forgiving, and both
+halves of it are fixed: the targets carry lux's runtime errors, and `lux convert` and
+`lux build` run the checks `lux run` does, so a program the interpreter refuses is
+refused before anything is emitted. A claim about the tool belongs in a test rather
+than in prose; the suite holds that one.
 
 Two of the instruments here are not the harness. Reading the emitted code found the
 two findings a byte-comparison structurally cannot see — a deep copy landing inside a
@@ -367,15 +359,7 @@ None of that needed a new instrument. It needed the admission that a corpus of p
 which *work* cannot tell you how the tool handles programs that don't, and that a green
 tally is a statement about coverage rather than about correctness.
 
-0.18.1 fixed eight of the nine, added no language surface, and left the corpus at 102
-of 102. What remains open is the largest one: `lux convert` and `lux build` still run
-only some of the checks `lux run` does, so `print("Score: " + 42)` is refused by the
-interpreter — with a `lux learn strings` trail, and a rule the language teaches — and
-compiled by `lux build` into a program that prints `Score: 42` (#60). Until that closes,
-the four legs agree about what programs *mean* considerably more than they agree about
-which programs *exist*. Two smaller ones are open beside it: a bare `some(x)` bound
-without an annotation builds on three legs and not Swift (#67), and the new sweep of
-the learn examples covers the cards but not the `more` pages (#68).
+All of them are fixed, none by adding language surface, and the corpus stayed green.
 
 Every divergence found before these is either fixed or, in exactly one case, examined
 and deliberately kept — see the seam in *Where lux stops*, and the first of the rules
