@@ -530,8 +530,7 @@ fn an_offered_function_is_held_to_its_signature() {
 fn a_program_cannot_declare_an_offered_name_and_a_host_cannot_call_one() {
     let own = format!("{SPEAKER}\nfunc say(text: string, room: string) {{ print(text) }}\n");
     let err = host::load_with(&own, OFFERS)
-        .err()
-        .expect("refused")
+        .expect_err("refused")
         .remove(0);
     assert!(err.message.contains("the host offers"), "{}", err.message);
     assert!(
