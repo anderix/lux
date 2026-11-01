@@ -23,6 +23,15 @@
 //! calls safe; [`Program::fits`] says whether the old values still suit the new
 //! declarations.
 //!
+//! A host may also offer the program functions of its own, with [`load_with`]: a
+//! game might offer `say(text: string, room: string)`. The program calls one like
+//! any function, the checker holds it to the offered signature, and the call is
+//! recorded rather than run: it comes back in [`CallResult::effects`], in order,
+//! with the argument values, for the host to act on once the call has returned.
+//! An offered function hands nothing back, because the host isn't there while
+//! the program runs, and that is what keeps the sandbox whole: the program still
+//! can't reach anything the host didn't hand it.
+//!
 //! A two-room world, played for two turns:
 //!
 //! ```
@@ -71,7 +80,7 @@ use crate::diagnostic::{LuxError, Span};
 use crate::interpreter::{HostConfig, Interp, PAYLOAD, count, value_type};
 use crate::{check, convert, lexer, parser};
 
-pub use crate::interpreter::{OutputLine, Value};
+pub use crate::interpreter::{Effect, OutputLine, Value};
 
 /// How deep calls may nest in a hosted call unless [`Limits::depth`] says
 /// otherwise. A hosted function that recurses thousands deep is a runaway, and a
@@ -118,6 +127,9 @@ pub struct CallResult {
     pub output_truncated: bool,
     /// Steps the call took.
     pub steps_used: u64,
+    /// Every call the program made to a function the host offered through
+    /// [`load_with`], in order. Empty when the call failed.
+    pub effects: Vec<Effect>,
 }
 
 impl CallResult {
@@ -127,6 +139,7 @@ impl CallResult {
             output: Vec::new(),
             output_truncated: false,
             steps_used: 0,
+            effects: Vec::new(),
         }
     }
 }
@@ -154,27 +167,92 @@ pub struct Program {
     funcs: HashMap<String, FuncSig>,
     structs: HashMap<String, Vec<FieldDef>>,
     enums: HashMap<String, Vec<VariantDef>>,
+    offers: Vec<String>,
 }
 
 /// Lex, parse, and check `source` as a hosted program. The errors are the same
 /// `LuxError`s `lux run` reports, with the hosted-program rules first: nothing
 /// loose at the top level, no `main`, none of the built-ins that reach outside.
+/// A call to a function that isn't there, or with the wrong number of values, is
+/// refused here too, as `lux build` refuses it, rather than on the turn that
+/// happens to reach it.
 pub fn load(source: &str) -> Result<Program, Vec<LuxError>> {
+    load_with(source, &[])
+}
+
+/// [`load`], with functions the host offers the program. Each offer is a lux
+/// signature without a body or a return type, `func say(text: string, room:
+/// string)`; its parameter types are lux's built-in types or types the program
+/// declares. The program calls an offered function as it would its own, and each
+/// call comes back to the host in [`CallResult::effects`] instead of running. A
+/// program that declares a function under an offered name is refused, and so is
+/// an offer that isn't a signature of that shape, since that is the host's own
+/// mistake.
+pub fn load_with(source: &str, offers: &[&str]) -> Result<Program, Vec<LuxError>> {
     let one = |e: LuxError| vec![e];
-    let stmts = lexer::lex(source).and_then(parser::parse).map_err(one)?;
-    host_rules(&stmts).map_err(one)?;
+    let mut stmts = Vec::new();
+    let mut names = Vec::new();
+    for offer in offers {
+        let func = parse_offer(offer).map_err(one)?;
+        if let Stmt::Func { name, .. } = &func {
+            names.push(name.clone());
+        }
+        stmts.push(func);
+    }
+    let program = lexer::lex(source).and_then(parser::parse).map_err(one)?;
+    host_rules(&program).map_err(one)?;
+    for s in &program {
+        if let Stmt::Func { name, span, .. } = s
+            && names.contains(name)
+        {
+            return Err(one(LuxError::new(
+                format!(
+                    "`{name}` is a function the host offers, so this program can't declare its own"
+                ),
+                *span,
+            )
+            .with_note("call it as it is; the host does the work once your function returns")
+            .with_learn(
+                "host",
+                "a host may offer your program functions of its own",
+            )));
+        }
+    }
+    stmts.extend(program);
     check::check(&stmts).map_err(one)?;
+    check::check_before_emit(&stmts).map_err(one)?;
     convert::type_check(&stmts).map_err(one)?;
-    Ok(Program::new(stmts))
+    Ok(Program::new(stmts, names))
+}
+
+/// An offer as the host wrote it, parsed as a function with an empty body.
+fn parse_offer(offer: &str) -> Result<Stmt, LuxError> {
+    let bad = |why: &str| {
+        value_error(
+            format!("the host's offer `{offer}` {why}"),
+            "an offer is a signature like `func say(text: string, room: string)`: no body, no return type",
+        )
+    };
+    let mut stmts = lexer::lex(&format!("{offer} {{}}"))
+        .and_then(parser::parse)
+        .map_err(|e| bad(&format!("doesn't parse: {}", e.message)))?;
+    match stmts.pop() {
+        Some(Stmt::Func { ret: Some(_), .. }) => Err(bad(
+            "has a return type, but an offered function hands nothing back",
+        )),
+        Some(func @ Stmt::Func { .. }) if stmts.is_empty() => Ok(func),
+        _ => Err(bad("isn't one function signature")),
+    }
 }
 
 impl Program {
-    fn new(stmts: Vec<Stmt>) -> Program {
+    fn new(stmts: Vec<Stmt>, offers: Vec<String>) -> Program {
         let mut funcs = HashMap::new();
         let mut structs = HashMap::new();
         let mut enums = HashMap::new();
         for s in &stmts {
             match s {
+                Stmt::Func { name, .. } if offers.contains(name) => {}
                 Stmt::Func {
                     name, params, ret, ..
                 } => {
@@ -200,12 +278,19 @@ impl Program {
             funcs,
             structs,
             enums,
+            offers,
         }
     }
 
-    /// The signature of a declared function.
+    /// The signature of a declared function. A function the host offered isn't
+    /// one; see [`Program::offers`].
     pub fn func(&self, name: &str) -> Option<&FuncSig> {
         self.funcs.get(name)
+    }
+
+    /// The names of the functions the host offered when it loaded this program.
+    pub fn offers(&self) -> &[String] {
+        &self.offers
     }
 
     /// A declared struct or enum.
@@ -616,6 +701,7 @@ pub fn instance(program: &Program, limits: Limits) -> std::io::Result<Instance> 
         depth,
         output_bytes: limits.output_bytes,
         value_bytes: limits.value_bytes,
+        offers: program.offers.clone(),
     };
     let stmts = Arc::clone(&program.stmts);
     let (requests, inbox) = mpsc::channel::<Request>();
@@ -631,6 +717,7 @@ pub fn instance(program: &Program, limits: Limits) -> std::io::Result<Instance> 
                     output: outcome.output,
                     output_truncated: outcome.output_truncated,
                     steps_used: outcome.steps_used,
+                    effects: outcome.effects,
                 });
             }
         })?;
@@ -651,6 +738,12 @@ impl Instance {
     /// of the wrong shape comes back as a clear error rather than a confusing
     /// one from inside the body.
     pub fn call(&mut self, func: &str, args: Vec<Value>) -> CallResult {
+        if self.program.offers.iter().any(|o| o == func) {
+            return CallResult::failed(value_error(
+                format!("`{func}` is a function the host offers, not one it can call"),
+                "the program calls it, and the host reads the call back in CallResult::effects",
+            ));
+        }
         let Some(sig) = self.program.func(func) else {
             return CallResult::failed(value_error(
                 format!("this program has no function `{func}`"),

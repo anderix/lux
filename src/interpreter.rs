@@ -10,7 +10,7 @@
 
 // Author: David M. Anderson
 // Built with AI assistance (Claude, Anthropic)
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::io::Write;
 use std::rc::Rc;
@@ -202,6 +202,18 @@ pub(crate) struct HostConfig {
     pub depth: usize,
     pub output_bytes: usize,
     pub value_bytes: usize,
+    /// The functions the host offers the program: calls to them are recorded,
+    /// not run.
+    pub offers: Vec<String>,
+}
+
+/// One call the program made to a function the host offered: the name and the
+/// argument values, as they were when the call was made. The host reads them
+/// after the hosted call returns and does whatever the function means.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Effect {
+    pub name: String,
+    pub args: Vec<Value>,
 }
 
 /// What one hosted call produced, handed back across the worker thread.
@@ -210,6 +222,7 @@ pub(crate) struct CallOutcome {
     pub output: Vec<OutputLine>,
     pub output_truncated: bool,
     pub steps_used: u64,
+    pub effects: Vec<Effect>,
 }
 
 /// Where a binding came from. Only a `var` can be assigned to; the rest hold
@@ -289,6 +302,14 @@ pub(crate) struct Interp {
     step_limit: Option<u64>,
     /// The most bytes one value may hold under a host; `None` under `lux run`.
     value_bytes: Option<usize>,
+    /// The functions the host offered: a call to one is recorded in `effects`
+    /// instead of running a body.
+    offers: HashSet<String>,
+    /// The calls out to the host this call has made so far, in order.
+    effects: Vec<Effect>,
+    /// What those calls weigh by the size cap's accounting, held under the
+    /// output budget.
+    effect_bytes: usize,
 }
 
 /// How deep user-function calls may nest before the interpreter reports runaway
@@ -406,6 +427,9 @@ fn run_with(
                     steps: 0,
                     step_limit: None,
                     value_bytes: None,
+                    offers: HashSet::new(),
+                    effects: Vec::new(),
+                    effect_bytes: 0,
                 };
                 // Option and Result are built-in enums, registered before anything
                 // else so they exist for type-checking and a user can't redeclare
@@ -461,6 +485,9 @@ impl Interp {
             steps: 0,
             step_limit: Some(cfg.steps),
             value_bytes: Some(cfg.value_bytes),
+            offers: cfg.offers.into_iter().collect(),
+            effects: Vec::new(),
+            effect_bytes: 0,
         };
         interp.register_builtin_types();
         interp
@@ -490,6 +517,8 @@ impl Interp {
             *bytes = 0;
             *truncated = false;
         }
+        self.effects.clear();
+        self.effect_bytes = 0;
         let func = Rc::clone(
             self.funcs
                 .get(name)
@@ -516,11 +545,16 @@ impl Interp {
             } => (std::mem::take(lines), *truncated),
             Sink::Std => (Vec::new(), false),
         };
+        let effects = match &value {
+            Ok(_) => std::mem::take(&mut self.effects),
+            Err(_) => Vec::new(),
+        };
         CallOutcome {
             value,
             output,
             output_truncated,
             steps_used: self.steps,
+            effects,
         }
     }
 
@@ -2249,6 +2283,7 @@ impl Interp {
 
         // Evaluate and type-check the arguments in the caller's scope.
         let mut frame = HashMap::new();
+        let mut values = Vec::with_capacity(args.len());
         for (param, arg) in func.params.iter().zip(args) {
             let v = self.eval(arg)?;
             self.validate_type(&param.ty)?;
@@ -2265,6 +2300,7 @@ impl Interp {
                 )
                 .with_learn("functions", "each parameter has a type the call must match"));
             }
+            values.push(v.clone());
             frame.insert(
                 param.name.clone(),
                 Binding {
@@ -2274,7 +2310,38 @@ impl Interp {
             );
         }
 
+        if self.offers.contains(name) {
+            return self.call_out(name, values, span);
+        }
         self.run_frame(name, &func, frame, span)
+    }
+
+    /// Record a call to a function the host offered. It runs nothing here: the
+    /// host reads the call after this one returns. Its weight counts against the
+    /// output budget, so a loop that calls out every pass is stopped like one
+    /// that prints every pass is cut off, except that a dropped call out would be
+    /// a lie to the host, so this one is an error.
+    fn call_out(&mut self, name: &str, args: Vec<Value>, span: Span) -> Result<Value, LuxError> {
+        let Sink::Captured { limit, .. } = &self.sink else {
+            return Ok(Value::Unit);
+        };
+        let weight = NODE_BYTES + name.len() + args.iter().map(size_of).sum::<usize>();
+        if self.effect_bytes + weight > *limit {
+            return Err(LuxError::new(
+                "this call asked the host for more than it can take, and was stopped",
+                span,
+            )
+            .with_note(format!(
+                "the host allows about {limit} bytes of calls out to it in one call; a loop that calls out every pass runs into that"
+            ))
+            .with_learn("host", "a host hears each call out after your function returns"));
+        }
+        self.effect_bytes += weight;
+        self.effects.push(Effect {
+            name: name.to_string(),
+            args,
+        });
+        Ok(Value::Unit)
     }
 
     /// Run a function's body against a ready frame of its parameters, then check

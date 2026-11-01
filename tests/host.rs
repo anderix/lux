@@ -451,3 +451,149 @@ fn values_print_the_way_lux_prints_them() {
     assert_eq!(Value::none().to_string(), "none");
     assert_eq!(Value::case("Room", "hall").to_string(), "Room.hall");
 }
+
+const SPEAKER: &str = r#"
+struct World { count: int }
+
+func fresh() -> World {
+    return World(count: 0)
+}
+
+func step(w: World, cmd: string) -> World {
+    say("you said " + cmd, "hall")
+    if cmd == "knock" {
+        build(1, 2, 3, "stone")
+    }
+    print("noted")
+    return World(count: w.count + 1)
+}
+
+func quiet(w: World) -> World {
+    return w
+}
+"#;
+
+const OFFERS: &[&str] = &[
+    "func say(text: string, room: string)",
+    "func build(x: int, y: int, z: int, kind: string)",
+];
+
+#[test]
+fn calls_to_offered_functions_come_back_as_effects_in_order() {
+    let program = host::load_with(SPEAKER, OFFERS).expect("the speaker loads");
+    assert_eq!(program.offers(), ["say", "build"]);
+    assert!(program.func("say").is_none());
+    let mut world = host::instance(&program, limits()).expect("a worker thread");
+    let w = world.call("fresh", vec![]).value.expect("fresh runs");
+
+    let turn = world.call("step", vec![w.clone(), Value::string("knock")]);
+    assert_eq!(text(&turn), "noted\n");
+    assert_eq!(
+        turn.effects,
+        vec![
+            host::Effect {
+                name: "say".into(),
+                args: vec![Value::string("you said knock"), Value::string("hall")],
+            },
+            host::Effect {
+                name: "build".into(),
+                args: vec![
+                    Value::Int(1),
+                    Value::Int(2),
+                    Value::Int(3),
+                    Value::string("stone")
+                ],
+            },
+        ]
+    );
+    let again = world.call("step", vec![w.clone(), Value::string("hum")]);
+    assert_eq!(again.effects.len(), 1, "effects start over with each call");
+    assert!(world.call("quiet", vec![w]).effects.is_empty());
+}
+
+#[test]
+fn an_offered_function_is_held_to_its_signature() {
+    let wrong = SPEAKER.replace(r#"say("you said " + cmd, "hall")"#, r#"say(cmd)"#);
+    let err = host::load_with(&wrong, OFFERS)
+        .expect_err("too few arguments is refused")
+        .remove(0);
+    assert!(err.message.contains("`say`"), "{}", err.message);
+
+    let typed = SPEAKER.replace(r#"build(1, 2, 3, "stone")"#, r#"build(1, 2, "3", "stone")"#);
+    let err = host::load_with(&typed, OFFERS)
+        .expect_err("a wrong type is refused")
+        .remove(0);
+    assert_eq!(err.message, "`build` expects `z` to be int, but got string");
+}
+
+#[test]
+fn a_program_cannot_declare_an_offered_name_and_a_host_cannot_call_one() {
+    let own = format!("{SPEAKER}\nfunc say(text: string, room: string) {{ print(text) }}\n");
+    let err = host::load_with(&own, OFFERS)
+        .err()
+        .expect("refused")
+        .remove(0);
+    assert!(err.message.contains("the host offers"), "{}", err.message);
+    assert!(
+        err.span.start > 0,
+        "the error points at the program's own declaration"
+    );
+
+    let program = host::load_with(SPEAKER, OFFERS).unwrap();
+    let mut world = host::instance(&program, limits()).unwrap();
+    let err = world
+        .call("say", vec![Value::string("hi"), Value::string("hall")])
+        .value
+        .unwrap_err();
+    assert!(
+        err.message.contains("not one it can call"),
+        "{}",
+        err.message
+    );
+}
+
+#[test]
+fn an_offer_that_is_not_a_bare_signature_is_the_hosts_mistake() {
+    for bad in [
+        "func say(text: string) -> int",
+        "say(text: string)",
+        "func say(text: string) {} func more() {}",
+    ] {
+        let err = host::load_with(SPEAKER, &[bad]).expect_err(bad).remove(0);
+        assert!(
+            err.message.contains("the host's offer"),
+            "{bad}: {}",
+            err.message
+        );
+    }
+}
+
+#[test]
+fn calling_out_past_the_output_budget_stops_the_call() {
+    let chatty = r#"
+func chatter(n: int) -> int {
+    var i = 0
+    while i < n {
+        say("again", "hall")
+        i = i + 1
+    }
+    return i
+}
+"#;
+    let program = host::load_with(chatty, OFFERS).unwrap();
+    let small = Limits {
+        output_bytes: 256,
+        ..limits()
+    };
+    let mut world = host::instance(&program, small).unwrap();
+    let fine = world.call("chatter", vec![Value::Int(3)]);
+    assert_eq!(fine.effects.len(), 3);
+    let stopped = world.call("chatter", vec![Value::Int(1000)]);
+    let err = stopped.value.unwrap_err();
+    assert!(
+        err.message.contains("more than it can take"),
+        "{}",
+        err.message
+    );
+    assert!(stopped.effects.is_empty());
+}

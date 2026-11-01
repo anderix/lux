@@ -960,6 +960,14 @@ same way. None of that changes what your code means — a function that is right
 under `lux run` is right under a host — it only means a mistake costs one call,
 not the whole program around it.
 
+A host may also offer your program a few functions of its own: a game might
+offer `say(text: string, room: string)` so your code can speak to a room. You
+call one like any function, and lux holds you to its signature as it would to
+yours. Two things set it apart. You didn't declare it and can't, because the host
+did; and it hands nothing back, because the host isn't there while your code
+runs. It hears each call after your function returns, in order, and does what the
+call asked. Which functions a host offers, and what they do, is the host's to say.
+
 > see: functions — the host calls them by name · crawl — a world a host could run · io — the outside world you have back under lux run
 
 ## The shape every language shares
