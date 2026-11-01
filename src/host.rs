@@ -1,7 +1,29 @@
-//! Run a lux program from inside another program: load it once, call its
-//! functions with values, read back what each call printed. A hosted program
-//! holds only `struct`, `enum`, and `func`; `readLine`, `input`, `args`,
-//! `readFile`, `writeFile`, and `run` are refused when it is loaded.
+//! Running a lux program from inside another program.
+//!
+//! `lux run` treats a file as a process: it starts at the top (or at `main`),
+//! prints to the terminal, reads the keyboard, and runs until it ends. A host — a
+//! game, an editor, a test harness — wants something else: load a program once,
+//! call its functions over and over with values the host supplies, collect what
+//! each call printed, and never let it hang, touch the file system, or start
+//! another program. This module is that way in.
+//!
+//! A hosted program is declarations only: `struct`, `enum`, and `func` at the top
+//! level, no loose statements and no `main`. The built-ins that reach outside the
+//! program — `readLine`, `input`, `args`, `readFile`, `writeFile`, `run` — are
+//! refused when the program is loaded, as check errors, because a host may be
+//! running code written by someone else. `print` and `eprint` go into the call's
+//! captured output instead of the terminal.
+//!
+//! [`load`] checks a program into a [`Program`]; [`instance`] starts an interpreter
+//! for it; [`Instance::call`] runs one declared function under [`Limits`]. A call
+//! that fails — a runtime error, a budget, a value grown past the cap — leaves
+//! nothing behind: lux values are immutable and an instance keeps no state between
+//! calls, so the host simply keeps the values it had. Every call starts from its
+//! arguments alone, which is what makes swapping in a new [`Program`] between
+//! calls safe; [`Program::fits`] says whether the old values still suit the new
+//! declarations.
+//!
+//! A two-room world, played for two turns:
 //!
 //! ```
 //! use lux::host::{self, Limits, Value};
@@ -51,30 +73,44 @@ use crate::{check, convert, lexer, parser};
 
 pub use crate::interpreter::{OutputLine, Value};
 
-/// How deep calls may nest when `Limits::depth` is `None`.
+/// How deep calls may nest in a hosted call unless [`Limits::depth`] says
+/// otherwise. A hosted function that recurses thousands deep is a runaway, and a
+/// low ceiling catches it in milliseconds rather than after paging in gigabytes
+/// of stack. `lux run` keeps its own, higher, limit.
 pub const DEFAULT_DEPTH: usize = 2_000;
 
+/// Stack reserved per nested call on an instance's worker thread: the ratio
+/// `lux run` uses, and enough for an unoptimised build's frames.
 const STACK_PER_CALL: usize = 128 << 10;
 
+/// The span of an error that has no place in the source: a value the host
+/// built, a function it asked for.
 const NOWHERE: Span = Span { start: 0, end: 0 };
 
-/// The limits one call runs under; none of them can be switched off.
+/// The limits one hosted call runs under. Every field is required: a host
+/// running someone else's code has no business with "unlimited".
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Limits {
-    /// Statements run, loop passes taken, and calls made before the call is stopped.
+    /// The most steps one call may take, counting each statement run, each pass
+    /// of a loop, and each call made. Past it the call stops with an error.
     pub steps: u64,
-    /// How deep calls may nest; `DEFAULT_DEPTH` when `None`.
+    /// How deep calls may nest; [`DEFAULT_DEPTH`] when `None`.
     pub depth: Option<usize>,
-    /// Bytes of output kept; lines past it are dropped and flagged.
+    /// The most bytes of output one call may produce. Lines past it are dropped
+    /// and [`CallResult::output_truncated`] says so.
     pub output_bytes: usize,
-    /// Bytes one value may hold, counting nested copies; a value grown past it stops the call.
+    /// The most bytes one value may hold: a string's bytes, plus a fixed cost for
+    /// every scalar, array slot, and field, counting nested copies. A string or
+    /// array that doubles on each pass of a loop meets this long before it meets
+    /// the step budget.
     pub value_bytes: usize,
 }
 
 /// What one call produced.
 #[derive(Debug)]
 pub struct CallResult {
-    /// The return value, or the error that stopped the call.
+    /// The function's return value, or the error that stopped it: a runtime
+    /// error, the step budget, the size cap, or the depth limit.
     pub value: Result<Value, LuxError>,
     /// Everything the call printed, in order.
     pub output: Vec<OutputLine>,
@@ -109,7 +145,9 @@ pub enum TypeDecl<'a> {
     Enum(&'a [VariantDef]),
 }
 
-/// A program lexed, parsed, and checked as a hosted program.
+/// A program that has been lexed, parsed, and checked as a hosted program. It
+/// knows its declarations and can say whether a value fits one of its types; an
+/// [`Instance`] runs it.
 #[derive(Debug, Clone)]
 pub struct Program {
     stmts: Arc<Vec<Stmt>>,
@@ -118,7 +156,9 @@ pub struct Program {
     enums: HashMap<String, Vec<VariantDef>>,
 }
 
-/// Lex, parse, and check `source` as a hosted program.
+/// Lex, parse, and check `source` as a hosted program. The errors are the same
+/// `LuxError`s `lux run` reports, with the hosted-program rules first: nothing
+/// loose at the top level, no `main`, none of the built-ins that reach outside.
 pub fn load(source: &str) -> Result<Program, Vec<LuxError>> {
     let one = |e: LuxError| vec![e];
     let stmts = lexer::lex(source).and_then(parser::parse).map_err(one)?;
@@ -176,7 +216,12 @@ impl Program {
         self.enums.get(name).map(|v| TypeDecl::Enum(v))
     }
 
-    /// Whether `value` fits the type declared under `type_name`; the error names the field or element that doesn't.
+    /// Does `value` fit the type this program declares under `type_name`? The
+    /// same check every argument to [`Instance::call`] gets. A host uses it to
+    /// decide whether values saved under an older program carry over to a new
+    /// one: a value still fits after a new enum case or a new function, and no
+    /// longer fits after a field is added, removed, or retyped. The error names
+    /// the field or element that doesn't fit.
     pub fn fits(&self, type_name: &str, value: &Value) -> Result<(), LuxError> {
         let ann = TypeAnn {
             kind: TypeKind::Named(type_name.to_string()),
@@ -185,6 +230,10 @@ impl Program {
         self.conform(&ann, value, type_name).map(|_| ())
     }
 
+    /// Check a value against a type and hand back the value as the program
+    /// declares it: struct and case fields in declared order, so the interpreter
+    /// finds them where it expects to. `path` names the value in the error —
+    /// `w.items[2]`, `World.doorOpen` — so a host knows what to fix.
     fn conform(&self, ann: &TypeAnn, v: &Value, path: &str) -> Result<Value, LuxError> {
         if let Value::Range(..) = v {
             return Err(value_error(
@@ -330,6 +379,9 @@ impl Program {
         })
     }
 
+    /// Match provided labelled values against declared fields: every declared
+    /// field present, nothing extra, each value fitting its type, and the result
+    /// in declared order.
     fn conform_fields(
         &self,
         declared: &[FieldDef],
@@ -376,6 +428,9 @@ fn mismatch(path: &str, expected: &str, got: &Value) -> LuxError {
     )
 }
 
+/// The built-ins a hosted program may not call, each with why it's off and
+/// what to do instead. This is a security rule, not a convenience: a host may
+/// be running code written by someone else.
 const SANDBOXED: &[(&str, &str, &str)] = &[
     (
         "readLine",
@@ -409,6 +464,8 @@ const SANDBOXED: &[(&str, &str, &str)] = &[
     ),
 ];
 
+/// What a program has to be before a host will take it: declarations only, no
+/// `main`, and none of the built-ins that reach outside the program.
 fn host_rules(program: &[Stmt]) -> Result<(), LuxError> {
     for stmt in program {
         match stmt {
@@ -448,6 +505,7 @@ fn host_rules(program: &[Stmt]) -> Result<(), LuxError> {
 
 type CallVisitor<'a> = dyn FnMut(&str, Span) -> Result<(), LuxError> + 'a;
 
+/// Visit every call in a program, in source order.
 fn each_call(stmts: &[Stmt], f: &mut CallVisitor<'_>) -> Result<(), LuxError> {
     for stmt in stmts {
         match stmt {
@@ -533,7 +591,11 @@ fn each_call_expr(e: &Expr, f: &mut CallVisitor<'_>) -> Result<(), LuxError> {
     Ok(())
 }
 
-/// A running interpreter for one `Program`, on its own worker thread.
+/// A running interpreter for one [`Program`]. It lives on its own worker thread
+/// with a stack sized for the depth limit, so a host calls it from any ordinary
+/// thread and deep recursion ends in a lux error, never a crashed process. An
+/// `Instance` holds only the channel to its worker, so it is `Send`, and a host
+/// may keep as many as it likes, of the same program or different ones.
 pub struct Instance {
     requests: Sender<Request>,
     program: Program,
@@ -545,7 +607,8 @@ struct Request {
     reply: Sender<CallResult>,
 }
 
-/// Start an interpreter for `program` under `limits`; fails only if the system refuses a thread.
+/// Start an interpreter for `program` under `limits`. The only way this fails is
+/// the operating system refusing a thread.
 pub fn instance(program: &Program, limits: Limits) -> std::io::Result<Instance> {
     let depth = limits.depth.unwrap_or(DEFAULT_DEPTH);
     let cfg = HostConfig {
@@ -583,7 +646,10 @@ impl Instance {
         &self.program
     }
 
-    /// Call a declared function; each argument is checked against its parameter before anything runs.
+    /// Call a declared function with values the host built. Each argument is
+    /// checked against the parameter it fills before anything runs, so a value
+    /// of the wrong shape comes back as a clear error rather than a confusing
+    /// one from inside the body.
     pub fn call(&mut self, func: &str, args: Vec<Value>) -> CallResult {
         let Some(sig) = self.program.func(func) else {
             return CallResult::failed(value_error(
@@ -623,6 +689,9 @@ impl Instance {
     }
 }
 
+/// The error for an instance whose worker is gone. The worker only ends when
+/// the instance is dropped or the interpreter panicked, so a host should never
+/// meet this; if it does, a new instance is the way on.
 fn stopped() -> LuxError {
     value_error(
         "this instance has stopped and can't take calls".to_string(),

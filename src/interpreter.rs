@@ -57,11 +57,18 @@ impl Value {
         }
     }
 
+    // ----- building and reading values from outside lux ------------------
+    // A host (see `crate::host`) hands values in and reads them back out. These
+    // spare it assembling the enum by hand, and keep the internal shape of
+    // `Option`/`Result` (a single payload field) in one place.
+
     pub fn string(s: impl Into<String>) -> Value {
         Value::Str(s.into())
     }
 
-    /// A struct value, fields in the order given.
+    /// A struct value, fields in the order given. A host that isn't sure of the
+    /// declared order can leave it to `host::Instance::call`, which puts the
+    /// fields right before the interpreter sees them.
     pub fn record<N: Into<String>>(
         name: impl Into<String>,
         fields: impl IntoIterator<Item = (N, Value)>,
@@ -145,14 +152,16 @@ impl Value {
     }
 }
 
-/// Renders the way `print` shows a value.
+/// A value prints the way `print` shows it: bare text for strings, `[a, b]` for
+/// arrays, `Point(x: 1, y: 2)` for structs, so a host's log reads like lux's own.
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&display(self))
     }
 }
 
-/// One printed line: `print` makes an `Out`, `eprint` an `Err`.
+/// One line a hosted program printed, on the stream it chose: `print` makes an
+/// `Out`, `eprint` an `Err`. The host decides where each shows.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OutputLine {
     Out(String),
@@ -173,6 +182,10 @@ impl fmt::Display for OutputLine {
     }
 }
 
+/// Where `print` and `eprint` go: straight to the terminal under `lux run`, or
+/// into a buffer the host reads after each call. The buffer has a byte limit;
+/// past it, lines are dropped and the drop is flagged, so a program that prints
+/// without end can't fill the host's memory.
 enum Sink {
     Std,
     Captured {
@@ -183,6 +196,7 @@ enum Sink {
     },
 }
 
+/// What a host sets on an interpreter it drives: the limits every call runs under.
 pub(crate) struct HostConfig {
     pub steps: u64,
     pub depth: usize,
@@ -190,6 +204,7 @@ pub(crate) struct HostConfig {
     pub value_bytes: usize,
 }
 
+/// What one hosted call produced, handed back across the worker thread.
 pub(crate) struct CallOutcome {
     pub value: Result<Value, LuxError>,
     pub output: Vec<OutputLine>,
@@ -263,10 +278,16 @@ pub(crate) struct Interp {
     /// against `depth_limit` on each call so runaway recursion becomes a lux
     /// error rather than a stack overflow.
     depth: usize,
+    /// How deep calls may nest: `MAX_CALL_DEPTH` under `lux run`, the host's
+    /// figure under a host.
     depth_limit: usize,
+    /// Where `print` and `eprint` go.
     sink: Sink,
+    /// Statements run, loop passes taken, and calls made so far in this call.
     steps: u64,
+    /// The most steps one hosted call may take; `None` under `lux run`.
     step_limit: Option<u64>,
+    /// The most bytes one value may hold under a host; `None` under `lux run`.
     value_bytes: Option<usize>,
 }
 
@@ -418,6 +439,9 @@ fn run_with(
 }
 
 impl Interp {
+    /// An interpreter for a program a host drives (see `crate::host`). The
+    /// program has passed `host::load`, so registering its declarations can't
+    /// fail; what the host sets here are the limits every call runs under.
     pub(crate) fn for_host(program: &[Stmt], cfg: HostConfig) -> Interp {
         let mut interp = Interp {
             scopes: vec![HashMap::new()],
@@ -447,6 +471,10 @@ impl Interp {
         interp
     }
 
+    /// Run one declared function with values the host built. Every call starts
+    /// clean — fresh scopes, the step count at zero, an empty output buffer — so
+    /// nothing carries from one call to the next. The caller has already checked
+    /// that `name` is declared and that the arguments fit its parameters.
     pub(crate) fn call_values(&mut self, name: &str, args: Vec<Value>) -> CallOutcome {
         self.scopes = vec![HashMap::new()];
         self.depth = 0;
@@ -496,10 +524,16 @@ impl Interp {
         }
     }
 
+    /// Is a host driving this interpreter? The depth error reads differently
+    /// then: there is no `lux build` to compile past the limit.
     fn hosted(&self) -> bool {
         self.step_limit.is_some()
     }
 
+    /// Count one step — a statement, a pass of a loop, a call — against the
+    /// host's budget. Under `lux run` there is no budget and the count just
+    /// climbs. The span is where the program is when the budget runs out, so a
+    /// runaway loop is blamed on the loop.
     fn tick(&mut self, span: Span) -> Result<(), LuxError> {
         self.steps += 1;
         match self.step_limit {
@@ -508,6 +542,7 @@ impl Interp {
         }
     }
 
+    /// Send one printed line where the sink says.
     fn emit(&mut self, line: OutputLine) {
         match &mut self.sink {
             Sink::Std => match line {
@@ -531,6 +566,10 @@ impl Interp {
         }
     }
 
+    /// Refuse a string or array that has grown past the host's size cap. This is
+    /// the cheap check, by length alone, for the places a value grows one step at
+    /// a time: concatenation, `+=`, `split`. A deep count there would make a long
+    /// append loop quadratic. Under `lux run` there is no cap.
     fn guard(&self, v: &Value, span: Span) -> Result<(), LuxError> {
         let Some(limit) = self.value_bytes else {
             return Ok(());
@@ -546,6 +585,10 @@ impl Interp {
         Ok(())
     }
 
+    /// The full check, for the places a value can nest another copy of itself —
+    /// a struct, an enum case, or an array literal built from existing values —
+    /// where length alone would miss a value doubling inside (`n = Nest(kids:
+    /// [n, n])` has an array of length two and a string of length nought).
     fn guard_deep(&self, v: &Value, span: Span) -> Result<(), LuxError> {
         let Some(limit) = self.value_bytes else {
             return Ok(());
@@ -2234,6 +2277,9 @@ impl Interp {
         self.run_frame(name, &func, frame, span)
     }
 
+    /// Run a function's body against a ready frame of its parameters, then check
+    /// what came back against the declared return type. Shared by a call written
+    /// in lux and a call a host makes with values it built.
     fn run_frame(
         &mut self,
         name: &str,
@@ -3082,6 +3128,8 @@ fn call_stack_too_deep(name: &str, span: Span, limit: usize, hosted: bool) -> Lu
     )
 }
 
+/// The error for a hosted call that used up its step budget. The span is where
+/// the program was when the budget ran out — in a runaway loop, the loop.
 fn out_of_steps(limit: u64, span: Span) -> LuxError {
     LuxError::new("this call ran too long and was stopped", span)
         .with_note(format!(
@@ -3090,6 +3138,7 @@ fn out_of_steps(limit: u64, span: Span) -> LuxError {
         .with_learn("while", "while repeats until its condition turns false")
 }
 
+/// The error for a hosted call that built a value past the host's size cap.
 fn too_large(limit: usize, span: Span) -> LuxError {
     LuxError::new("this value grew too large and the call was stopped", span)
         .with_note(format!(
@@ -3098,8 +3147,12 @@ fn too_large(limit: usize, span: Span) -> LuxError {
         .with_learn("while", "a loop that grows something needs an end in sight")
 }
 
+/// What one scalar, array slot, or field costs in the size cap's accounting.
 const NODE_BYTES: usize = 16;
 
+/// A value's size by the cap's accounting: a string's bytes plus `NODE_BYTES`
+/// for every scalar, slot, and field, so a value that nests copies of itself
+/// counts every copy.
 fn size_of(v: &Value) -> usize {
     match v {
         Value::Str(s) => NODE_BYTES + s.len(),
