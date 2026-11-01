@@ -6,6 +6,8 @@
 //! `Span` so the interpreter can blame the right place when something goes
 //! wrong.
 
+use std::fmt;
+
 use crate::diagnostic::Span;
 
 /// A written type annotation, like the `int` in `var count: int` or the
@@ -26,6 +28,27 @@ pub enum TypeKind {
     /// only the built-in `Option` and `Result` take parameters — user-defined
     /// generics are a later milestone.
     Generic(String, Vec<TypeAnn>),
+}
+
+/// A type annotation reads back the way the source wrote it: `int`, `[int]`,
+/// `Option<Room>`.
+impl fmt::Display for TypeAnn {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.kind {
+            TypeKind::Named(n) => f.write_str(n),
+            TypeKind::Array(elem) => write!(f, "[{}]", elem),
+            TypeKind::Generic(name, args) => {
+                write!(f, "{}<", name)?;
+                for (i, a) in args.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(", ")?;
+                    }
+                    write!(f, "{}", a)?;
+                }
+                f.write_str(">")
+            }
+        }
+    }
 }
 
 /// One parameter in a function signature, like the `x: int` in `func f(x: int)`.
@@ -127,6 +150,25 @@ pub enum Stmt {
     },
     /// A bare expression run for its effect, like `print("hi")`.
     Expr(Expr),
+}
+
+impl Stmt {
+    /// The source span covering this whole statement.
+    pub fn span(&self) -> Span {
+        match self {
+            Stmt::Let { span, .. }
+            | Stmt::Var { span, .. }
+            | Stmt::Assign { span, .. }
+            | Stmt::Func { span, .. }
+            | Stmt::Return { span, .. }
+            | Stmt::Struct { span, .. }
+            | Stmt::Enum { span, .. }
+            | Stmt::If { span, .. }
+            | Stmt::While { span, .. }
+            | Stmt::For { span, .. } => *span,
+            Stmt::Expr(e) => e.span(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

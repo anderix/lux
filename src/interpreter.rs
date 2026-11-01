@@ -9,6 +9,7 @@
 //! runs is a later milestone.
 
 use std::collections::HashMap;
+use std::fmt;
 use std::io::Write;
 use std::rc::Rc;
 
@@ -53,6 +54,145 @@ impl Value {
             Value::Unit => "nothing",
         }
     }
+
+    pub fn string(s: impl Into<String>) -> Value {
+        Value::Str(s.into())
+    }
+
+    /// A struct value, fields in the order given.
+    pub fn record<N: Into<String>>(
+        name: impl Into<String>,
+        fields: impl IntoIterator<Item = (N, Value)>,
+    ) -> Value {
+        Value::Struct {
+            name: name.into(),
+            fields: fields.into_iter().map(|(k, v)| (k.into(), v)).collect(),
+        }
+    }
+
+    /// An enum case with no values, like `Room.hall`.
+    pub fn case(enum_name: impl Into<String>, variant: impl Into<String>) -> Value {
+        Value::case_with(enum_name, variant, Vec::<(String, Value)>::new())
+    }
+
+    /// An enum case with labelled values, like `Shape.circle(radius: 2.0)`.
+    pub fn case_with<N: Into<String>>(
+        enum_name: impl Into<String>,
+        variant: impl Into<String>,
+        fields: impl IntoIterator<Item = (N, Value)>,
+    ) -> Value {
+        Value::Enum {
+            enum_name: enum_name.into(),
+            variant: variant.into(),
+            fields: fields.into_iter().map(|(k, v)| (k.into(), v)).collect(),
+        }
+    }
+
+    pub fn some(v: Value) -> Value {
+        option_some(v)
+    }
+
+    pub fn none() -> Value {
+        option_none()
+    }
+
+    /// A struct field or an enum case's labelled value, by name.
+    pub fn get_field(&self, name: &str) -> Option<&Value> {
+        match self {
+            Value::Struct { fields, .. } | Value::Enum { fields, .. } => {
+                fields.iter().find(|(k, _)| k == name).map(|(_, v)| v)
+            }
+            _ => None,
+        }
+    }
+
+    /// An enum value's case name: `hall` for `Room.hall`, `some` for `some(5)`.
+    pub fn variant_name(&self) -> Option<&str> {
+        match self {
+            Value::Enum { variant, .. } => Some(variant),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(&self) -> Option<&str> {
+        match self {
+            Value::Str(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    pub fn as_int(&self) -> Option<i64> {
+        match self {
+            Value::Int(n) => Some(*n),
+            _ => None,
+        }
+    }
+
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            Value::Bool(b) => Some(*b),
+            _ => None,
+        }
+    }
+
+    pub fn as_array(&self) -> Option<&[Value]> {
+        match self {
+            Value::Array(items) => Some(items),
+            _ => None,
+        }
+    }
+}
+
+/// Renders the way `print` shows a value.
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&display(self))
+    }
+}
+
+/// One printed line: `print` makes an `Out`, `eprint` an `Err`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OutputLine {
+    Out(String),
+    Err(String),
+}
+
+impl OutputLine {
+    pub fn text(&self) -> &str {
+        match self {
+            OutputLine::Out(s) | OutputLine::Err(s) => s,
+        }
+    }
+}
+
+impl fmt::Display for OutputLine {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.text())
+    }
+}
+
+enum Sink {
+    Std,
+    Captured {
+        lines: Vec<OutputLine>,
+        bytes: usize,
+        limit: usize,
+        truncated: bool,
+    },
+}
+
+pub(crate) struct HostConfig {
+    pub steps: u64,
+    pub depth: usize,
+    pub output_bytes: usize,
+    pub value_bytes: usize,
+}
+
+pub(crate) struct CallOutcome {
+    pub value: Result<Value, LuxError>,
+    pub output: Vec<OutputLine>,
+    pub output_truncated: bool,
+    pub steps_used: u64,
 }
 
 /// Where a binding came from. Only a `var` can be assigned to; the rest hold
@@ -105,7 +245,7 @@ enum Flow {
     Return(Value),
 }
 
-struct Interp {
+pub(crate) struct Interp {
     scopes: Vec<HashMap<String, Binding>>,
     funcs: HashMap<String, Rc<FuncData>>,
     structs: HashMap<String, Rc<StructData>>,
@@ -118,9 +258,14 @@ struct Interp {
     /// changes to stderr, leaving the program's own output on stdout untouched.
     trace: Option<Tracer>,
     /// How many user-function calls are nested on the stack right now. Checked
-    /// against `MAX_CALL_DEPTH` on each call so runaway recursion becomes a lux
+    /// against `depth_limit` on each call so runaway recursion becomes a lux
     /// error rather than a stack overflow.
     depth: usize,
+    depth_limit: usize,
+    sink: Sink,
+    steps: u64,
+    step_limit: Option<u64>,
+    value_bytes: Option<usize>,
 }
 
 /// How deep user-function calls may nest before the interpreter reports runaway
@@ -233,6 +378,11 @@ fn run_with(
                     program_args: program_args.to_vec(),
                     trace,
                     depth: 0,
+                    depth_limit: MAX_CALL_DEPTH,
+                    sink: Sink::Std,
+                    steps: 0,
+                    step_limit: None,
+                    value_bytes: None,
                 };
                 // Option and Result are built-in enums, registered before anything
                 // else so they exist for type-checking and a user can't redeclare
@@ -266,6 +416,144 @@ fn run_with(
 }
 
 impl Interp {
+    pub(crate) fn for_host(program: &[Stmt], cfg: HostConfig) -> Interp {
+        let mut interp = Interp {
+            scopes: vec![HashMap::new()],
+            funcs: HashMap::new(),
+            structs: HashMap::new(),
+            enums: HashMap::new(),
+            program_args: Vec::new(),
+            trace: None,
+            depth: 0,
+            depth_limit: cfg.depth,
+            sink: Sink::Captured {
+                lines: Vec::new(),
+                bytes: 0,
+                limit: cfg.output_bytes,
+                truncated: false,
+            },
+            steps: 0,
+            step_limit: Some(cfg.steps),
+            value_bytes: Some(cfg.value_bytes),
+        };
+        interp.register_builtin_types();
+        interp
+            .register_types(program)
+            .and_then(|_| interp.validate_type_decls(program))
+            .and_then(|_| interp.register_funcs(program))
+            .expect("a program host::load accepted registers cleanly");
+        interp
+    }
+
+    pub(crate) fn call_values(&mut self, name: &str, args: Vec<Value>) -> CallOutcome {
+        self.scopes = vec![HashMap::new()];
+        self.depth = 0;
+        self.steps = 0;
+        if let Sink::Captured {
+            lines,
+            bytes,
+            truncated,
+            ..
+        } = &mut self.sink
+        {
+            lines.clear();
+            *bytes = 0;
+            *truncated = false;
+        }
+        let func = Rc::clone(
+            self.funcs
+                .get(name)
+                .expect("the host checks the function exists before calling"),
+        );
+        let frame = func
+            .params
+            .iter()
+            .zip(args)
+            .map(|(p, v)| {
+                (
+                    p.name.clone(),
+                    Binding {
+                        value: v,
+                        kind: BindKind::Param,
+                    },
+                )
+            })
+            .collect();
+        let value = self.run_frame(name, &func, frame, Span::new(0, 0));
+        let (output, output_truncated) = match &mut self.sink {
+            Sink::Captured {
+                lines, truncated, ..
+            } => (std::mem::take(lines), *truncated),
+            Sink::Std => (Vec::new(), false),
+        };
+        CallOutcome {
+            value,
+            output,
+            output_truncated,
+            steps_used: self.steps,
+        }
+    }
+
+    fn hosted(&self) -> bool {
+        self.step_limit.is_some()
+    }
+
+    fn tick(&mut self, span: Span) -> Result<(), LuxError> {
+        self.steps += 1;
+        match self.step_limit {
+            Some(limit) if self.steps > limit => Err(out_of_steps(limit, span)),
+            _ => Ok(()),
+        }
+    }
+
+    fn emit(&mut self, line: OutputLine) {
+        match &mut self.sink {
+            Sink::Std => match line {
+                OutputLine::Out(s) => println!("{s}"),
+                OutputLine::Err(s) => eprintln!("{s}"),
+            },
+            Sink::Captured {
+                lines,
+                bytes,
+                limit,
+                truncated,
+            } => {
+                let cost = line.text().len() + 1;
+                if *bytes + cost > *limit {
+                    *truncated = true;
+                } else {
+                    *bytes += cost;
+                    lines.push(line);
+                }
+            }
+        }
+    }
+
+    fn guard(&self, v: &Value, span: Span) -> Result<(), LuxError> {
+        let Some(limit) = self.value_bytes else {
+            return Ok(());
+        };
+        let size = match v {
+            Value::Str(s) => NODE_BYTES + s.len(),
+            Value::Array(items) => NODE_BYTES * (items.len() + 1),
+            _ => 0,
+        };
+        if size > limit {
+            return Err(too_large(limit, span));
+        }
+        Ok(())
+    }
+
+    fn guard_deep(&self, v: &Value, span: Span) -> Result<(), LuxError> {
+        let Some(limit) = self.value_bytes else {
+            return Ok(());
+        };
+        if size_of(v) > limit {
+            return Err(too_large(limit, span));
+        }
+        Ok(())
+    }
+
     /// Register the built-in enums `Option` (`some`/`none`) and `Result`
     /// (`ok`/`err`). They are ordinary enum values under the hood, so `match`,
     /// exhaustiveness, and printing all work the same way they do for the
@@ -497,6 +785,7 @@ impl Interp {
     }
 
     fn exec_stmt(&mut self, stmt: &Stmt) -> Result<Flow, LuxError> {
+        self.tick(stmt.span())?;
         match stmt {
             Stmt::Let {
                 name,
@@ -651,6 +940,8 @@ impl Interp {
                     AssignOp::Add => append_or_add(slot.clone(), new, *span)?,
                     AssignOp::Sub => sub(slot, &new, *span)?,
                 };
+                self.guard(&result, *span)?;
+                let slot = navigate_mut(&mut self.lookup_mut(root).unwrap().value, &path, *span)?;
                 *slot = result;
                 Ok(Flow::Normal)
             }
@@ -688,6 +979,7 @@ impl Interp {
 
             Stmt::While { cond, body, span } => {
                 while self.eval_bool(cond)? {
+                    self.tick(*span)?;
                     self.trace_at(*span, "");
                     match self.run_scoped(body)? {
                         Flow::Normal => {}
@@ -707,6 +999,7 @@ impl Interp {
                 match iterable {
                     Value::Array(items) => {
                         for item in items {
+                            self.tick(*span)?;
                             self.trace_at(*span, &format!("{} = {}", var, trace_render(&item)));
                             match self.run_loop_body(var, item, body)? {
                                 Flow::Normal => {}
@@ -717,6 +1010,7 @@ impl Interp {
                     Value::Range(lo, hi) => {
                         let mut i = lo;
                         while i < hi {
+                            self.tick(*span)?;
                             self.trace_at(
                                 *span,
                                 &format!("{} = {}", var, trace_render(&Value::Int(i))),
@@ -837,7 +1131,9 @@ impl Interp {
                         }
                     }
                 }
-                Ok(Value::Array(items))
+                let array = Value::Array(items);
+                self.guard_deep(&array, e.span())?;
+                Ok(array)
             }
             Expr::Unary { op, rhs, span } => {
                 let v = self.eval(rhs)?;
@@ -861,7 +1157,9 @@ impl Interp {
                     _ => {
                         let a = self.eval(lhs)?;
                         let b = self.eval(rhs)?;
-                        binary_op(*op, &a, &b, *span)
+                        let result = binary_op(*op, &a, &b, *span)?;
+                        self.guard(&result, *span)?;
+                        Ok(result)
                     }
                 }
             }
@@ -1023,10 +1321,12 @@ impl Interp {
             }
             built.push((f.name.clone(), v));
         }
-        Ok(Value::Struct {
+        let value = Value::Struct {
             name: name.to_string(),
             fields: built,
-        })
+        };
+        self.guard_deep(&value, span)?;
+        Ok(value)
     }
 
     /// Build an enum value: find the case, then match the supplied labelled
@@ -1105,11 +1405,13 @@ impl Interp {
             }
             built.push((f.name.clone(), v));
         }
-        Ok(Value::Enum {
+        let value = Value::Enum {
             enum_name: enum_name.to_string(),
             variant: variant.to_string(),
             fields: built,
-        })
+        };
+        self.guard_deep(&value, span)?;
+        Ok(value)
     }
 
     /// Read a struct field, or construct a payload-less enum case written as
@@ -1368,12 +1670,14 @@ impl Interp {
                     }
                     parts.push(display(&v));
                 }
-                println!("{}", parts.join(" "));
+                self.emit(OutputLine::Out(parts.join(" ")));
                 Ok(Value::Unit)
             }
             "string" => {
                 let v = self.one_arg(name, args, span)?;
-                Ok(Value::Str(display(&v)))
+                let text = Value::Str(display(&v));
+                self.guard(&text, span)?;
+                Ok(text)
             }
             "int" => {
                 let v = self.one_arg(name, args, span)?;
@@ -1458,7 +1762,9 @@ impl Interp {
                             "replace swaps every occurrence of one string for another",
                         ));
                 }
-                Ok(Value::Str(a[0].replace(a[1].as_str(), a[2].as_str())))
+                let text = Value::Str(a[0].replace(a[1].as_str(), a[2].as_str()));
+                self.guard(&text, span)?;
+                Ok(text)
             }
             "split" => {
                 let a = self.str_args(name, args, span, 2)?;
@@ -1474,7 +1780,9 @@ impl Interp {
                     .split(a[1].as_str())
                     .map(|p| Value::Str(p.to_string()))
                     .collect();
-                Ok(Value::Array(items))
+                let pieces = Value::Array(items);
+                self.guard(&pieces, span)?;
+                Ok(pieces)
             }
             // ----- the outside world: files, arguments, the standard streams ---
             // Reading and writing can fail (a missing file, an unwritable path),
@@ -1575,7 +1883,7 @@ impl Interp {
                     }
                     parts.push(display(&v));
                 }
-                eprintln!("{}", parts.join(" "));
+                self.emit(OutputLine::Err(parts.join(" ")));
                 Ok(Value::Unit)
             }
             // Run another program and capture what it produced. Two layers of
@@ -1830,9 +2138,15 @@ impl Interp {
     /// stops with a lux error rather than a stack overflow. The count is restored
     /// however the call ends, so an error deep in the stack doesn't leave it skewed.
     fn call_user(&mut self, name: &str, args: &[Expr], span: Span) -> Result<Value, LuxError> {
-        if self.depth >= MAX_CALL_DEPTH {
-            return Err(call_stack_too_deep(name, span));
+        if self.depth >= self.depth_limit {
+            return Err(call_stack_too_deep(
+                name,
+                span,
+                self.depth_limit,
+                self.hosted(),
+            ));
         }
+        self.tick(span)?;
         self.depth += 1;
         let result = self.call_user_inner(name, args, span);
         self.depth -= 1;
@@ -1915,6 +2229,16 @@ impl Interp {
             );
         }
 
+        self.run_frame(name, &func, frame, span)
+    }
+
+    fn run_frame(
+        &mut self,
+        name: &str,
+        func: &FuncData,
+        frame: HashMap<String, Binding>,
+        span: Span,
+    ) -> Result<Value, LuxError> {
         // Run the body with a scope stack of just this call's frame, then put
         // the caller's scopes back — even if the body errored.
         let saved = std::mem::replace(&mut self.scopes, vec![frame]);
@@ -2263,7 +2587,7 @@ pub(crate) fn describe_place(e: &Expr) -> String {
     }
 }
 
-fn value_type(v: &Value) -> String {
+pub(crate) fn value_type(v: &Value) -> String {
     match v {
         Value::Array(items) => match items.first() {
             Some(first) => format!("[{}]", value_type(first)),
@@ -2471,14 +2795,7 @@ fn mix_or_type_error(verb: &str, a: &Value, b: &Value, span: Span) -> LuxError {
 
 /// Render a type annotation the way the source wrote it: `int`, `[int]`.
 fn describe_type(ann: &TypeAnn) -> String {
-    match &ann.kind {
-        TypeKind::Named(n) => n.clone(),
-        TypeKind::Array(elem) => format!("[{}]", describe_type(elem)),
-        TypeKind::Generic(name, args) => {
-            let inner: Vec<String> = args.iter().map(describe_type).collect();
-            format!("{}<{}>", name, inner.join(", "))
-        }
-    }
+    ann.to_string()
 }
 
 /// Do two values share a type? For scalars this is just their type name; for
@@ -2535,7 +2852,7 @@ fn payloads_compatible(fx: &[(String, Value)], fy: &[(String, Value)]) -> bool {
 /// The single field name carried inside a built-in enum value. It never shows
 /// (these print positionally), and matching binds by position, so the name is
 /// just internal bookkeeping.
-const PAYLOAD: &str = "value";
+pub(crate) const PAYLOAD: &str = "value";
 
 fn option_none() -> Value {
     Value::Enum {
@@ -2744,21 +3061,52 @@ pub(crate) fn result_not_printed(span: Span) -> LuxError {
 /// message. Depth alone can't tell a missing base case from a program that honestly
 /// goes this deep, so the message names the limit and offers both readings rather
 /// than diagnosing a bug that may not be there (#26).
-fn call_stack_too_deep(name: &str, span: Span) -> LuxError {
+fn call_stack_too_deep(name: &str, span: Span, limit: usize, hosted: bool) -> LuxError {
+    let past_it = if hosted {
+        "it's the host's limit for one call, not a bug"
+    } else {
+        "it's the interpreter's limit, not a bug: `lux build` compiles it to run past it"
+    };
     LuxError::new(
-        format!(
-            "`{}` reached lux's limit of {} nested calls",
-            name, MAX_CALL_DEPTH
-        ),
+        format!("`{}` reached lux's limit of {} nested calls", name, limit),
         span,
     )
-    .with_note(
-        "usually this means a missing base case — a function that calls itself with no line that returns instead of calling again. If the program is right and simply nests this deep, it's the interpreter's limit, not a bug: `lux build` compiles it to run past it.",
-    )
+    .with_note(format!(
+        "usually this means a missing base case — a function that calls itself with no line that returns instead of calling again. If the program is right and simply nests this deep, {past_it}."
+    ))
     .with_learn(
         "functions",
         "recursion needs a base case it reaches, or it calls itself forever",
     )
+}
+
+fn out_of_steps(limit: u64, span: Span) -> LuxError {
+    LuxError::new("this call ran too long and was stopped", span)
+        .with_note(format!(
+            "it used all {limit} steps the host allows for one call — a `while` loop whose condition never becomes false will run forever"
+        ))
+        .with_learn("while", "while repeats until its condition turns false")
+}
+
+fn too_large(limit: usize, span: Span) -> LuxError {
+    LuxError::new("this value grew too large and the call was stopped", span)
+        .with_note(format!(
+            "the host allows about {limit} bytes in one value — a string or list that doubles every time around a loop outgrows that in a few dozen passes"
+        ))
+        .with_learn("while", "a loop that grows something needs an end in sight")
+}
+
+const NODE_BYTES: usize = 16;
+
+fn size_of(v: &Value) -> usize {
+    match v {
+        Value::Str(s) => NODE_BYTES + s.len(),
+        Value::Array(items) => NODE_BYTES + items.iter().map(size_of).sum::<usize>(),
+        Value::Struct { fields, .. } | Value::Enum { fields, .. } => {
+            NODE_BYTES + fields.iter().map(|(_, f)| size_of(f)).sum::<usize>()
+        }
+        _ => NODE_BYTES,
+    }
 }
 
 /// The closest candidate name within a small edit distance of `name`, or `None`

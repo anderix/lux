@@ -692,7 +692,7 @@ fn entry_point(program: &[Stmt]) -> Result<(), LuxError> {
         ) {
             return Err(LuxError::new(
                 "nothing runs beside `main` at the top level — it is where your program starts",
-                stmt_span(stmt),
+                stmt.span(),
             )
             .with_note("move this line into main; once you name the start, the top level holds only your definitions")
             .with_learn(
@@ -902,23 +902,6 @@ fn reject_empty_array_value(value: &Expr) -> Result<(), LuxError> {
         ));
     }
     Ok(())
-}
-
-/// The source span of any statement, for pointing an error at the line it names.
-fn stmt_span(s: &Stmt) -> Span {
-    match s {
-        Stmt::Let { span, .. }
-        | Stmt::Var { span, .. }
-        | Stmt::Assign { span, .. }
-        | Stmt::Func { span, .. }
-        | Stmt::Return { span, .. }
-        | Stmt::Struct { span, .. }
-        | Stmt::Enum { span, .. }
-        | Stmt::If { span, .. }
-        | Stmt::While { span, .. }
-        | Stmt::For { span, .. } => *span,
-        Stmt::Expr(e) => e.span(),
-    }
 }
 
 // ----- calls: unknown function, wrong argument count -----------------------

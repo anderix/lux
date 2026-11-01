@@ -915,6 +915,53 @@ understanding every character — the difference is how much stands behind it no
 
 > see: hello — where your very first program began · functions — the shape main borrows · crawl — a whole world you built without ever needing main
 
+<!-- topic: host -->
+## host — when another program runs yours
+
+Everything so far ran because you typed `lux run`. A program can also be run by
+another program — a game, an editor, a test — called a *host*: it loads your file
+once, then calls your functions whenever it needs them, handing in values and
+reading back what each one returns. A file written for a host holds only
+declarations — `struct`, `enum`, and `func` — with no loose lines at the top,
+because the host decides when things run. `print` still works; what it prints
+goes to the host, which decides where it shows. What is gone is the outside
+world: `readLine`, `input`, `args`, `readFile`, `writeFile`, and `run` don't exist
+under a host, since the host passes in everything your functions need and keeps
+whatever they hand back.
+
+```lux
+struct World {
+    count: int
+}
+
+func fresh() -> World {
+    return World(count: 0)
+}
+
+func step(w: World, cmd: string) -> World {
+    print("you said", cmd)
+    return World(count: w.count + 1)
+}
+
+// Under a host these last lines are the host's job. Here, you are the host.
+var w = fresh()
+w = step(w, "hello")
+print(w.count)
+```
+
+> try: delete the last three lines and run the file. Nothing happens — with no host, nothing calls your functions. That quiet file is the shape a host expects.
+
+<!-- more -->
+A host also keeps your program on a short leash, because it may be running code
+it didn't write. Every call gets a budget of steps, so a `while` whose condition
+never turns false stops with an error instead of hanging the host; a value can't
+grow without end; and recursion that never reaches its base case is caught the
+same way. None of that changes what your code means — a function that is right
+under `lux run` is right under a host — it only means a mistake costs one call,
+not the whole program around it.
+
+> see: functions — the host calls them by name · crawl — a world a host could run · io — the outside world you have back under lux run
+
 ## The shape every language shares
 
 lux is a launch pad, and so is this page. Almost every language you will meet is

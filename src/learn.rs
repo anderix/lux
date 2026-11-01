@@ -40,7 +40,7 @@ const PATHS: &[(&str, &[&str])] = &[
         "safety",
         &["option", "conversions", "result", "io", "shell"],
     ),
-    ("build", &["crawl", "main"]),
+    ("build", &["crawl", "main", "host"]),
 ];
 
 /// A single learnable idea. The card is always present; `more` is earned.

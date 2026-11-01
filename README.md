@@ -165,7 +165,11 @@ line, for the bug that gives a wrong answer rather than an error. `lux editors
 highlighting` sets up syntax highlighting for whichever of GNOME Text Editor,
 Vim, Neovim, nano, or (on Windows) Notepad++ you already have — highlighting
 only, nothing that completes or corrects. And `lux update` fetches the latest
-release in place.
+release in place. For a program that wants lux inside it — a game whose rules are
+a lux file, a test harness — the `luxc` crate's `host` module loads a
+declarations-only program and calls its functions with values: output is
+captured, the file system, shell, and input are out of reach, and every call runs
+under a step budget and a size cap.
 
 lux teaches from a point of view. It commits to no null, sum types with
 exhaustive `match`, and immutability by default — not as the only way to write

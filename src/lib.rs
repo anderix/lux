@@ -3,13 +3,15 @@
 //! The pipeline is the classic three stages: `lexer` turns source text into
 //! tokens, `parser` turns tokens into an `ast`, and `interpreter` walks the
 //! ast and runs it. `diagnostic` carries source positions so an error can
-//! point at the exact place it went wrong.
+//! point at the exact place it went wrong. `host` is the way in for another
+//! program: load a lux program once and call its functions with values.
 
 pub mod ast;
 pub mod check;
 pub mod convert;
 pub mod diagnostic;
 pub mod editors;
+pub mod host;
 pub mod interpreter;
 pub mod learn;
 pub mod lexer;
