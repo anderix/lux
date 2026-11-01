@@ -4,6 +4,8 @@
 //! interpreter (which would catch them only on the `lux run` path) or a backend
 //! (only on `lux convert`/`lux build`). `load` runs them once, up front.
 
+// Author: David M. Anderson
+// Built with AI assistance (Claude, Anthropic)
 use std::collections::{HashMap, HashSet};
 
 use crate::ast::{Expr, Param, Pattern, Stmt, TypeAnn, TypeKind};

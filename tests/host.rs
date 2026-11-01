@@ -1,3 +1,6 @@
+// Author: David M. Anderson
+// Built with AI assistance (Claude, Anthropic)
+
 use std::io::Write;
 use std::process::{Command, Stdio};
 

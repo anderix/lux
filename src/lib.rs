@@ -6,6 +6,8 @@
 //! point at the exact place it went wrong. `host` is the way in for another
 //! program: load a lux program once and call its functions with values.
 
+// Author: David M. Anderson
+// Built with AI assistance (Claude, Anthropic)
 pub mod ast;
 pub mod check;
 pub mod convert;

@@ -8,6 +8,8 @@
 //! silently guessing. A real checker that catches these before the program
 //! runs is a later milestone.
 
+// Author: David M. Anderson
+// Built with AI assistance (Claude, Anthropic)
 use std::collections::HashMap;
 use std::fmt;
 use std::io::Write;

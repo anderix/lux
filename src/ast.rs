@@ -6,6 +6,8 @@
 //! `Span` so the interpreter can blame the right place when something goes
 //! wrong.
 
+// Author: David M. Anderson
+// Built with AI assistance (Claude, Anthropic)
 use std::fmt;
 
 use crate::diagnostic::Span;

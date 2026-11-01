@@ -38,6 +38,8 @@
 //! assert_eq!(w.get_field("steps"), Some(&Value::Int(2)));
 //! ```
 
+// Author: David M. Anderson
+// Built with AI assistance (Claude, Anthropic)
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::mpsc::{self, Sender};

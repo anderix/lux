@@ -15,6 +15,8 @@
 //! some traversal of this one list of topics, plus two pages of furniture: the
 //! `basics` skeleton and the `graduation` table.
 
+// Author: David M. Anderson
+// Built with AI assistance (Claude, Anthropic)
 const DOC: &str = include_str!("../learn-lux.md");
 
 /// Guided lessons: short, ordered sequences of topics for a first read. Each is
