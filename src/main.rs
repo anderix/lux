@@ -342,7 +342,9 @@ fn sub_usage(cmd: &str) {
             println!("usage: lux update");
             println!();
             println!("What happens depends on where lux came from. An install made by the shell");
-            println!("installer is replaced in place. One from Homebrew, WinGet, or cargo hands");
+            println!(
+                "installer is replaced in place. One from Homebrew, WinGet, apt, or cargo hands"
+            );
             println!("back that tool's own upgrade command, so whatever installed lux stays the");
             println!("thing that replaces it. Anything else — built from source, or fetched with");
             println!("a tool like eget — is reported rather than guessed at, so an update never");
@@ -479,6 +481,10 @@ fn build_cmd(rest: &[String]) {
 enum Channel {
     Homebrew,
     WinGet,
+    /// A Debian package, established by asking dpkg which package owns the
+    /// running binary rather than by its path: `/usr/bin` is also where a
+    /// distribution's own packaging or a hand copy would put it.
+    Apt,
     /// The cargo-dist installer behind the vanity URLs, established by a receipt
     /// that covers the running binary rather than assumed from a path.
     Installer,
@@ -534,6 +540,33 @@ fn receipt_prefix() -> Option<PathBuf> {
     json_string_field(&text, "install_prefix").map(PathBuf::from)
 }
 
+/// The Debian package that owns `exe`, if dpkg knows of one. Asked only where
+/// dpkg exists; everywhere else, and on any failure, there is no answer, and the
+/// path-based rules decide. `dpkg-query -S` prints `package: path`, or several
+/// such lines when a path is claimed by more than one package.
+#[cfg(target_os = "linux")]
+fn deb_package_of(exe: &Path) -> Option<String> {
+    let out = Command::new("dpkg-query")
+        .arg("-S")
+        .arg(exe)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    let first = text.lines().next()?;
+    let (package, _) = first.split_once(": ")?;
+    Some(package.split(':').next()?.to_string())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn deb_package_of(_exe: &Path) -> Option<String> {
+    None
+}
+
 /// Where `cargo install` puts a binary on this machine.
 ///
 /// `cargo install luxc` leaves no receipt, so without this a route lux documents
@@ -569,8 +602,19 @@ fn cargo_bin_dir() -> Option<PathBuf> {
 /// stale receipt from an earlier installer run alongside a lux that now comes
 /// from Homebrew, and the path is the better evidence in that case because it
 /// describes the binary actually running.
-fn channel_of(exe: &Path, receipt: Option<&Path>, cargo_bin: Option<&Path>) -> Channel {
+fn channel_of(
+    exe: &Path,
+    receipt: Option<&Path>,
+    cargo_bin: Option<&Path>,
+    deb_package: Option<&str>,
+) -> Channel {
     let path = normalise_path(exe);
+
+    // dpkg's word is the one that counts for a `.deb`: the path alone can't tell
+    // the apt package from a copy someone put in /usr/bin by hand.
+    if deb_package == Some("luxc") {
+        return Channel::Apt;
+    }
 
     // Apple silicon, Intel macOS, and Linuxbrew respectively. `/usr/local` is
     // qualified with `Cellar` — unlike the other two, that prefix is shared with
@@ -685,6 +729,7 @@ fn update_cmd(rest: &[String]) {
             path,
             receipt_prefix().as_deref(),
             cargo_bin_dir().as_deref(),
+            deb_package_of(path).as_deref(),
         ),
         None => Channel::Installer,
     };
@@ -698,6 +743,11 @@ fn update_cmd(rest: &[String]) {
         Channel::WinGet => {
             println!("This lux came from WinGet, so WinGet is what should replace it:");
             println!("  winget upgrade Anderix.luxc");
+            return;
+        }
+        Channel::Apt => {
+            println!("This lux came from apt, so apt is what should replace it:");
+            println!("  sudo apt update && sudo apt install --only-upgrade luxc");
             return;
         }
         Channel::Cargo => {
@@ -866,12 +916,27 @@ mod tests {
             "/home/linuxbrew/.linuxbrew/Cellar/luxc/0.19.12/bin/lux",
         ] {
             assert_eq!(
-                channel_of(Path::new(path), None, cargo_bin()),
+                channel_of(Path::new(path), None, cargo_bin(), None),
                 Channel::Homebrew,
                 "{}",
                 path
             );
         }
+    }
+
+    /// The apt package's binary sits in `/usr/bin`, where nothing in the path
+    /// says how it got there; dpkg's answer is what classifies it, and a
+    /// `/usr/bin/lux` dpkg has never heard of stays unmanaged.
+    #[test]
+    fn an_apt_lux_is_sent_back_to_apt_and_a_hand_copy_is_not() {
+        assert_eq!(
+            channel_of(Path::new("/usr/bin/lux"), None, cargo_bin(), Some("luxc")),
+            Channel::Apt
+        );
+        assert_eq!(
+            channel_of(Path::new("/usr/bin/lux"), None, cargo_bin(), None),
+            Channel::Unmanaged
+        );
     }
 
     /// A machine can carry a receipt from an earlier installer run while the lux
@@ -884,6 +949,7 @@ mod tests {
                 Path::new("/opt/homebrew/Cellar/luxc/0.19.12/bin/lux"),
                 Some(Path::new("/home/sam/.cargo")),
                 cargo_bin(),
+                None,
             ),
             Channel::Homebrew
         );
@@ -899,7 +965,7 @@ mod tests {
             r"\\?\C:\Users\sam\AppData\Local\Microsoft\WinGet\Packages\Anderix.luxc_abc123\lux.exe",
         ] {
             assert_eq!(
-                channel_of(Path::new(path), None, cargo_bin()),
+                channel_of(Path::new(path), None, cargo_bin(), None),
                 Channel::WinGet,
                 "{}",
                 path
@@ -922,7 +988,7 @@ mod tests {
             ("/home/sam/.local/bin/lux", "/home/sam/.local/bin"),
         ] {
             assert_eq!(
-                channel_of(Path::new(exe), Some(Path::new(prefix)), cargo_bin()),
+                channel_of(Path::new(exe), Some(Path::new(prefix)), cargo_bin(), None),
                 Channel::Installer,
                 "{}",
                 exe
@@ -936,7 +1002,12 @@ mod tests {
     #[test]
     fn a_cargo_installed_lux_is_sent_back_to_cargo() {
         assert_eq!(
-            channel_of(Path::new("/home/sam/.cargo/bin/lux"), None, cargo_bin()),
+            channel_of(
+                Path::new("/home/sam/.cargo/bin/lux"),
+                None,
+                cargo_bin(),
+                None
+            ),
             Channel::Cargo
         );
         // A receipt exists but the installer put its copy somewhere else, so the
@@ -946,6 +1017,7 @@ mod tests {
                 Path::new("/home/sam/.cargo/bin/lux"),
                 Some(Path::new("/home/sam/.local")),
                 cargo_bin(),
+                None,
             ),
             Channel::Cargo
         );
@@ -961,6 +1033,7 @@ mod tests {
                 Path::new("/home/sam/bin/lux"),
                 Some(Path::new("/home/sam/.cargo")),
                 cargo_bin(),
+                None,
             ),
             Channel::Shadowed(PathBuf::from("/home/sam/.cargo"))
         );
@@ -979,7 +1052,7 @@ mod tests {
             "/home/sam/projects/lux",
         ] {
             assert_eq!(
-                channel_of(Path::new(path), None, cargo_bin()),
+                channel_of(Path::new(path), None, cargo_bin(), None),
                 Channel::Unmanaged,
                 "{}",
                 path
