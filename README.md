@@ -38,25 +38,14 @@ itself. To remove it again:
 curl -LsSf https://anderix.com/lux/uninstall | sh
 ```
 
-If you already use Homebrew, lux is in a tap:
-
-```
-brew install anderix/tap/luxc
-```
-
-The formula is named `luxc`, matching the crate on crates.io, because `lux` was
-already taken in both places. The command it installs is `lux`, and that is the
-only name you type afterwards. On a Homebrew install `lux update` prints the
-`brew upgrade` line rather than updating in place, so the package manager stays
-the one thing that decides what is on your machine. Remove it with
-`brew uninstall anderix/tap/luxc`.
-
 If you already have Rust, you can install from crates.io instead:
 
 ```
 cargo install luxc
 ```
 
+The crate is named `luxc` because `lux` was already taken on crates.io. The
+command it installs is `lux`, and that is the only name you type afterwards.
 Remove that build with `cargo uninstall luxc`.
 
 ## Running a program
