@@ -40,7 +40,7 @@ The point is backend *correctness*, not language growth. These programs are
 shaped the way they are because certain things deliberately don't exist in lux —
 no maps, no `break`, no generics — and that shape is the teaching content
 (insertion sort builds a new row; the RPN machine folds a fault forward). They
-favour building a new value over mutating one even though a `var` field or element
+favor building a new value over mutating one even though a `var` field or element
 can now be assigned, because that's the habit the language is teaching. Don't add
 language features to make them nicer. A divergence here is a bug in a target, not
 a missing feature.

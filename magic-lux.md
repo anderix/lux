@@ -1,7 +1,7 @@
 <!-- The `lux magic` content, baked into the binary the same way learn-lux.md
 is. A spell is a small program that already works, with a trail to the lux
 learn topics that explain the ideas it leans on. Spells are allowed to run a
-little ahead of where the learn ladder has reached — that's the whole point —
+little ahead of where the learn ladder has reached, on purpose,
 but every one is real lux the test suite runs and translates, and every one
 ends under empty input so the suite never hangs. -->
 

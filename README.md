@@ -133,7 +133,7 @@ cargo build --release
 
 ## Testing
 
-The goal is "same source, same behaviour, three targets": `lux run` is the
+The goal is "same source, same behavior, three targets": `lux run` is the
 reference, the transpilers target it, and anywhere a translation behaves
 differently is a bug to fix. The suite is how those divergences get caught.
 `./check.sh` builds lux and runs everything against that fresh binary: the Rust

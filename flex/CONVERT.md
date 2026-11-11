@@ -184,7 +184,7 @@ than fall back to a Rust panic, a Swift trap, or Go reading whatever is there. S
 subscript a learner wrote as `xs[mid]` comes out as a checked call on every target —
 one of the places the generated code is doing work the source doesn't show.
 
-Here the three are not equal and it is worth being honest about it. Rust and Swift
+Here the three are not equal. Rust and Swift
 will not let the caller read the value without handling the empty case. Go will: a
 `*int` can be dereferenced without checking, and that is the nil-pointer panic lux
 exists to make unthinkable. The lux program cannot express the mistake, so the Go it
@@ -291,7 +291,7 @@ xs := append([]int{}, values...)
 ```
 
 Swift pays nothing to write, because its arrays are already value types. Rust names
-the cost out loud, which is the whole of Rust's argument. Go's slices are references,
+the cost out loud, which is Rust's argument. Go's slices are references,
 so the copy has to be constructed by hand — and for a nested value like a grid it
 takes a generic helper and a closure per level, as when `matrix` hands two grids to
 `multiply`:
@@ -312,8 +312,8 @@ get no copy at all — Go passes the grid straight in and Rust borrows it:
 let mut out: Vec<Vec<i64>> = filled(cols(&m), rows(&m), 0);
 ```
 
-That `&` is the whole of the ownership lesson in one character, and it is worth
-knowing that lux decided it for you. The learner wrote `cols(m)` both times.
+That `&` is the ownership lesson in one character, and lux decided it for you.
+The learner wrote `cols(m)` both times.
 
 ## The keep, three ways
 
@@ -388,7 +388,7 @@ func has(items []string, thing string) bool {
 func has(_ items: [String], _ thing: String) -> Bool {
 ```
 
-That `&` is the whole ownership lesson in one character, and it is the single most
+That `&` is the ownership lesson in one character, and it is the single most
 useful line in this document for anyone heading to Rust. The learner wrote `has(w.items,
 "key")` and did not think about ownership once. Rust cannot avoid thinking about it,
 so lux thought about it for them and passed a borrow — no copy, no move, and `w.items`
@@ -422,7 +422,7 @@ world = match read_line() {
 
 Swift and Go both have to make it a *statement*, and a statement can't be assigned —
 so each wraps it in a function defined and called on the spot, which is a shape worth
-recognising because you will write it yourself one day:
+recognizing because you will write it yourself one day:
 
 ```swift
 world = { () -> World in
@@ -532,7 +532,7 @@ func main() {
 main()
 ```
 
-Which is the honest translation, and the reason the bridge is Rust's and Go's: Swift
+Which is the faithful translation, and the reason the bridge is Rust's and Go's: Swift
 was never on the other side of this one.
 
 Two smaller things in that Swift are worth catching. `stride(from:to:by:)` is what a

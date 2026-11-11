@@ -297,7 +297,7 @@ while n < 5 {
 keep going as long as a bool stays true. The `for` loop you will meet next is
 usually just a tidier `while` for a known range or a collection. Go drops the
 word `while` entirely and writes every loop with `for` — seeing that the two are
-the same idea underneath is the whole lesson.
+the same idea underneath is the lesson.
 
 > see: for — the tidier loop for a range or a collection · if — the control structure that chooses instead of repeats
 
@@ -345,7 +345,7 @@ many there turn out to be (an empty separator is refused — there would be nowh
 to cut). Its length comes from what someone typed, not from the program, and that
 is the moment a `for` loop stops being ceremony and becomes the only way through:
 you can't name pieces you haven't seen yet. When a piece might not be what you
-expect — a number that isn't one, a word you don't recognise — `parseInt` and
+expect — a number that isn't one, a word you don't recognize — `parseInt` and
 `match` are how you handle it, which is where this path leads next.
 
 ```lux
@@ -472,7 +472,7 @@ print("theirs:", joined(["two", "seven"], board))
 ```
 
 Both programs print the same two lines, and that is what makes this a *refactor*:
-the behaviour is untouched while the shape improves. The name is the other half of
+the behavior is untouched while the shape improves. The name is the other half of
 what you gain — `joined(hole, board)` says what those six lines were for, and a
 reader who trusts the name never has to open it.
 
@@ -554,7 +554,7 @@ together under one name. Where an array is many of the *same* thing, a struct is
 a few *different* things treated as a unit: a point is its `x` and its `y`.
 Almost every language has this shape, under names like record, struct, or data
 class, and it is the first step toward objects — which the larger languages
-build by attaching behaviour to the data a struct holds.
+build by attaching behavior to the data a struct holds.
 
 > see: enums — its partner: a struct is "this and that," an enum is "this or that"
 
@@ -650,7 +650,7 @@ that pretends to be there and is not — is famous enough to have a nickname, th
 billion-dollar mistake, for all the crashes it has caused. Languages that
 learned from it make "missing" a shape you have to open with `match` before you
 can reach what is inside: Rust's `Option`, Swift's `Optional`. That forced
-check, paid once up front, is the whole point.
+check, paid once up front, is the point.
 
 > see: result — its sibling, for failing with a reason instead of just being absent · match — how you open one safely
 
@@ -873,7 +873,7 @@ func main() {
 
 <!-- more -->
 You never needed `main` to write lux, and you still don't: the file-is-the-program
-style is the honest, everyday one, and this whole page was written in it. `main`
+style is the everyday one, and this whole page was written in it. `main`
 is the one thing Rust and Go ask for that lux doesn't — a named place to start —
 so this lesson is really theirs:
 
@@ -908,8 +908,8 @@ None of that is a mystery now. `fn` and `func` you know; `main` is the start, th
 thing lux just taught you; the print call is the print call. Even the line of
 Java a beginner is told to copy on faith — `public static void main(String[]
 args)` — is this same idea in heavier clothes, and every word of it now has a
-name you can say out loud. That is the whole trick of leaving lux: you are not
-starting over, you are meeting what you already know in a new spelling. You began
+name you can say out loud. Leaving lux is not starting over; it is meeting
+what you already know in a new spelling. You began
 at hello-world understanding every character, and you arrive at hello-world again
 understanding every character — the difference is how much stands behind it now.
 
@@ -1027,7 +1027,7 @@ big problem into smaller ones until each is small enough to solve, say exactly
 what you mean so the machine can't guess wrong, and when something breaks, read
 what it tells you and try the next thing. Those moves are not really about
 programming. They are how you take anything tangled — a plan, an argument, a
-broken bike — and make it give way. Programming is just where you practised,
+broken bike — and make it give way. Programming is just where you practiced,
 because the feedback is plain: the program runs or it does not, and it never
 pretends.
 
@@ -1050,91 +1050,53 @@ The sections below are notes on lux itself, not part of `lux learn`.
 The teaching surface above is the whole language, and it ends where it does on
 purpose. lux includes only what reconciles across the targets — `let`, `for`,
 `func`, `match`, `Option` all mean the same thing in Rust, Go, and Swift, so lux
-can teach each once and honestly say "you already know this." `main` (milestone 14)
-is the first idea that *looks* shared — every language has an entry point — but
-doesn't reconcile: Rust and Go run a function named `main`, Swift runs the file.
-That irreconcilable difference is the language's edge, not a gap in it. So `main`
-is both the right last feature (the bridge, the first place the shapes part) and
-the terminus: one step further — Swift's `@main`, Rust's ownership, Go's
-goroutines — and lux would have to model one language's private dialect and lie
-about the others. Everything past `main` is per-language, and belongs in the
-transition guides, never in lux. (This is the language-shape axis; the stdlib
-conveniences lux withholds so learners pull them out themselves — a map type,
-joining two arrays, imports — are a separate, deliberate story. What earns one is
-a learner who cannot proceed without it, which is why `split` arrived in 0.18.0:
-a program that reads what someone typed has no way through otherwise. Joining two
-arrays was declined on the other side of that line (#75), because the loop a
-built-in would replace is the same loop that already sums, filters, and searches,
-and lifting one of those out leaves the language with a rule and an exception.)
+can teach each once and say "you already know this." `main` is the first idea
+that *looks* shared — every language has an entry point — but doesn't reconcile:
+Rust and Go run a function named `main`, Swift runs the file. That irreconcilable
+difference is the language's edge, not a gap in it. So `main` is both the right
+last feature (the bridge, the first place the shapes part) and the terminus: one
+step further — Swift's `@main`, Rust's ownership, Go's goroutines — and lux would
+have to model one language's private dialect and misrepresent the others.
+Everything past `main` is per-language, and belongs in the transition guides,
+never in lux. (This is the language-shape axis; the stdlib conveniences lux
+withholds so learners pull them out themselves — a map type, joining two arrays,
+imports — are a separate, deliberate story. What brings one in is a learner who
+cannot proceed without it, which is why `split` exists: a program that reads what
+someone typed has no way through otherwise. Joining two arrays stays out (#75),
+because the loop a built-in would replace is the same loop that already sums,
+filters, and searches, and lifting one of those out leaves the language with a
+rule and an exception.)
 
-The interpreter grew toward that surface in milestones, simplest first:
+The language is taught in the order it is listed above, simplest first, and a few
+design choices shape that teaching:
 
-1. **`lux run` core** — `print`, `let`/`var`, the four basic types, arithmetic,
-   strings, `if`/`else`, `while`.
-2. **Functions** — definitions, parameters, return, recursion, `for ... in`,
-   ranges, arrays.
-3. **Types** — structs, then enums and `match`.
-4. **No null** — `Option`/`Result` and the generics machinery they need.
-5. **`lux convert rust`** — the first transpiler backend (also powers
-   `lux build`).
-6. **`lux convert swift` / `lux convert go`** — the remaining backends.
-7. **`lux learn`** — the reference and tutorial, built into the binary and
-   cross-referenced from error messages.
-8. **`lux learn`, second level** — cards by default, an optional `more` page per
-   topic, the `lux learn basics` skeleton, and reason-annotated cross-references.
-9. **The outside world** — `readFile`/`writeFile`, `args`, `readLine`, and
-   `print`/`eprint` across stdout and stderr: fallible I/O modeled as
-   `Option`/`Result`, the first surface that genuinely needs them.
-10. **Running other programs** — `run(program, [args])` returning
-    `Result<Output, string>`, where `Output` is the one built-in struct
-    (`status`, `stdout`, `stderr`). Teaches the two-layer failure split (did it
-    launch vs. did it succeed) and the arg-vector security posture. The limit
-    named for learners: it is batch capture, not a live pipe.
-11. **Errors as trails** — a diagnostic carries an optional `(topic, lure)` trail
-    to a `lux learn` topic, rendered as the `help:` line, plus a new `errors`
-    topic on how to read one. Wired where an error sits on a concept worth
-    following; self-evident fixes are left trail-less on purpose, so the `help:`
-    lines stay signal. The lure previews *why* the trail is worth taking, turning
-    a pointer into an invitation.
-12. **The closing bridge** — `lux learn beyond`, a furniture page beside the
-    `basics` skeleton and the graduation table, and the last note of the tour.
-    It names what transfers past lux *and* past code — decomposition, precise
-    specification, debugging-as-a-stance, and agency (building your own tools).
-    Stated once, in the same terse voice; never preached.
-13. **`lux crawl`** — scaffolds a playable, editable text adventure into the
-    current directory. The world is `examples/keep.lux` itself, embedded with
-    `include_str!`, so the thing you play and the thing the tests run can't drift.
-    A `crawl` learn topic teaches building one. Built entirely on today's language
-    — no new features — on purpose: the stiffness (exact-match commands) and the
-    missing pieces (string parsing, maps, imports) are left as walls a learner
-    discovers and asks for, not gifts handed down ahead of the wish.
-14. **`func main`, the bridge out** — the one entry point, added last. With no
-    `main`, the file is the program and runs top to bottom, the beginner's whole
-    world and the way every concept above is taught; the starter world and the
-    lessons stay main-free on purpose, so this arrives as the single new idea it is.
-    A *top-level* `func main` becomes the program's entry point and lux runs it —
-    the shape Rust, Go, Java, and C require, though not Swift, which like lux lets
-    the file be the program — with three rules that are
-    one idea (it is where a program starts, run by the language): it takes no values,
-    returns nothing, and shares the top level with nothing but definitions, and you
-    don't call it yourself. The rules live in `check::check` so they hold on `run`,
-    `convert`, and `build` alike, each error teaching the concept and luring to the
-    `main` topic. Each backend maps the user's `main` straight onto its own — no
-    wrapper, so the generated `fn main`/`func main` is the idiomatic thing a human
-    would write, and Swift, whose top level is already the entry point, gets one
-    `main()` call to start it. The `main` topic is the capstone: lux begins at
-    hello-world understood in full and ends at hello-world again, this time with
-    `main` around it and every character still understood — the reveal the tutorial
-    sets up by leaving `main` out until here. A `more` page renders fenced code
-    blocks (the same hello-world in all three targets) verbatim, the first to need
-    them.
-
-That second level: every topic is a short *card* by default, with an optional
-`more` page carrying the deeper why, the universal name for the concept, and
-where it goes in other languages. `lux learn basics` is the procedural-language
-skeleton; the cross-references that bind related topics live on the `more` pages,
-each with a reason. The `scope` topic was added here, once the interpreter's
-block scoping was confirmed to enforce it.
+- **Two levels in `lux learn`.** Every topic is a short *card* by default, with an
+  optional `more` page carrying the deeper why, the universal name for the
+  concept, and where it goes in other languages. `lux learn basics` is the
+  procedural-language skeleton; the cross-references that bind related topics
+  live on the `more` pages, each with a reason.
+- **Errors as trails.** A diagnostic carries an optional `(topic, lure)` trail to
+  a `lux learn` topic, rendered as the `help:` line. It is wired where an error
+  sits on a concept worth following; self-evident fixes are left trail-less on
+  purpose, so the `help:` lines stay signal. The lure previews *why* the trail is
+  worth taking.
+- **`run` is batch capture.** `run(program, [args])` returns
+  `Result<Output, string>`, where `Output` is the one built-in struct (`status`,
+  `stdout`, `stderr`). It teaches the two-layer failure split (did it launch vs.
+  did it succeed) and the argument-vector security posture; it is not a live pipe.
+- **`lux crawl` uses only the language as it stands.** The world is
+  `examples/keep.lux` itself, embedded with `include_str!`, so the thing you play
+  and the thing the tests run can't drift. Its stiffness (exact-match commands)
+  and missing pieces (maps, imports) are walls a learner discovers and asks for.
+- **`func main` comes last.** With no `main`, the file is the program and runs top
+  to bottom; the starter world and the lessons stay main-free, so `main` arrives
+  as the single new idea it is. A top-level `func main` is the program's entry
+  point, with three rules that are one idea (it is where a program starts, run by
+  the language): it takes no values, returns nothing, and shares the top level
+  with nothing but definitions, and you don't call it yourself. The rules live in
+  `check::check` so they hold on `run`, `convert`, and `build` alike. Each backend
+  maps the user's `main` straight onto its own, with no wrapper, and the `main`
+  topic closes the tour at hello-world again, this time with `main` around it.
 
 ### Transpiler edges
 
@@ -1162,17 +1124,14 @@ the kind worth meeting head-on instead of hiding.
   the same empty list, just with the loosest element type.
 - **Swift has no entry-point `main`, so a user `func main` is emitted as an
   ordinary function and called.** Swift's entry point is top-level code (in the
-  single file `swiftc` compiles) or a `@main` type — a bare `func main` is just a
-  function it never runs, verified. So a lux program with a top-level `main`
-  converts to Swift as `func main() { ... }` plus one top-level `main()` call: valid,
-  runs, and compiles under a plain `swiftc file.swift`. The idiomatic `@main struct`
-  was rejected on test — in a single file it needs `swiftc -parse-as-library`
-  (plain `swiftc file.swift` fails with "'main' attribute cannot be used in a module
-  that contains top-level code"), and since `lux build` is Rust-only, the learner
-  runs `swiftc` themselves, so we'd be handing them Swift that fails the obvious
-  invocation. Hoisting `main`'s body to top level instead would be idiomatic but
-  drops any early `return` (illegal at Swift's top level). The `func`-and-call form
-  is the honest one anyway: it says what is true, that Swift's `main` is a plain
+  single file `swiftc` compiles) or a `@main` type; a bare `func main` is a
+  function it never runs. So a lux program with a top-level `main` converts to
+  Swift as `func main() { ... }` plus one top-level `main()` call, which compiles
+  under a plain `swiftc file.swift`. An `@main struct` would need
+  `swiftc -parse-as-library` in a single file, and the learner runs `swiftc`
+  themselves, since `lux build` is Rust-only. Hoisting `main`'s body to top level
+  would drop any early `return`, which is illegal at Swift's top level. The
+  `func`-and-call form also says what is true, that Swift's `main` is a plain
   function. This is why the `main` learn topic scopes the graduation to Rust and
   Go — Swift, like lux, lets the file be the program, so it has no `main` step to
   teach, and `@main` belongs in the Swift transition guide, not here.
