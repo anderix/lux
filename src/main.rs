@@ -5,6 +5,9 @@
 //! translation through `rustc` to a native binary, and `lux learn` prints the
 //! language's own built-in reference.
 
+// Author: David M. Anderson
+// Built with AI assistance (Claude, Anthropic)
+
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio, exit};
@@ -342,9 +345,7 @@ fn sub_usage(cmd: &str) {
             println!("usage: lux update");
             println!();
             println!("What happens depends on where lux came from. An install made by the shell");
-            println!(
-                "installer is replaced in place. One from Homebrew, WinGet, apt, or cargo hands"
-            );
+            println!("installer is replaced in place. One from WinGet, apt, or cargo hands");
             println!("back that tool's own upgrade command, so whatever installed lux stays the");
             println!("thing that replaces it. Anything else — built from source, or fetched with");
             println!("a tool like eget — is reported rather than guessed at, so an update never");
@@ -479,7 +480,6 @@ fn build_cmd(rest: &[String]) {
 /// Where the running lux came from.
 #[derive(Debug, PartialEq)]
 enum Channel {
-    Homebrew,
     WinGet,
     /// A Debian package, established by asking dpkg which package owns the
     /// running binary rather than by its path: `/usr/bin` is also where a
@@ -589,19 +589,14 @@ fn cargo_bin_dir() -> Option<PathBuf> {
 /// Classify an already-resolved executable path against an already-read receipt.
 ///
 /// Split out from `current_channel` so it can be tested against paths and
-/// receipts this machine does not have. Both package managers are matched on
-/// every platform rather than behind `cfg`, so the Windows branch is covered by
-/// the suite on a Linux runner too.
-///
-/// Match on the *resolved* path. Homebrew links `bin/lux` into its prefix while
-/// the real file lives under `Cellar`, and `current_exe` follows symlinks on
-/// Linux and macOS, so a Cellar path is what arrives here — the link is never
-/// what gets classified.
+/// receipts this machine does not have. The WinGet path is matched on every
+/// platform rather than behind `cfg`, so the Windows branch is covered by the
+/// suite on a Linux runner too.
 ///
 /// The package managers are checked first and win outright. A machine can hold a
 /// stale receipt from an earlier installer run alongside a lux that now comes
-/// from Homebrew, and the path is the better evidence in that case because it
-/// describes the binary actually running.
+/// from a package manager, and the package manager's claim is the better
+/// evidence in that case because it describes the binary actually running.
 fn channel_of(
     exe: &Path,
     receipt: Option<&Path>,
@@ -614,17 +609,6 @@ fn channel_of(
     // the apt package from a copy someone put in /usr/bin by hand.
     if deb_package == Some("luxc") {
         return Channel::Apt;
-    }
-
-    // Apple silicon, Intel macOS, and Linuxbrew respectively. `/usr/local` is
-    // qualified with `Cellar` — unlike the other two, that prefix is shared with
-    // everything else installed by hand, and claiming all of it would send a
-    // hand-built lux to a Homebrew that never had it.
-    if path.starts_with("/opt/homebrew/")
-        || path.starts_with("/usr/local/cellar/")
-        || path.starts_with("/home/linuxbrew/.linuxbrew/")
-    {
-        return Channel::Homebrew;
     }
 
     // Covers both the package directory and the shim in `Links`.
@@ -735,11 +719,6 @@ fn update_cmd(rest: &[String]) {
     };
 
     match channel {
-        Channel::Homebrew => {
-            println!("This lux came from Homebrew, so Homebrew is what should replace it:");
-            println!("  brew upgrade anderix/tap/luxc");
-            return;
-        }
         Channel::WinGet => {
             println!("This lux came from WinGet, so WinGet is what should replace it:");
             println!("  winget upgrade Anderix.luxc");
@@ -900,30 +879,6 @@ mod tests {
         Some(Path::new("/home/sam/.cargo/bin"))
     }
 
-    /// The three prefixes Homebrew actually uses, and the symlink detail that
-    /// makes this worth testing: what reaches `channel_of` is the Cellar path the
-    /// link resolves to, not the `bin/lux` a learner sees on their PATH.
-    ///
-    /// Note the shape of that path — `Cellar/<formula>/<version>/bin/<binary>`.
-    /// The formula is `luxc`, matching the crate name on crates.io, because
-    /// `lux` in homebrew-core is an unrelated video downloader. The binary it
-    /// installs is `lux`, which is the only name a learner ever types.
-    #[test]
-    fn a_homebrew_lux_is_recognised_on_every_prefix() {
-        for path in [
-            "/opt/homebrew/Cellar/luxc/0.19.12/bin/lux",
-            "/usr/local/Cellar/luxc/0.19.12/bin/lux",
-            "/home/linuxbrew/.linuxbrew/Cellar/luxc/0.19.12/bin/lux",
-        ] {
-            assert_eq!(
-                channel_of(Path::new(path), None, cargo_bin(), None),
-                Channel::Homebrew,
-                "{}",
-                path
-            );
-        }
-    }
-
     /// The apt package's binary sits in `/usr/bin`, where nothing in the path
     /// says how it got there; dpkg's answer is what classifies it, and a
     /// `/usr/bin/lux` dpkg has never heard of stays unmanaged.
@@ -936,22 +891,6 @@ mod tests {
         assert_eq!(
             channel_of(Path::new("/usr/bin/lux"), None, cargo_bin(), None),
             Channel::Unmanaged
-        );
-    }
-
-    /// A machine can carry a receipt from an earlier installer run while the lux
-    /// on its PATH now comes from Homebrew. The path describes the binary that is
-    /// actually running, so it wins.
-    #[test]
-    fn a_stale_receipt_does_not_override_a_homebrew_path() {
-        assert_eq!(
-            channel_of(
-                Path::new("/opt/homebrew/Cellar/luxc/0.19.12/bin/lux"),
-                Some(Path::new("/home/sam/.cargo")),
-                cargo_bin(),
-                None,
-            ),
-            Channel::Homebrew
         );
     }
 
@@ -971,6 +910,28 @@ mod tests {
                 path
             );
         }
+    }
+
+    #[test]
+    fn a_stale_receipt_does_not_override_a_package_manager() {
+        assert_eq!(
+            channel_of(
+                Path::new("/usr/bin/lux"),
+                Some(Path::new("/usr")),
+                cargo_bin(),
+                Some("luxc"),
+            ),
+            Channel::Apt
+        );
+        assert_eq!(
+            channel_of(
+                Path::new(r"C:\Users\sam\AppData\Local\Microsoft\WinGet\Links\lux.exe"),
+                Some(Path::new(r"C:\Users\sam\AppData\Local")),
+                cargo_bin(),
+                None,
+            ),
+            Channel::WinGet
+        );
     }
 
     /// A receipt covering the running binary is the only thing that authorises
