@@ -2696,3 +2696,15 @@ return string(n) + string(String) + \" \" + string(float(x) + Double) + \" \" + 
 print(f(7, 4, \"9\"))\n";
     assert_all_four(src, "stdlibname", "73 5.5 109\n");
 }
+
+#[test]
+fn a_while_true_loop_compiles_warning_clean_everywhere() {
+    // Rust warns at `while true` and wants `loop`; and once it is a `loop`, the
+    // `return` lux requires after it is a statement Rust can see never runs. Both
+    // the loop in a function and the one at the top level must build clean.
+    assert_prints_everywhere(
+        "func first() -> int {\n    var n = 0\n    while true {\n        n += 1\n        if n > 2 {\n            return n\n        }\n    }\n    return 0\n}\nprint(first())\nvar k = 0\nwhile true {\n    k += 1\n    if k == 2 {\n        print(k)\n        return\n    }\n}\nprint(\"never\")\n",
+        "while_true",
+        "3\n2\n",
+    );
+}

@@ -328,6 +328,9 @@ pub fn to_rust(program: &[Stmt]) -> String {
                 Stmt::Struct { .. } | Stmt::Enum { .. } | Stmt::Func { .. }
             ) {
                 g.emit_stmt(stmt);
+                if is_endless_loop(stmt) {
+                    break;
+                }
             }
         }
         g.t.pop_scope();
@@ -921,9 +924,7 @@ impl Gen {
         if name == "main" {
             self.emit_sigpipe_default();
         }
-        for stmt in body {
-            self.emit_stmt(stmt);
-        }
+        self.emit_stmts(body);
         self.t.pop_scope();
         self.ref_params = saved_refs;
         self.mutated = saved_mutated;
@@ -1006,9 +1007,14 @@ impl Gen {
                 else_body,
                 ..
             } => self.emit_if(cond, then_body, else_body.as_deref()),
+            // Rust wants an endless loop spelled `loop`, and warns at `while true`.
             Stmt::While { cond, body, .. } => {
-                let c = self.emit_expr(cond);
-                self.line(format!("while {} {{", c));
+                if matches!(cond, Expr::Bool(true, _)) {
+                    self.line("loop {".into());
+                } else {
+                    let c = self.emit_expr(cond);
+                    self.line(format!("while {} {{", c));
+                }
                 self.block(body);
                 self.line("}".into());
             }
@@ -1035,11 +1041,22 @@ impl Gen {
     fn block(&mut self, body: &[Stmt]) {
         self.indent += 1;
         self.t.push_scope();
-        for stmt in body {
-            self.emit_stmt(stmt);
-        }
+        self.emit_stmts(body);
         self.t.pop_scope();
         self.indent -= 1;
+    }
+
+    /// A run of statements. lux has no `break`, so nothing after a `while true`
+    /// in the same block can run; Rust knows that about the `loop` it becomes and
+    /// would warn of an unreachable statement, so the run stops at the loop. That
+    /// drops the `return` lux asks for after such a loop, which Rust doesn't need.
+    fn emit_stmts(&mut self, body: &[Stmt]) {
+        for stmt in body {
+            self.emit_stmt(stmt);
+            if is_endless_loop(stmt) {
+                break;
+            }
+        }
     }
 
     fn emit_binding(&mut self, name: &str, ann: Option<&TypeAnn>, value: &Expr, mutable: bool) {
@@ -1215,9 +1232,7 @@ impl Gen {
         self.indent += 1;
         self.t.push_scope();
         self.t.declare(var.to_string(), elem_ty);
-        for stmt in body {
-            self.emit_stmt(stmt);
-        }
+        self.emit_stmts(body);
         self.t.pop_scope();
         self.indent -= 1;
         self.line("}".into());
@@ -1888,4 +1903,15 @@ fn paren_or_empty(binds: &[String]) -> String {
 /// Types that copy on use in Rust, so passing them never moves the original.
 fn is_copy(t: &Ty) -> bool {
     matches!(t, Ty::Int | Ty::Float | Ty::Bool)
+}
+
+/// A `while true`, which only a `return` (or the program ending) can leave.
+fn is_endless_loop(stmt: &Stmt) -> bool {
+    matches!(
+        stmt,
+        Stmt::While {
+            cond: Expr::Bool(true, _),
+            ..
+        }
+    )
 }
