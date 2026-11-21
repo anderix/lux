@@ -1037,6 +1037,9 @@ and it is why lux is built to be left behind. When it starts to feel small, that
 means it worked. Go pick a bigger one and bring the moves with you — or don't,
 and keep them anyway. They were never lux's.
 
+When you want to know what to read next, anderix.com/lux lays out the whole
+route, from your first program to the languages after lux.
+
 <!-- learn:end -->
 
 ---
