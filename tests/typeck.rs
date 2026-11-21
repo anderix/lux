@@ -203,6 +203,32 @@ fn a_match_that_misses_a_case_is_caught() {
 }
 
 #[test]
+fn a_match_on_an_option_that_misses_a_case_is_caught() {
+    reads_like(
+        "match-option",
+        "let x: Option<int> = none\nif false {\n  let y = match x {\n    some(let n) => n\n  }\n  print(y)\n}\nprint(\"ok\")\n",
+        &[
+            "this match on `Option` doesn't handle every case",
+            "add an arm for: none (or a `_` catch-all)",
+            "lux learn match",
+        ],
+    );
+}
+
+#[test]
+fn a_match_on_a_result_that_misses_a_case_is_caught() {
+    reads_like(
+        "match-result",
+        "func half(n: int) -> Result<int, string> {\n  if n % 2 == 0 { return ok(n / 2) }\n  return err(\"odd\")\n}\nif false {\n  let y = match half(4) {\n    ok(let n) => n\n  }\n  print(y)\n}\nprint(\"ok\")\n",
+        &[
+            "this match on `Result` doesn't handle every case",
+            "add an arm for: err (or a `_` catch-all)",
+            "lux learn match",
+        ],
+    );
+}
+
+#[test]
 fn reading_a_field_a_struct_lacks_is_caught() {
     reads_like(
         "field",
@@ -231,7 +257,11 @@ fn valid_constructs_in_a_dead_branch_still_run() {
          xs += 5\n\
          let c = Color.red\n\
          let name = match c {\n  red => \"r\"\n  _ => \"other\"\n}\n\
+         let found: Option<int> = some(3)\n\
          if false {\n\
+           let a = match found {\n  some(let n) => n\n  none => 0\n}\n\
+           let b = match found {\n  none => 0\n  _ => 1\n}\n\
+           print(a + b)\n\
            print(sq(p.x) + p.y)\n\
            for i in 0..3 { print(i) }\n\
            print(name)\n\

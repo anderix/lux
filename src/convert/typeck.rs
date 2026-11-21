@@ -1072,8 +1072,9 @@ impl Checker {
     /// stands in, and each arm body is walked with its captured values in scope. On
     /// a plain int/string/bool, a `_` is required (bool is covered by `true` and
     /// `false`) and a case-name pattern is refused. Anything else concrete — a
-    /// float, an array, a struct — can't be matched at all. An `Option`/`Result` or
-    /// a scrutinee whose type can't be pinned defers to run time.
+    /// float, an array, a struct — can't be matched at all. An `Option` or `Result`
+    /// must cover its cases too, though its bindings' types are left to run time, as
+    /// is a scrutinee whose type can't be pinned.
     fn check_match(
         &mut self,
         scrutinee: &Expr,
@@ -1168,10 +1169,39 @@ impl Checker {
                     ));
                 }
             }
-            // An `Option` or `Result` is an enum too, matched with some/none or
-            // ok/err. Type-checking its exhaustiveness and bindings is left to run
-            // time; walk the arm bodies for mistakes inside them.
-            Ty::Option(_) | Ty::Result(..) | Ty::Unknown => {}
+            // An `Option` or `Result` is an enum too, with fixed cases, so it is
+            // held to the same rule as a user enum. Its bindings' types are left to
+            // run time.
+            Ty::Option(_) | Ty::Result(..) => {
+                let (enum_name, cases) = if matches!(sty, Ty::Option(_)) {
+                    ("Option", ["some", "none"])
+                } else {
+                    ("Result", ["ok", "err"])
+                };
+                let has_wildcard = arms
+                    .iter()
+                    .any(|a| matches!(a.pattern, Pattern::Wildcard(_)));
+                let missing: Vec<&str> = cases
+                    .into_iter()
+                    .filter(|case| {
+                        !arms.iter().any(|a| {
+                            matches!(&a.pattern, Pattern::Variant { name, .. } if name == case)
+                        })
+                    })
+                    .collect();
+                if !has_wildcard && !missing.is_empty() {
+                    return Err(LuxError::new(
+                        format!("this match on `{}` doesn't handle every case", enum_name),
+                        span,
+                    )
+                    .with_learn("match", "covering every case is what makes match safe")
+                    .with_note(format!(
+                        "add an arm for: {} (or a `_` catch-all)",
+                        missing.join(", ")
+                    )));
+                }
+            }
+            Ty::Unknown => {}
             // Anything else with a concrete type — a float, an array, a struct — has
             // nothing to match on.
             other => {
