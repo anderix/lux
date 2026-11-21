@@ -1184,9 +1184,9 @@ impl Checker {
                 let missing: Vec<&str> = cases
                     .into_iter()
                     .filter(|case| {
-                        !arms.iter().any(|a| {
-                            matches!(&a.pattern, Pattern::Variant { name, .. } if name == case)
-                        })
+                        !arms.iter().any(
+                            |a| matches!(&a.pattern, Pattern::Variant { name, .. } if name == case),
+                        )
                     })
                     .collect();
                 if !has_wildcard && !missing.is_empty() {
