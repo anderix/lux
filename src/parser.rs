@@ -60,7 +60,21 @@ impl Parser {
         if std::mem::discriminant(self.peek_tok()) == std::mem::discriminant(want) {
             Ok(self.advance())
         } else {
-            Err(LuxError::new(format!("expected {}", what), self.span()))
+            Err(LuxError::new(
+                format!("expected {}", what),
+                self.missing_span(),
+            ))
+        }
+    }
+
+    /// Where a token that isn't there belongs: at the next token, unless that
+    /// token opens a new line, in which case the gap is at the end of the line
+    /// before, where the reader left it out.
+    fn missing_span(&self) -> Span {
+        let next = self.peek();
+        match self.pos.checked_sub(1).map(|i| &self.tokens[i]) {
+            Some(last) if next.starts_line => Span::new(last.span.end, last.span.end),
+            _ => next.span,
         }
     }
 
@@ -70,7 +84,10 @@ impl Parser {
             self.advance();
             Ok((name, t.span))
         } else {
-            Err(LuxError::new(format!("expected {}", what), t.span))
+            Err(LuxError::new(
+                format!("expected {}", what),
+                self.missing_span(),
+            ))
         }
     }
 

@@ -112,6 +112,45 @@ fn a_missing_closing_brace_points_at_the_block_that_opened() {
     );
 }
 
+#[test]
+fn a_missing_close_at_the_end_of_a_line_points_at_that_line() {
+    // Newlines aren't tokens, so the parser finds the gap at the next line's
+    // first token; the error belongs where the reader left the token out.
+    let call = err_of(
+        "eolcall",
+        "func main() {\n    print(\"hi\"\n    var y = 2\n}\n",
+    );
+    assert!(
+        call.contains(".lux:2:15"),
+        "should point past \"hi\" on line 2, got:\n{call}"
+    );
+    let block = err_of(
+        "eolblock",
+        "func main() {\n    if 1 == 1\n        print(\"one\")\n    }\n}\n",
+    );
+    assert!(
+        block.contains(".lux:2:14"),
+        "should point past the condition on line 2, got:\n{block}"
+    );
+    let array = err_of(
+        "eolarray",
+        "func main() {\n    let a = [\n        1,\n        2\n        3\n    ]\n}\n",
+    );
+    assert!(
+        array.contains(".lux:4:10"),
+        "should point past the 2 on line 4, got:\n{array}"
+    );
+}
+
+#[test]
+fn a_missing_close_inside_a_line_still_points_at_the_next_token() {
+    let err = err_of("midline", "func main() {\n    print(1, 2 3)\n}\n");
+    assert!(
+        err.contains(".lux:2:16"),
+        "should point at the 3, got:\n{err}"
+    );
+}
+
 /// Recursion with no reachable base case — the classic beginner mistake, and the
 /// one place the interpreter used to show its own host language: a raw stack
 /// overflow, `SIGABRT`, exit 134, and not one word about the program that was run.

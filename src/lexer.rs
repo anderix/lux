@@ -67,6 +67,9 @@ pub enum Tok {
 pub struct Token {
     pub tok: Tok,
     pub span: Span,
+    /// The first token on its line, so a missing token can be reported at the
+    /// end of the line before instead of at the start of this one.
+    pub starts_line: bool,
 }
 
 /// The language's keywords, as data rather than an inline match: one entry per
@@ -88,17 +91,27 @@ pub(crate) const KEYWORDS: [(&str, Tok); 14] = [
     ("false", Tok::False),
 ];
 
+fn push(tokens: &mut Vec<Token>, starts_line: &mut bool, tok: Tok, span: Span) {
+    tokens.push(Token {
+        tok,
+        span,
+        starts_line: std::mem::take(starts_line),
+    });
+}
+
 pub fn lex(source: &str) -> Result<Vec<Token>, LuxError> {
     let bytes = source.as_bytes();
     let n = bytes.len();
     let mut tokens = Vec::new();
     let mut i = 0;
+    let mut starts_line = true;
 
     while i < n {
         let c = bytes[i];
 
         // whitespace
         if c == b' ' || c == b'\t' || c == b'\r' || c == b'\n' {
+            starts_line |= c == b'\n';
             i += 1;
             continue;
         }
@@ -130,10 +143,12 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LuxError> {
                     let val: f64 = text
                         .parse()
                         .map_err(|_| LuxError::new("invalid float literal", Span::new(start, i)))?;
-                    tokens.push(Token {
-                        tok: Tok::Float(val),
-                        span: Span::new(start, i),
-                    });
+                    push(
+                        &mut tokens,
+                        &mut starts_line,
+                        Tok::Float(val),
+                        Span::new(start, i),
+                    );
                     continue;
                 } else {
                     return Err(LuxError::new(
@@ -147,10 +162,12 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LuxError> {
             let val: i64 = text
                 .parse()
                 .map_err(|_| LuxError::new("integer literal is too large", Span::new(start, i)))?;
-            tokens.push(Token {
-                tok: Tok::Int(val),
-                span: Span::new(start, i),
-            });
+            push(
+                &mut tokens,
+                &mut starts_line,
+                Tok::Int(val),
+                Span::new(start, i),
+            );
             continue;
         }
 
@@ -164,10 +181,7 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LuxError> {
                 .iter()
                 .find(|(kw, _)| *kw == text)
                 .map_or_else(|| Tok::Ident(text.to_string()), |(_, t)| t.clone());
-            tokens.push(Token {
-                tok,
-                span: Span::new(start, i),
-            });
+            push(&mut tokens, &mut starts_line, tok, Span::new(start, i));
             continue;
         }
 
@@ -220,10 +234,12 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LuxError> {
                 s.push(ch_char);
                 i += ch_char.len_utf8();
             }
-            tokens.push(Token {
-                tok: Tok::Str(s),
-                span: Span::new(start, i),
-            });
+            push(
+                &mut tokens,
+                &mut starts_line,
+                Tok::Str(s),
+                Span::new(start, i),
+            );
             continue;
         }
 
@@ -244,10 +260,7 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LuxError> {
             _ => None,
         };
         if let Some(t) = two {
-            tokens.push(Token {
-                tok: t,
-                span: Span::new(start, i + 2),
-            });
+            push(&mut tokens, &mut starts_line, t, Span::new(start, i + 2));
             i += 2;
             continue;
         }
@@ -279,17 +292,16 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LuxError> {
                 ));
             }
         };
-        tokens.push(Token {
-            tok: single,
-            span: Span::new(start, start + 1),
-        });
+        push(
+            &mut tokens,
+            &mut starts_line,
+            single,
+            Span::new(start, start + 1),
+        );
         i += 1;
     }
 
-    tokens.push(Token {
-        tok: Tok::Eof,
-        span: Span::new(n, n),
-    });
+    push(&mut tokens, &mut starts_line, Tok::Eof, Span::new(n, n));
     Ok(tokens)
 }
 
